@@ -1,22 +1,41 @@
 #!/usr/bin/env python3
-"""Enforce the comment/layout architecture invariant.
+"""Enforce the last un-typed half of the comment/layout architecture invariant.
 
     After Comments.gren runs, no code in Render/* reads source rows or positions
     to make a layout or comment-placement decision.
 
 Layout is decided from author-intent flags (captured at LPT build) and the
 *rendered box shape* (`isSingleLine`/`allSingles`), never re-derived from source
-rows at render time. This check fails if any `src/Formatter/Render/*.gren`
-function reads a row/position accessor, UNLESS that function is on the
-allowlist below — a small set of genuinely-structural, non-decision uses.
+rows at render time.
 
-Adding a new row-read in Render/* is almost always a regression toward the
-oscillation/crash class this architecture eliminated. If you truly need one,
-add the function to ALLOWED with a one-line justification — that makes it a
-conscious, reviewed choice rather than an accident.
+**Most of this is now the type checker's job.** `Formatter.RenderTree.lower`
+turns the LPT's `LPNode` -- whose record caches seven source-position fields --
+into a position-free `RenderNode`, and every module under `src/Formatter/Render/`
+takes that instead. The eight row/position accessors this script used to
+enumerate do not typecheck there any more, so there is nothing left for an
+allowlist to allow: the five genuinely-structural row reads it used to permit are
+precomputed by `lower` and read back as booleans.
 
-Comment- and string-aware: matches only real code (a `{- lpnLastPos -}` in a
-doc comment does not count).
+That enumeration was the script's real weakness, not its redundancy. `ACCESSOR`
+named eight functions; `lpnBracketStart` was not among them and *was* called in
+`Render/NodeClassify.gren`, and the only reason no unreviewed violation existed
+was that the call happened to sit inside an allowlisted function. Same exposure
+for `lpnBracketEndExact` / `lpnBracketEndElastic` / `lpnWithBracketStart`. A type
+error cannot be under-enumerated.
+
+What the type checker does NOT yet catch is a position read straight off a
+`Located` payload inside an `LPShape`, which `RenderNode` still carries as-is:
+
+    when rnShape node is
+        UnbreakableText loc -> loc.start.row     -- compiles; must not exist
+
+Render only ever reads `.value` off those payloads. This script is the gate on
+that one remaining spelling, and it goes away when `LPShape` gets a mirrored,
+`Located`-free `RenderShape` (tier 2 of the refactor; see the module doc on
+`Formatter.RenderTree`).
+
+Comment- and string-aware: matches only real code (a `{- .start.row -}` in a doc
+comment does not count).
 """
 
 import re
@@ -25,22 +44,8 @@ from pathlib import Path
 
 RENDER_DIR = Path(__file__).resolve().parent.parent / "src" / "Formatter" / "Render"
 
-# Row / position accessors that would re-derive a layout decision from source rows.
-ACCESSOR = re.compile(
-    r"\b(lpnFirstPos|lpnLastPos|lpnLastBracketEnd|lpnMinRow|lpnMaxRow"
-    r"|firstRowInSubtree|lastRowInSubtree|subtreeRowRange)\b"
-    r"|\.(start|end)\.(row|col)\b"
-)
-
-# Functions permitted to read a row/position accessor, with the reason each is
-# NOT a comment-placement / verticality decision.
-ALLOWED = {
-    "nodesShareStartRow": "structural: do fn and arg0 share a source row (glue on the opening line)",
-    "segFirstRow": "signature-segment layout: a `->` segment's true start row",
-    "segLastRow": "signature-segment layout: a `->` segment's true last row",
-    "assembleBrokenWithComments": "a `lastRow >= 0` 'previous entry is real content' guard; the glue call itself is role-based",
-    "makeUnionBodyBox": "author-intent: did the author write the union variants across rows (flat vs vertical)",
-}
+# A source position read off a `Located` payload carried by an `LPShape`.
+ACCESSOR = re.compile(r"\.(start|end)\.(row|col)\b")
 
 
 def mask_comments_and_strings(src: str) -> str:
@@ -128,7 +133,9 @@ def enclosing_function(lines, idx):
 
 def main():
     violations = []
-    for path in sorted(RENDER_DIR.glob("*.gren")):
+    # Recursive: `Render/` is flat today, and a new subdirectory must not
+    # silently fall outside the gate.
+    for path in sorted(RENDER_DIR.rglob("*.gren")):
         raw = path.read_text()
         masked = mask_comments_and_strings(raw)
         raw_lines = raw.splitlines()
@@ -136,27 +143,23 @@ def main():
         for i, code in enumerate(masked_lines):
             if ACCESSOR.search(code):
                 fn = enclosing_function(masked_lines, i)
-                # `import`/`module` exposing lists name accessors as text, not
-                # as a decision — those aren't code that reads a row.
-                if fn in ("import", "module"):
-                    continue
-                if fn not in ALLOWED:
-                    violations.append((path.name, i + 1, fn, raw_lines[i].strip()))
+                violations.append((path.name, i + 1, fn, raw_lines[i].strip()))
 
     if violations:
-        print("FAIL: render-invariant — new source-row read in Render/* "
+        print("FAIL: render-invariant \u2014 source position read in Render/* "
               "(layout must come from author flags + rendered box shape, not rows).")
         print("      Placement is the stored CommentRole (see its docstring in\n"
               "      Logical/LogicalPrintingTree.gren); verticality is the rendered box.\n")
         for name, ln, fn, text in violations:
             print(f"  {name}:{ln}  in `{fn}`")
             print(f"      {text}")
-        print(f"\n{len(violations)} violation(s). If a use is genuinely structural, "
-              "add its function to ALLOWED in this script with a reason.")
+        print(f"\n{len(violations)} violation(s). If a render decision genuinely "
+              "needs a source row, precompute\nit as a boolean in "
+              "`Formatter.RenderTree.lower` and read the flag here instead.")
         return 1
 
-    print(f"PASS: 0 render-invariant violations "
-          f"({len(ALLOWED)} allowlisted structural row-reads).")
+    print("PASS: 0 render-invariant violations "
+          "(the accessors are a type error now; this gates the `Located` payloads).")
     return 0
 
 

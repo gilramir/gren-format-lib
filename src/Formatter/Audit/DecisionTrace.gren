@@ -90,7 +90,7 @@ written in this module**:
 
   - **Results of calling the renderer's own exported predicates** with the
     node's own children -- `commentBreaksFlowRow`, `literalCommentsRideFlatLine`,
-    `signatureForceVertical`, `commentEndsItsLine`, `commentTextCanRide` --
+    `rnTypeSegmentsBroken`, `commentEndsItsLine`, `commentTextCanRide` --
     plus, for the shapes whose layout is decided by measuring a rendered child,
     whether that child's box comes back on one line (`makePBox` +
     `isSingleLine`, the same question `Formatter.Audit.PredicateAgreement`
@@ -118,8 +118,6 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPShape(..)
     , SyntaxType(..)
     , bracketsToString
-    , lpnChildren
-    , lpnShape
     , roleToString
     , stypeToString
     )
@@ -131,8 +129,13 @@ import Formatter.Render.NodeClassify exposing
     , commentEndsItsLine
     , commentTextCanRide
     , literalCommentsRideFlatLine
-    , signatureForceVertical
-    , splitSignatureSegments
+    )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , lower
+    , rnChildren
+    , rnShape
+    , rnTypeSegmentsBroken
     )
 import Json.Encode as Json
 
@@ -202,10 +205,17 @@ pass. The text of a run is its children's rendered output joined the way
 -}
 traceDeclarations : LPNode -> Result String (Array DeclTrace)
 traceDeclarations root =
-    Render.renderRootChildren root
+    let
+        -- Lowered ONCE and used twice: the render below and the decision walk
+        -- read the same tree. `Render.renderLoweredChildren` exists for exactly
+        -- this -- see its docstring.
+        rendered =
+            lower root
+    in
+    Render.renderLoweredChildren rendered
         |> Result.map
             (\texts ->
-                lpnChildren root
+                rnChildren rendered
                     |> labelRootChildren
                     |> attributeToFollowing
                     |> Array.indexedMap
@@ -240,19 +250,19 @@ traceDeclarations root =
 {-| A root child's own label, if it is a declaration, plus how many blank lines
 `VerticalSpace` put directly above it. -}
 type alias LabelledChild =
-    { node : LPNode
+    { node : RenderNode
     , ownLabel : Maybe String
     , blanksAbove : Int
     }
 
 
-labelRootChildren : Array LPNode -> Array LabelledChild
+labelRootChildren : Array RenderNode -> Array LabelledChild
 labelRootChildren kids =
     (Array.foldl
         (\node acc ->
             if isEmptyLineNode node then
                 -- Counted, and still emitted: the result stays index-aligned
-                -- with `lpnChildren`, which is what lets `traceDeclarations`
+                -- with `rnChildren`, which is what lets `traceDeclarations`
                 -- pair each child with its rendered text.
                 { acc
                     | blanks = acc.blanks + 1
@@ -284,7 +294,7 @@ labelRootChildren kids =
 
 {-| Give every non-declaration root child the label of the declaration it leads.
 Right-to-left, so each one sees the next declaration's label. -}
-attributeToFollowing : Array LabelledChild -> Array { node : LPNode, decl : String, ownLabel : Maybe String, blanksAbove : Int }
+attributeToFollowing : Array LabelledChild -> Array { node : RenderNode, decl : String, ownLabel : Maybe String, blanksAbove : Int }
 attributeToFollowing items =
     (Array.foldr
         (\item acc ->
@@ -308,7 +318,7 @@ attributeToFollowing items =
     ).out
 
 
-rootChildDecisions : { node : LPNode, decl : String, ownLabel : Maybe String, blanksAbove : Int } -> Array Decision
+rootChildDecisions : { node : RenderNode, decl : String, ownLabel : Maybe String, blanksAbove : Int } -> Array Decision
 rootChildDecisions item =
     let
         blankLines =
@@ -326,18 +336,18 @@ rootChildDecisions item =
     blankLines ++ collect item.decl item.node
 
 
-collect : String -> LPNode -> Array Decision
+collect : String -> RenderNode -> Array Decision
 collect decl node =
-    nodeDecisions decl node ++ Array.mapAndFlatten (collect decl) (lpnChildren node)
+    nodeDecisions decl node ++ Array.mapAndFlatten (collect decl) (rnChildren node)
 
 
 {-| The decisions visible at one node. See the module doc for the rule that
 decides what belongs here. -}
-nodeDecisions : String -> LPNode -> Array Decision
+nodeDecisions : String -> RenderNode -> Array Decision
 nodeDecisions decl node =
     let
         children =
-            lpnChildren node
+            rnChildren node
 
         say name choice =
             { decl = decl, name = name, choice = choice }
@@ -352,14 +362,14 @@ nodeDecisions decl node =
         -- context its parent holds cannot be rendered alone, and saying so is
         -- better than picking a boolean.
         shape prefix =
-            when makePBox (lpnShape node) children is
+            when makePBox (rnShape node) children is
                 Ok box ->
                     [ say (prefix ++ ".rendersOneLine") (boolName (isSingleLine box)) ]
 
                 Err _ ->
                     [ say (prefix ++ ".rendersOneLine") "notRenderable" ]
     in
-    when lpnShape node is
+    when rnShape node is
         AcrossOrVertical r ->
             [ flag "AcrossOrVertical.forceVertical" r.forceVertical
             , flag "AcrossOrVertical.checkContentVertical" r.checkContentVertical
@@ -421,14 +431,14 @@ nodeDecisions decl node =
         OriginalRows r ->
             when r.stype is
                 StFunctionSignature ->
-                    [ flag "Signature.signatureForceVertical"
-                        (signatureForceVertical (splitSignatureSegments (typeNodesOf children)))
-                    ]
+                    -- The decision NAME is kept, though the function behind it
+                    -- moved to `Formatter.RenderTree` and was renamed there: it
+                    -- is an output key, and this module's own `boxKind` note
+                    -- says why those do not follow a rename.
+                    [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
 
                 StPort ->
-                    [ flag "Signature.signatureForceVertical"
-                        (signatureForceVertical (splitSignatureSegments (typeNodesOf children)))
-                    ]
+                    [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
 
                 _ ->
                     []
@@ -452,51 +462,17 @@ nodeDecisions decl node =
             []
 
 
-{-| The nodes after a signature's top-level `:` -- the type, which is what
-`splitSignatureSegments` splits at each `->`. Everything up to and including the
-colon is the header. -}
-typeNodesOf : Array LPNode -> Array LPNode
-typeNodesOf children =
-    (Array.foldl
-        (\node acc ->
-            if acc.pastColon then
-                { acc | out = Array.pushLast node acc.out }
-
-            else if isColonToken node then
-                { acc | pastColon = True }
-
-            else
-                acc
-        )
-        { pastColon = False, out = [] }
-        children
-    ).out
-
-
-isColonToken : LPNode -> Bool
-isColonToken node =
-    when lpnShape node is
-        UnbreakableText loc ->
-            loc.value == ":"
-
-        SynthesizedText t ->
-            t == ":"
-
-        _ ->
-            False
-
-
-isEmptyLineNode : LPNode -> Bool
+isEmptyLineNode : RenderNode -> Bool
 isEmptyLineNode node =
-    lpnShape node == EmptyLine
+    rnShape node == EmptyLine
 
 
 {-| A root child that is a real declaration rather than a detached comment or a
 blank line. Only these are counted when numbering declarations, so a comment
 moving in or out of the root does not renumber the ones after it. -}
-isDeclarationChild : LPNode -> Bool
+isDeclarationChild : RenderNode -> Bool
 isDeclarationChild node =
-    when lpnShape node is
+    when rnShape node is
         OriginalRows r ->
             when r.stype is
                 StSingleLineComment ->
@@ -519,14 +495,14 @@ isDeclarationChild node =
 every `SyntaxType` that reaches here that is the name being declared (`module`
 and `import` name themselves after their keyword, which is synthesized and so
 skipped). Used only as a label, alongside the index that actually keys it. -}
-declarationName : LPNode -> String
+declarationName : RenderNode -> String
 declarationName node =
     Maybe.withDefault (stypeToString (declStype node)) (firstLiteralToken node)
 
 
-declStype : LPNode -> SyntaxType
+declStype : RenderNode -> SyntaxType
 declStype node =
-    when lpnShape node is
+    when rnShape node is
         OriginalRows r ->
             r.stype
 
@@ -534,9 +510,9 @@ declStype node =
             StFunctionDeclaration
 
 
-firstLiteralToken : LPNode -> Maybe String
+firstLiteralToken : RenderNode -> Maybe String
 firstLiteralToken node =
-    when lpnShape node is
+    when rnShape node is
         UnbreakableText loc ->
             Just loc.value
 
@@ -551,7 +527,7 @@ firstLiteralToken node =
                             firstLiteralToken child
                 )
                 Nothing
-                (lpnChildren node)
+                (rnChildren node)
 
 
 boolName : Bool -> String

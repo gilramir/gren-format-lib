@@ -255,11 +255,16 @@ span rows". The renderer's remaining questions about a comment are about its
 **text** — can this text share a line? — which is a property of the string, not
 of where it sat.
 
-This is enforced, not merely documented: `tests/check-render-invariant.py` runs
-first in `run-tests.sh`, greps `Render/*` for row/position accessors and fails on
-any outside a small allowlist of genuinely structural helpers. A new
-render-side row read is almost always a regression back toward the oscillation
-class above.
+This is enforced by the **type checker**, not merely documented.
+`Formatter.RenderTree.lower` strips the LPT's seven cached position fields, and
+every module under `Render/` takes the resulting `RenderNode`: there is no row to
+read, so a new render-side row read does not compile. The handful of decisions
+that genuinely needed the author's rows are precomputed there as booleans
+(`rnSharesRowWithPrevItem`, `rnHasSourceContent`, `rnVariantsSpanRows`,
+`rnTypeSegmentsBroken`). `tests/check-render-invariant.py` still runs first in
+`run-tests.sh`, now guarding only what the types miss: a position read off an
+`LPShape`'s `Located` payload. A new render-side row read is almost always a
+regression back toward the oscillation class above.
 
 Where a renderer *does* need to know something structural about a comment, it
 asks a predicate that reads LPT shape and comment text only —
@@ -1872,7 +1877,7 @@ exists for.
 | ⤷ `--comment-runs` (113,796 cells) | the same cells with a **two-member run**, all nine compositions | that a run is idempotent, AST-preserving and preserved *in order*, over generated syntax | elm-format parity (deliberately not baselined — see below) |
 | **`gen-random.py`** | random-but-legal modules, structure **and** comments | comment **multiset** preservation (drop / duplication / kind change), **author-order invariance**, and predicate/renderer agreement | shapes outside its grammar |
 | **`audit-predicates.py`** | the corpus | that a "does this break?" predicate agrees with the renderer | under-approximation (deliberate) |
-| **`check-render-invariant.py`** | — | the barrier of §2.2 | nothing structural |
+| **`check-render-invariant.py`** | — | the residue of the barrier of §2.2 that the type checker does not cover (`RenderNode` covers the rest) | nothing structural |
 | **`fuzzrun.py`** | drives `gen-random.py` over days, across hosts, with a persistent seed cursor per profile | depth — the conjunctions of features nobody would write | the same as `gen-random.py` |
 
 Three of those deserve emphasis, because they cover holes that look covered:

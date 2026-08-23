@@ -44,7 +44,7 @@ where its code lives):
 | `gen-random.py` / `fuzzrun.py` | random-module property testing; long/distributed sweeps |
 | `fuzz-whitespace.py` | output survives whitespace perturbation of the input |
 | `audit-predicates.py` | predicates claiming a break the renderer does not emit |
-| `check-render-invariant.py` | `Render/*` never re-derives placement from source rows (also run by `run-tests.sh`) |
+| `check-render-invariant.py` | the last un-typed half of the render barrier: no `.start.row` off an `LPShape`'s `Located` in `Render/*` (also run by `run-tests.sh`) |
 | `fuzz-project.py` | the modes that WRITE FILES (no-arg project run, paths, `--remove-unused-imports`) |
 | `corpus-check.py` | `--show` over real published packages — the one gate whose inputs nobody here chose |
 | `bench-scaling.py` | timing only, never fails — how a shape scales; see the 2026-08-11 measurement in `docs/testing.md` |
@@ -127,8 +127,11 @@ Three things to hold onto:
 - Every top-level declaration becomes exactly one `OriginalRows` node directly
   under `RootBox`; comments and blank lines are added as *siblings* afterwards.
 - A comment's placement is decided **once**, in `Comments.gren`, and stored as a
-  `CommentRole`. `Render/*` must never re-derive it from source rows —
-  `check-render-invariant.py` enforces that.
+  `CommentRole`. `Render/*` must never re-derive it from source rows — and now
+  **cannot**: `Formatter.RenderTree.lower` hands the render layer a `RenderNode`
+  with no position fields on it, so a row read there is a type error.
+  `check-render-invariant.py` is left gating the one spelling the types do not
+  cover yet, a `.start.row` off an `LPShape`'s `Located` payload.
 
 ## Documentation
 
@@ -143,6 +146,8 @@ Three things to hold onto:
   C1–C7 rules. [`docs/commentAlgorithm.md`](docs/commentAlgorithm.md) is the same
   ground for someone editing the code.
 - [`docs/howItWorks.md`](docs/howItWorks.md) — a tour of the pipeline.
+- [`docs/renderTreeMemory.md`](docs/renderTreeMemory.md) — what `RenderTree.lower`'s
+  second tree costs (measured: nothing), and how to measure it correctly.
 - [`docs/elmFormatComparison.md`](docs/elmFormatComparison.md) — every deliberate
   divergence from elm-format. `tests/testfiles/Divergence/` pins each entry.
 - [`docs/knownLimitations.md`](docs/knownLimitations.md) — what fails, and why it

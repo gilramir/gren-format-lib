@@ -265,7 +265,7 @@ movePipelineStepTrailers children =
                             acc.pending ++ lpnChildren child
 
                         split =
-                            spanTrailingOwnLine (\n -> n) kids
+                            spanTrailingOwnLine lpnShape kids
                     in
                     { pending = split.trailing
                     , out = Array.pushLast (lpnReplaceChildren child split.body) acc.out

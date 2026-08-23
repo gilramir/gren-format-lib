@@ -12,31 +12,33 @@ module Formatter.Render.BinopLayout exposing
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
-    , lpnChildren
-    , lpnShape
     )
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
     , leafValue
     )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , rnChildren
+    , rnShape
+    )
 import Formatter.Results exposing (traverseResult)
 
 
 {-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
 list. Each operand is itself a flow (array of nodes). -}
-flattenBinopNodes : Array LPNode -> { operands : Array (Array LPNode), ops : Array LPNode }
+flattenBinopNodes : Array RenderNode -> { operands : Array (Array RenderNode), ops : Array RenderNode }
 flattenBinopNodes children =
     when Array.popLast children is
         Nothing ->
             { operands = [], ops = [] }
 
         Just { last = lastNode, initial = operandNodes } ->
-            when lpnShape lastNode is
+            when rnShape lastNode is
                 OpAndRhs ->
-                    when Array.popFirst (lpnChildren lastNode) is
+                    when Array.popFirst (rnChildren lastNode) is
                         Just { first = opNode, rest = restChildren } ->
                             let
                                 inner =
@@ -66,7 +68,7 @@ flow, which breaks wherever the comment sits — at `*` here, gluing across the
 LOOSER `+` so the line reads as `(one + two) * three`. Precedence decides the
 break point for a chain with a comment in it exactly as it does for one without.
 -}
-commentBreaksBinopChain : { operands : Array (Array LPNode), ops : Array LPNode } -> Bool
+commentBreaksBinopChain : { operands : Array (Array RenderNode), ops : Array RenderNode } -> Bool
 commentBreaksBinopChain flat =
     when Array.popFirst flat.operands is
         Nothing ->
@@ -79,7 +81,7 @@ commentBreaksBinopChain flat =
                 |> commentBreaksFlowRow
 
 
-opText : LPNode -> String
+opText : RenderNode -> String
 opText node =
     Maybe.withDefault "" (leafValue node)
 

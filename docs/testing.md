@@ -495,22 +495,57 @@ runs the other three rather than quietly reporting a thinner green.
 ### What it guards against
 
 An architectural regression rather than a formatting bug directly: the
-comment-placement architecture requires that placement be decided exactly once, in `Comments.gren`, and
-stored as a `CommentRole` — never re-derived from source rows once rendering
-starts — and that the renderer decide verticality from the *rendered box
-shape* (`isSingleLine` / `B.allSingles`), never from source position. A
-`Render/*` function that reads a row/position to make a layout or
+comment-placement architecture requires that placement be decided exactly once,
+in `Comments.gren`, and stored as a `CommentRole` — never re-derived from source
+rows once rendering starts — and that the renderer decide verticality from the
+*rendered box shape* (`isSingleLine` / `B.allSingles`), never from source
+position. A `Render/*` function that reads a row/position to make a layout or
 comment-placement decision is almost always a regression back toward the
-row-based oscillation and crash class this architecture was built to remove
-— and that regression wouldn't necessarily show up as a fixture diff or a
-failed fuzzer run until much later, on some unlucky input.
+row-based oscillation and crash class this architecture was built to remove —
+and that regression wouldn't necessarily show up as a fixture diff or a failed
+fuzzer run until much later, on some unlucky input.
 
-### What it checks
+### Most of this is now the type checker's job
 
-It greps every `Render/*` module (comment- and string-aware, so it doesn't
-false-positive on a row accessor mentioned inside a comment or string
-literal) for row/position-accessor calls, and fails on any occurrence outside
-a small, explicitly-justified allowlist of genuinely structural functions.
+`Formatter.RenderTree.lower` converts the LPT's `LPNode` — whose record caches
+seven source-position fields — into a `RenderNode` that carries the shape, the
+children and four precomputed booleans, and **no positions**. Every module under
+`src/Formatter/Render/` takes `RenderNode`. Calling `lpnMaxRow` or
+`firstRowInSubtree` there does not typecheck, so the enforcement is a compile
+error, not a grep.
+
+That is a real strengthening, not just a tidier spelling. The script's
+`ACCESSOR` regex enumerated eight accessor names, and `lpnBracketStart` was not
+one of them while *being* called in `Render/NodeClassify.gren`: no unreviewed
+violation existed only because that call happened to sit inside an allowlisted
+function. `lpnBracketEndExact`, `lpnBracketEndElastic` and `lpnWithBracketStart`
+had the same exposure. An enumeration can be short; a type cannot.
+
+The five row reads the allowlist used to permit are computed once by `lower` and
+read back as flags — `rnSharesRowWithPrevItem`, `rnHasSourceContent`,
+`rnVariantsSpanRows`, `rnTypeSegmentsBroken`. They were author-intent facts all
+along, so this finishes the existing doctrine (`AcrossOrVertical`'s
+`forceVertical` is the same idea) rather than inventing a mechanism.
+
+### What the script still checks
+
+One spelling the types do not cover yet. `RenderNode` carries `LPShape`
+unchanged, and eight of its constructors hold a `Located` payload, so this
+compiles:
+
+```gren
+when rnShape node is
+    UnbreakableText loc ->
+        loc.start.row          -- must not exist
+```
+
+The script is now a two-line grep for `.start.row` / `.end.col` over
+`Render/**.gren`, with the comment- and string-masking parser kept so a position
+accessor named inside a docstring is not a false positive. There is no allowlist
+any more — there is nothing left that legitimately needs one.
+
+It goes away entirely once `LPShape` gets a mirrored, `Located`-free
+`RenderShape`.
 
 ### How to run it
 
@@ -524,16 +559,20 @@ that `run-tests.sh` runs it first, before compiling the test harness.
 
 ### When it fires
 
-If a change legitimately seems to need a new row/position read inside
-`Render/*`, treat that as a signal to stop and reconsider first — most such
-needs are really about *placement*, which belongs in `Comments.gren` as a
-`CommentRole`, not in the renderer. In the rare case where the read really is
-structural, allowlist the function in `check-render-invariant.py` with a
-reason.
+If a change legitimately seems to need a source row inside `Render/*`, treat
+that as a signal to stop and reconsider first — most such needs are really about
+*placement*, which belongs in `Comments.gren` as a `CommentRole`, not in the
+renderer. If the read really is structural, precompute it as a boolean in
+`Formatter.RenderTree.lower` and read the flag in the renderer, the way the four
+existing flags do.
 
 ### Where the code lives
 
-- **`tests/check-render-invariant.py`** — the grep + allowlist.
+- **`src/Formatter/RenderTree.gren`** — the barrier itself: `RenderNode`,
+  `lower`, and the four precomputed flags.
+- **`src/Formatter/Render.gren`** — the doorway: the only module on the render
+  side that names `LPNode`.
+- **`tests/check-render-invariant.py`** — the grep for the remaining spelling.
 - **`src/Formatter/Logical/LogicalPrintingTree.gren`** — the `CommentRole`
   docstring: the roles this check exists to keep authoritative.
 - **`src/Formatter/Logical/Comments.gren`** — `classifyCommentKind`, where each

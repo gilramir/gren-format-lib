@@ -71,7 +71,6 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPShape(..)
     , lpnChildren
     , lpnFirstPos
-    , lpnShape
     , stypeToString
     )
 import Formatter.Render.Box as B exposing (Box)
@@ -85,6 +84,12 @@ import Formatter.Render.NodeClassify exposing
     ( commentBreaksFlowRow
     , isMultilineLambdaParenBlockBox
     , nodeIsComment
+    )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , lower
+    , rnChildren
+    , rnShape
     )
 import Json.Encode as Json
 
@@ -108,7 +113,7 @@ because it is the shape any future recursive predicate would need, and because a
 all carry `claim == True` by construction; `flowCommentFindings` also reports
 `False`, and the two read as opposite complaints.
 
-`boxKind` is misnamed: it holds `shapeKindName (lpnShape node)`, an `LPShape`
+`boxKind` is misnamed: it holds `shapeKindName (rnShape node)`, an `LPShape`
 constructor name, not a `Formatter.Render.Box` -- the two are different things
 (a shape says what kind of node this is, a `Box` says where its characters
 land), and the name dates from before `LPBox` was renamed to `LPShape`.
@@ -141,7 +146,7 @@ back toward the mirror layer this codebase spent a long refactor deleting -- the
 one `tests/check-render-invariant.py` now enforces the absence of. Prefer
 rendering the child and observing its box.
 -}
-auditedPredicates : Array { name : String, test : LPNode -> Bool }
+auditedPredicates : Array { name : String, test : RenderNode -> Bool }
 auditedPredicates =
     [ { name = "isMultilineLambdaParenBlockBox", test = isMultilineLambdaParenBlockBox } ]
 
@@ -159,18 +164,31 @@ auditLpt root =
 the walk linear: a recursive predicate reads its descendants, so a descendant
 that lies explains an ancestor that lies, and re-deriving that per node would
 re-walk each subtree once per ancestor.
+
+The walk is over the **LPT**, not the render tree, because a finding reports the
+source row and column it was found at and only the LPT has those. Each node is
+lowered on the spot for the predicates and the render. That re-lowers a subtree
+once per ancestor, which sounds like the cost the paragraph above avoids and is
+not: `checkShapePredicates` already renders every node's own box, so the walk was
+quadratic in subtree size before this and is by the same factor after.
+
+Lowering a subtree standalone is the same tree lowering the whole file would put
+there, with one exception: the subtree root's `rnSharesRowWithPrevItem`, which
+only a parent can know and comes back `False` here. Nothing reads it -- the flag
+answers a question the node's PARENT asks about its children, so a node's own box
+never consults its own copy.
 -}
 walk : LPNode -> { findings : Array Finding, liesInSubtree : Bool }
-walk node =
+walk src =
     let
         childResults =
-            Array.map walk (lpnChildren node)
+            Array.map walk (lpnChildren src)
 
         liesBelow =
             Array.any (\r -> r.liesInSubtree) childResults
 
         ownFindings =
-            checkNode node liesBelow
+            checkNode src (lower src) liesBelow
     in
     { findings = Array.mapAndFlatten (\r -> r.findings) childResults ++ ownFindings
     , liesInSubtree = liesBelow || not (Array.isEmpty ownFindings)
@@ -274,25 +292,25 @@ a chain with its operators interleaved back in -- reconstructing that here would
 be a third copy of the interleaving, which is the kind of thing this module
 exists to object to.
 -}
-flowCommentFindings : LPNode -> Bool -> Array Finding
-flowCommentFindings node liesBelow =
+flowCommentFindings : LPNode -> RenderNode -> Bool -> Array Finding
+flowCommentFindings src node liesBelow =
     let
         children =
-            lpnChildren node
+            rnChildren node
     in
-    if not (dispatchesToGluingFlow (lpnShape node)) || not (Array.any nodeIsComment children) then
+    if not (dispatchesToGluingFlow (rnShape node)) || not (Array.any nodeIsComment children) then
         []
 
     else
         commentRuns children
-            |> Array.map (\run -> runFinding node liesBelow children run)
+            |> Array.map (\run -> runFinding (lpnChildren src) node liesBelow children run)
             |> Array.mapAndKeepJust identity
 
 
 {-| The maximal runs of consecutive comment children, as `{ start, end }` with
 `end` exclusive — one entry per GAP that holds comments, which is the grain the
 claim is made at. -}
-commentRuns : Array LPNode -> Array { start : Int, end : Int }
+commentRuns : Array RenderNode -> Array { start : Int, end : Int }
 commentRuns children =
     children
         |> Array.indexedMap
@@ -310,7 +328,7 @@ commentRuns children =
 `Array.get -1` wraps to the LAST element, so index -1 must not reach it: a flow
 whose last child is a comment would otherwise report its first child as mid-run
 and lose that run. -}
-isCommentAt : Int -> Array LPNode -> Bool
+isCommentAt : Int -> Array RenderNode -> Bool
 isCommentAt i children =
     if i < 0 then
         False
@@ -320,7 +338,7 @@ isCommentAt i children =
 
 
 {-| How many comments `nodes` starts with. -}
-commentPrefixLength : Array LPNode -> Int
+commentPrefixLength : Array RenderNode -> Int
 commentPrefixLength nodes =
     (Array.foldl
         (\n acc ->
@@ -338,11 +356,17 @@ commentPrefixLength nodes =
 {-| The finding, if any, for the comment run in one gap — `Nothing` when the run
 is not one this audit makes a claim about, or when either assembly has no render
 truth to offer. -}
-runFinding : LPNode -> Bool -> Array LPNode -> { start : Int, end : Int } -> Maybe Finding
-runFinding node liesBelow children run =
+runFinding : Array LPNode -> RenderNode -> Bool -> Array RenderNode -> { start : Int, end : Int } -> Maybe Finding
+runFinding srcChildren node liesBelow children run =
     let
         members =
             Array.slice run.start run.end children
+
+        -- The same slice of the un-lowered tree. `lower` is structure-preserving
+        -- (one `RenderNode` per `LPNode`, same order), so the indices agree; the
+        -- positions a finding reports live only on this side.
+        srcMembers =
+            Array.slice run.start run.end srcChildren
 
         -- How many real items precede this run: also its predecessor's ordinal
         -- among the items, and its successor's, in EITHER assembly. Removing
@@ -385,11 +409,11 @@ runFinding node liesBelow children run =
                     Just
                         { predicate = "commentBreaksFlowRow"
                         , boxKind =
-                            shapeKindName (lpnShape node)
+                            shapeKindName (rnShape node)
                                 ++ " / "
-                                ++ String.join "+" (Array.map (\m -> shapeKindName (lpnShape m)) members)
-                        , row = Array.first members |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-                        , col = Array.first members |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
+                                ++ String.join "+" (Array.map (\m -> shapeKindName (rnShape m)) members)
+                        , row = Array.first srcMembers |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+                        , col = Array.first srcMembers |> Maybe.andThen lpnFirstPos |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
                         , rendered = renderedFlow children
                         , propagated = liesBelow
                         , claim = claim
@@ -403,7 +427,7 @@ runFinding node liesBelow children run =
 `k - 1`'s last row from item `k`'s first — counting only the non-comment items,
 so `k` names the same pair whether or not a comment sits between them. `Nothing`
 if the flow will not render or has fewer than `k + 1` items. -}
-itemGap : Int -> Array LPNode -> Maybe Int
+itemGap : Int -> Array RenderNode -> Maybe Int
 itemGap k nodes =
     when buildFlowBoxMeasured 0 nodes is
         Err _ ->
@@ -423,7 +447,7 @@ itemGap k nodes =
                     Nothing
 
 
-renderedFlow : Array LPNode -> String
+renderedFlow : Array RenderNode -> String
 renderedFlow nodes =
     when buildFlowBoxMeasured 0 nodes is
         Ok assembled ->
@@ -461,7 +485,7 @@ dispatchesToGluingFlow shape =
 arithmetic as `FlowAssembly.typeContentSpansRows` does it: running the row
 additions up gives each item's last row, and its own height gives back its first.
 -}
-placeRows : Array FlowMeasure -> Array { node : LPNode, firstRow : Int, lastRow : Int }
+placeRows : Array FlowMeasure -> Array { node : RenderNode, firstRow : Int, lastRow : Int }
 placeRows measures =
     (Array.foldl
         (\m acc ->
@@ -484,14 +508,14 @@ placeRows measures =
     ).out
 
 
-checkNode : LPNode -> Bool -> Array Finding
-checkNode node liesBelow =
-    flowCommentFindings node liesBelow ++ checkShapePredicates node liesBelow
+checkNode : LPNode -> RenderNode -> Bool -> Array Finding
+checkNode src node liesBelow =
+    flowCommentFindings src node liesBelow ++ checkShapePredicates src node liesBelow
 
 
-checkShapePredicates : LPNode -> Bool -> Array Finding
-checkShapePredicates node liesBelow =
-    when makePBox (lpnShape node) (lpnChildren node) is
+checkShapePredicates : LPNode -> RenderNode -> Bool -> Array Finding
+checkShapePredicates src node liesBelow =
+    when makePBox (rnShape node) (rnChildren node) is
         -- A node that cannot render on its own (RootBox, OriginalRows, or a
         -- construct whose builder needs context its parent holds) yields no
         -- render truth to compare against, so it proves nothing either way.
@@ -502,18 +526,18 @@ checkShapePredicates node liesBelow =
             if isSingleLine box then
                 auditedPredicates
                     |> Array.keepIf (\p -> p.test node)
-                    |> Array.map (\p -> makeFinding p.name node box liesBelow)
+                    |> Array.map (\p -> makeFinding p.name src node box liesBelow)
 
             else
                 []
 
 
-makeFinding : String -> LPNode -> Box -> Bool -> Finding
-makeFinding name node box liesBelow =
+makeFinding : String -> LPNode -> RenderNode -> Box -> Bool -> Finding
+makeFinding name src node box liesBelow =
     { predicate = name
-    , boxKind = shapeKindName (lpnShape node)
-    , row = lpnFirstPos node |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
-    , col = lpnFirstPos node |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
+    , boxKind = shapeKindName (rnShape node)
+    , row = lpnFirstPos src |> Maybe.map (\p -> p.row) |> Maybe.withDefault -1
+    , col = lpnFirstPos src |> Maybe.map (\p -> p.col) |> Maybe.withDefault -1
     , rendered = String.trim (B.render box)
     , propagated = liesBelow
     , claim = True

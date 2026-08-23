@@ -920,9 +920,13 @@ support for a new construct", for the required reading. The short version:
   (`isSingleLine` / `B.allSingles`), never a source-row predicate. If your
   construct needs a new glue rule, add a *classifier* arm in
   `Comments.gren` (pin it with a fixture — see `classifyCommentKind`'s doc), not
-  a render-side row test. `tests/check-render-invariant.py` fails the build on a
-  new render-side row-read; if a use is genuinely structural, allowlist its
-  function there with a reason.
+  a render-side row test. You will not get far with one anyway: the render layer
+  takes `Formatter.RenderTree.RenderNode`, which has no position fields, so a row
+  read there is a **compile error**. If a decision genuinely needs a source row,
+  precompute it as a boolean in `RenderTree.lower` and read the flag in the
+  renderer — that is what the four existing flags are.
+  `tests/check-render-invariant.py` still fails the build on the one spelling the
+  types miss, a `.start.row` off an `LPShape`'s `Located` payload.
 
 ### 6. Render it — `MakeRenderBox.renderNodeBox`
 Add an arm to the `renderNodeBox` `when shape is …` dispatch (and to the
@@ -1048,8 +1052,8 @@ node ../../gren-format/app --show <Name>.dirty.gren > testfiles/<SuiteDir>/<Name
 **Read it** to confirm it is actually canonical before trusting it.
 
 **The standing gates** guard the cross-cutting properties. `run-tests.sh` runs
-two of them itself, before it builds: `check-render-invariant.py` (no `Render/*`
-code may read a source row to decide placement — step 5 above) and
+two of them itself, before it builds: `check-render-invariant.py` (the residue of
+the barrier that the type checker does not cover — step 5 above) and
 `check-divergence-index.py` (the divergence catalogue and its fixture suite stay
 1:1). The rest are run by hand and need a fresh build of `gren-format/app` —
 **rebuild it first** (`cd ../gren-format && ./build.sh`), since every one of them

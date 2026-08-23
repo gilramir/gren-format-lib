@@ -14,15 +14,11 @@ signatures, and comments — each laid out to match elm-format.
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
     , SyntaxType(..)
     , commentRole
-    , firstRowInSubtree
-    , lpnChildren
-    , lpnShape
     , prefixGlyph
     , spanTrailingOwnLine
     )
@@ -110,8 +106,6 @@ import Formatter.Render.NodeClassify exposing
     , nodeIsComment
     , nodesLeadWithComment
     , parenContentIsLambdaHead
-    , rowsSpanMultiple
-    , signatureForceVertical
     , splitOffLambdaHead
     , splitSignatureSegments
     , stepBrokeItsRows
@@ -119,22 +113,29 @@ import Formatter.Render.NodeClassify exposing
     , subtreeHasComment
     , valueNodeIsHardBlock
     )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , rnChildren
+    , rnShape
+    , rnTypeSegmentsBroken
+    , rnVariantsSpanRows
+    )
 import Formatter.Results exposing (traverseResult)
 
 
 {-| Entry point: render one top-level root child to a Box, or `Err` if it
 can't be rendered — there is no fallback, so an `Err` here fails the format
 for the whole file. -}
-renderNodeBox : LPNode -> Result String Box
+renderNodeBox : RenderNode -> Result String Box
 renderNodeBox node =
-    when lpnShape node is
+    when rnShape node is
         OriginalRows { stype = stype } ->
             let
                 { leading, rest } =
-                    peelLeadingInlineComments (lpnChildren node)
+                    peelLeadingInlineComments (rnChildren node)
             in
             if Array.isEmpty leading then
-                makeDeclBodyBox stype (lpnChildren node)
+                makeDeclBodyBox node stype (rnChildren node)
 
             else
                 -- A `LeadsInline` block comment the author glued to the front of
@@ -150,7 +151,7 @@ renderNodeBox node =
                                     Array.foldr glueLeadingCommentPrefix declBox commentBoxes
                                 )
                     )
-                    (makeDeclBodyBox stype rest)
+                    (makeDeclBodyBox node stype rest)
 
         EmptyLine ->
             -- A top-level blank separator. `B.blankLine` is `SingleLine (literal
@@ -162,9 +163,15 @@ renderNodeBox node =
 
 
 {-| Render a declaration's body (its children, minus any leading glued comment)
-via the renderer for its `SyntaxType`. -}
-makeDeclBodyBox : SyntaxType -> Array LPNode -> Result String Box
-makeDeclBodyBox stype children =
+via the renderer for its `SyntaxType`.
+
+Takes the declaration `node` as well as its `children`, for the author-intent
+flags `Formatter.RenderTree` precomputed on it -- a signature reads
+`rnTypeSegmentsBroken` off the node, which the children array cannot answer
+(dropping the leading comments does not change it: they sit before the `:`,
+which the flag drops through). -}
+makeDeclBodyBox : RenderNode -> SyntaxType -> Array RenderNode -> Result String Box
+makeDeclBodyBox node stype children =
     when stype is
         StFunctionDeclaration ->
             -- `buildFlowBox`'s comment machinery places inline,
@@ -174,10 +181,10 @@ makeDeclBodyBox stype children =
             buildFlowBox grenIndent children
 
         StFunctionSignature ->
-            makeSignatureBox children
+            makeSignatureBox (rnTypeSegmentsBroken node) children
 
         StPort ->
-            makeSignatureBox children
+            makeSignatureBox (rnTypeSegmentsBroken node) children
 
         StTypeAlias ->
             renderHeaderIndentedBody makeTypeAliasBody children
@@ -217,7 +224,7 @@ forced-vertical, one-group-per-line layout: its group is composed via
 operator width so they align under where the operand's first char lands. Any
 multi-line operand joined *inline* to a higher-precedence sibling, and any
 multi-line operand in a non-vertical chain, still returns Err. -}
-makeBinopBox : { forceVertical : Bool } -> Array LPNode -> Result String Box
+makeBinopBox : { forceVertical : Bool } -> Array RenderNode -> Result String Box
 makeBinopBox { forceVertical = forceVerticalArg } children =
     let
         flat =
@@ -279,7 +286,7 @@ same double-render class as the nested record literal in
 `docs/knownLimitations.md`, and needs the same conjunction of features to reach
 — a comment (or a layout that refuses), inside parens, nested — which is why no
 single-construct stress shape ever showed it. -}
-binopChainFlow : (Int -> Array FlowItem -> Result String Box) -> Array (Array FlowItem) -> Array LPNode -> Result String Box
+binopChainFlow : (Int -> Array FlowItem -> Result String Box) -> Array (Array FlowItem) -> Array RenderNode -> Result String Box
 binopChainFlow assemble operandItems children =
     binopChainFlowItems operandItems children
         |> Result.andThen (\r -> assemble grenIndent r.items)
@@ -291,7 +298,7 @@ each operand's items from the queue instead of re-rendering the operand.
 Mirrors `flattenBinopNodes`, which is what filled the queue: one entry per
 level, in the same order, so the two walks stay in step. `rest` is the queue left
 for the caller. -}
-binopChainFlowItems : Array (Array FlowItem) -> Array LPNode -> Result String { items : Array FlowItem, rest : Array (Array FlowItem) }
+binopChainFlowItems : Array (Array FlowItem) -> Array RenderNode -> Result String { items : Array FlowItem, rest : Array (Array FlowItem) }
 binopChainFlowItems queue children =
     when Array.popLast children is
         Nothing ->
@@ -304,9 +311,9 @@ binopChainFlowItems queue children =
                     Err "box: binop operand items exhausted"
 
                 Just { first = headItems, rest = queueRest } ->
-                    when lpnShape lastNode is
+                    when rnShape lastNode is
                         OpAndRhs ->
-                            opAndRhsBoxFromItems queueRest (lpnChildren lastNode)
+                            opAndRhsBoxFromItems queueRest (rnChildren lastNode)
                                 |> Result.map
                                     (\r ->
                                         { items = Array.pushLast (flowItemFromBox lastNode r.box) headItems
@@ -322,7 +329,7 @@ binopChainFlowItems queue children =
 
 {-| `makeOpAndRhsBox` over pre-rendered items — the same two layouts and the same
 condition between them, with the rhs flow taken from the queue. -}
-opAndRhsBoxFromItems : Array (Array FlowItem) -> Array LPNode -> Result String { box : Box, rest : Array (Array FlowItem) }
+opAndRhsBoxFromItems : Array (Array FlowItem) -> Array RenderNode -> Result String { box : Box, rest : Array (Array FlowItem) }
 opAndRhsBoxFromItems queue children =
     when Array.popFirst children is
         Nothing ->
@@ -450,7 +457,7 @@ the chain.
 
 Every operand box comes from the single up-front render in `makeBinopBox`; only
 the operator leaves are rendered here (cheap, childless). -}
-verticalBinopChainBox : Array LPNode -> Array (Array FlowItem) -> Result String Box
+verticalBinopChainBox : Array RenderNode -> Array (Array FlowItem) -> Result String Box
 verticalBinopChainBox ops operandItems =
     let
         -- Assemble a group's content: `assembleFlow FP.InlineStart 0` (the
@@ -472,11 +479,11 @@ verticalBinopChainBox ops operandItems =
                                     (Array.map2 (\opNode opItem -> { text = opText opNode, item = opItem }) ops opItems)
 
                             op0 =
-                                spanTrailingOwnLine .node grouped.firstGroup
+                                spanTrailingOwnLine (\i -> rnShape i.node) grouped.firstGroup
 
                             segData =
                                 Array.map
-                                    (\g -> { op = g.op, split = spanTrailingOwnLine .node g.items })
+                                    (\g -> { op = g.op, split = spanTrailingOwnLine (\i -> rnShape i.node) g.items })
                                     grouped.rest
                         in
                         renderOperandContent op0.body
@@ -512,7 +519,7 @@ comment-aware flow. Forced-vertical chains never come here.
 
 Each operand box is `assembleFlow` over the items rendered once up front, which
 is exactly what `buildFlowBox 0` would have produced after its own render. -}
-precedenceBinopBox : Array LPNode -> Array (Array FlowItem) -> Result String Box
+precedenceBinopBox : Array RenderNode -> Array (Array FlowItem) -> Result String Box
 precedenceBinopBox ops operandItems =
     when Array.popFirst operandItems is
         Nothing ->
@@ -536,7 +543,7 @@ precedenceBinopBox ops operandItems =
 {-| Render an `OpAndRhs` node (`op` + the right-hand side flow). Reached only
 from the comment-bearing binop flow (the comment-free path flattens `OpAndRhs`
 via `flattenBinopNodes` instead). -}
-makeOpAndRhsBox : Array LPNode -> Result String Box
+makeOpAndRhsBox : Array RenderNode -> Result String Box
 makeOpAndRhsBox children =
     when Array.popFirst children is
         Nothing ->
@@ -589,7 +596,7 @@ makeOpAndRhsBox children =
 
 {-| Header + indented body: `type alias Name =` / body, `type Name` / variants —
 header inline, body dropped +4 (elm-format). -}
-renderHeaderIndentedBody : (Array LPNode -> Result String Box) -> Array LPNode -> Result String Box
+renderHeaderIndentedBody : (RenderNode -> Result String Box) -> Array RenderNode -> Result String Box
 renderHeaderIndentedBody bodyRenderer children =
     when Array.popLast children is
         Nothing ->
@@ -599,7 +606,7 @@ renderHeaderIndentedBody bodyRenderer children =
             buildFlowBox 0 header
                 |> Result.andThen
                     (\headerBox ->
-                        bodyRenderer (lpnChildren bodyBlock)
+                        bodyRenderer bodyBlock
                             |> Result.map (\bodyBox -> B.stack1 [ headerBox, B.indent bodyBox ])
                     )
 
@@ -611,9 +618,12 @@ renderHeaderIndentedBody bodyRenderer children =
 -- first segment to, every segment (including the first) sits at the SAME
 -- column, since `renderHeaderIndentedBody` already supplies the body's one
 -- +4 from `type alias Foo =`.
-makeTypeAliasBody : Array LPNode -> Result String Box
-makeTypeAliasBody nodes =
+makeTypeAliasBody : RenderNode -> Result String Box
+makeTypeAliasBody bodyNode =
     let
+        nodes =
+            rnChildren bodyNode
+
         segments =
             splitSignatureSegments nodes
 
@@ -621,7 +631,7 @@ makeTypeAliasBody nodes =
             Array.any subtreeHasComment nodes
 
         forceVertical =
-            typeSegmentsForceVertical hasComment segments
+            typeSegmentsForceVertical (rnTypeSegmentsBroken bodyNode) hasComment segments
 
         perSegment _ =
             traverseResult (buildFlowBox 0) segments
@@ -634,7 +644,7 @@ makeTypeAliasBody nodes =
         -- As in `makeSignatureBox`: render the flow and ask the box whether the
         -- type's own content came back on more than one row. If it did, the
         -- per-segment shape is the right one -- and it is also the shape the
-        -- reparse will pick, since `signatureForceVertical` reads a segment
+        -- reparse will pick, since `rnTypeSegmentsBroken` reads a segment
         -- that moved down as an author break.
         buildFlowBoxMeasured 0 nodes
             |> Result.andThen
@@ -650,17 +660,14 @@ makeTypeAliasBody nodes =
 {-| A union body: each variant (`= A`, `| B`) on its own line when the author
 wrote them across rows, or inline `= A | B | C` when on one line. A comment only
 forces the vertical form when it cannot ride the inline one. -}
-makeUnionBodyBox : Array LPNode -> Result String Box
-makeUnionBodyBox nodes =
+makeUnionBodyBox : RenderNode -> Result String Box
+makeUnionBodyBox bodyNode =
     let
-        variantNodes =
-            Array.keepIf (\n -> not (nodeIsComment n)) nodes
-
-        authorVertical =
-            rowsSpanMultiple (Array.map firstRowInSubtree variantNodes)
+        nodes =
+            rnChildren bodyNode
 
         vertical =
-            authorVertical || commentForcesBracketOpen False nodes
+            rnVariantsSpanRows bodyNode || commentForcesBracketOpen False nodes
     in
     if vertical then
         makeUnionBodyVerticalBox nodes
@@ -669,7 +676,7 @@ makeUnionBodyBox nodes =
         -- Fold over `nodes`, not `variantNodes`: `pairInlineComments` glues each
         -- comment onto the variant it trails, so `joinInline` still sees one box
         -- per variant.
-        pairInlineComments (\_ -> True) (\n -> buildFlowBox 0 (lpnChildren n)) nodes
+        pairInlineComments (\_ -> True) (\n -> buildFlowBox 0 (rnChildren n)) nodes
             |> Result.andThen
                 (\variantBoxes ->
                     when joinInline variantBoxes is
@@ -694,7 +701,7 @@ row renders on its own line. A variant's "last row" is `max(lpnLastPos,
 lpnLastBracketEnd)` — NOT `lpnMaxRow`, which a multi-line block comment inside the
 variant would widen, shifting a trailing comment to its own line (non-idempotent).
 A multi-line block-comment SIBLING (rare) falls back. -}
-makeUnionBodyVerticalBox : Array LPNode -> Result String Box
+makeUnionBodyVerticalBox : Array RenderNode -> Result String Box
 makeUnionBodyVerticalBox nodes =
     let
         -- Slot per `FP.containerCommentSlot`. A union body has no opener slot,
@@ -729,7 +736,7 @@ makeUnionBodyVerticalBox nodes =
             accResult
                 |> Result.andThen
                     (\acc ->
-                        when lpnShape node is
+                        when rnShape node is
                             SingleLineComment _ ->
                                 commentNodeBox node
                                     |> Result.map (\cbox -> placeComment acc node cbox)
@@ -739,7 +746,7 @@ makeUnionBodyVerticalBox nodes =
                                     |> Result.map (\cbox -> placeComment acc node cbox)
 
                             _ ->
-                                buildFlowBox 0 (lpnChildren node)
+                                buildFlowBox 0 (rnChildren node)
                                     |> Result.map
                                         (\childBox ->
                                             { acc | boxes = Array.pushLast childBox acc.boxes }
@@ -783,7 +790,7 @@ fold, where the per-step comment handling (leading peel, trailing glue,
 blank-before-commented-step) lives. Everything is rendered ONCE and the layout
 chosen from the boxes: re-rendering to try a second shape would cost 2^depth on
 nested pipelines (see the Box.gren renderRowState hang). -}
-makePipelineBox : { forceVertical : Bool } -> String -> Array LPNode -> Result String Box
+makePipelineBox : { forceVertical : Bool } -> String -> Array RenderNode -> Result String Box
 makePipelineBox { forceVertical } op children =
     if op == "<|" then
         BP.makeBackwardPipelineBox
@@ -898,7 +905,7 @@ through its own body. `Nothing` (the paren was not rendered through a
 
 Callers must check `lambdaParenIsHeadAndBodyOnly` first: this renders exactly the
 head and the body and discards anything after them. -}
-makeMultilineLambdaArgBox : Maybe Box -> Array LPNode -> Result String Box
+makeMultilineLambdaArgBox : Maybe Box -> Array RenderNode -> Result String Box
 makeMultilineLambdaArgBox bodyBoxFromItem children =
     let
         -- Which of the two glues a head gets depends on WHERE its break comes
@@ -934,7 +941,7 @@ makeMultilineLambdaArgBox bodyBoxFromItem children =
         -- change container between passes (a pipeline step) turned the
         -- inconsistency into an oscillation.
         headBreaksAtAlignLevel headNode =
-            Array.any nodeIsComment (lpnChildren headNode)
+            Array.any nodeIsComment (rnChildren headNode)
 
         glueParen headNode headBox =
             if headBreaksAtAlignLevel headNode then
@@ -948,7 +955,7 @@ makeMultilineLambdaArgBox bodyBoxFromItem children =
             Err "box: multiline lambda paren: no children"
 
         Just { first = headNode, rest = afterHead } ->
-            buildFlowBoxInline 0 (lpnChildren headNode)
+            buildFlowBoxInline 0 (rnChildren headNode)
                 |> Result.andThen
                     (\headBox ->
                         when Array.first afterHead is
@@ -961,7 +968,7 @@ makeMultilineLambdaArgBox bodyBoxFromItem children =
                                         Ok b
 
                                     Nothing ->
-                                        buildFlowBox 0 (lpnChildren bodyNode)
+                                        buildFlowBox 0 (rnChildren bodyNode)
                                 )
                                     |> Result.map
                                         (\bodyBox ->
@@ -998,7 +1005,7 @@ directOperandLambdaSplit item =
         -- Require the FIRST child to be a lambda head (not an `if`/`when`/`let`),
         -- matching `makeParenBlockBox`'s content dispatch.
         isMultilineParen =
-            when lpnShape node is
+            when rnShape node is
                 ParenBlock _ ->
                     not (isSingleLine item.box)
 
@@ -1009,7 +1016,7 @@ directOperandLambdaSplit item =
         Nothing
 
     else
-        when Array.popFirst (lpnChildren node) is
+        when Array.popFirst (rnChildren node) is
             Just { first = headNode, rest = afterHead } ->
                 -- "The child after the head is the body" is a fixed-arity read,
                 -- and a comment written between the `->` and a body the author
@@ -1032,14 +1039,14 @@ directOperandLambdaSplit item =
 
                         else
                             when
-                                { h = buildFlowBoxInline 0 (lpnChildren headNode)
+                                { h = buildFlowBoxInline 0 (rnChildren headNode)
                                 , b =
                                     when item.lambdaBodyBox is
                                         Just b ->
                                             Ok b
 
                                         Nothing ->
-                                            buildFlowBox 0 (lpnChildren bodyNode)
+                                            buildFlowBox 0 (rnChildren bodyNode)
                                 }
                             is
                                 { h = Ok headBox, b = Ok bodyBox } ->
@@ -1089,7 +1096,7 @@ the join emits `-- c |> fn`, with the operator swallowed inside the comment —
 output that no longer parses to the same AST. The all-or-nothing
 `commentTextCanRide` run is the real test, the one `splitPairingCommentItems`
 and `assembleBrokenWithComments` also use. -}
-renderPipelineStepChildren : Bool -> Array LPNode -> Result String Box
+renderPipelineStepChildren : Bool -> Array RenderNode -> Result String Box
 renderPipelineStepChildren stepBroke allChildren =
     let
         { leading } =
@@ -1106,12 +1113,12 @@ mattered first: the comment the author wrote between the seed and the first `|>`
 lands as that step's leading child (`people {- c -} |> sort` — see Comments.gren),
 so stacking it would make the step box multi-line and break a pipeline the flat
 line can carry. -}
-renderPipelineStepInline : LPNode -> Result String Box
+renderPipelineStepInline : RenderNode -> Result String Box
 renderPipelineStepInline stepNode =
-    renderPipelineStepChildrenWith True (stepBrokeItsRows stepNode) (lpnChildren stepNode)
+    renderPipelineStepChildrenWith True (stepBrokeItsRows stepNode) (rnChildren stepNode)
 
 
-renderPipelineStepChildrenWith : Bool -> Bool -> Array LPNode -> Result String Box
+renderPipelineStepChildrenWith : Bool -> Bool -> Array RenderNode -> Result String Box
 renderPipelineStepChildrenWith glueLeading stepBroke allChildren =
     let
         { leading, rest } =
@@ -1191,7 +1198,7 @@ renderPipelineStepChildrenWith glueLeading stepBroke allChildren =
 -- The comment-free core of a pipeline step: the trigger split over the body
 -- children (leading/trailing comments already peeled by
 -- `renderPipelineStepChildren`).
-stepBodyBox : Bool -> Array LPNode -> Result String Box
+stepBodyBox : Bool -> Array RenderNode -> Result String Box
 stepBodyBox stepBroke children =
     -- The operator is a PREFIX, not a flow item — exactly as `makeOpAndRhsBox`
     -- treats a binop's operator. `B.prefix` pads the operand's continuation rows
@@ -1224,7 +1231,7 @@ stepBodyBox stepBroke children =
             stepOperandBox stepBroke children
 
 
-stepOperandBox : Bool -> Array LPNode -> Result String Box
+stepOperandBox : Bool -> Array RenderNode -> Result String Box
 stepOperandBox stepBroke children =
     -- Render the children ONCE, up front, and drive everything below off those
     -- items: the trigger split's verticality tests, the preamble assembly
@@ -1276,7 +1283,7 @@ stepOperandBox stepBroke children =
                         let
                             triggerBoxResult =
                                 if isMultilineLambdaParenBlockBox trigger.node && lambdaParenIsHeadAndBodyOnly trigger.node then
-                                    makeMultilineLambdaArgBox trigger.lambdaBodyBox (lpnChildren trigger.node)
+                                    makeMultilineLambdaArgBox trigger.lambdaBodyBox (rnChildren trigger.node)
 
                                 else
                                     -- A multi-line non-lambda paren (or a bracket
@@ -1423,7 +1430,7 @@ the author broke it, `if` / cond +4 / `then`. The branch bodies and `else`
 keyword are siblings in the enclosing flow (an `if` is not a single node — see
 the flat `IfCondition`/`IndentedBlock`/`EmptyLine`/`else` sequence), assembled
 by `assembleFlow`. -}
-makeIfConditionBox : Bool -> Array LPNode -> Result String Box
+makeIfConditionBox : Bool -> Array RenderNode -> Result String Box
 makeIfConditionBox forceVertical children =
     when Array.popFirst children is
         Nothing ->
@@ -1503,7 +1510,7 @@ makeIfConditionBox forceVertical children =
                                         -- builders.
                                         assembleFlow FP.OwnStart 0 condItems
                     in
-                    makePBox (lpnShape ifNode) (lpnChildren ifNode)
+                    makePBox (rnShape ifNode) (rnChildren ifNode)
                         |> Result.andThen
                             (\ifBox ->
                                 -- One render of the condition's children, from
@@ -1518,7 +1525,7 @@ makeIfConditionBox forceVertical children =
                                 )
                                     |> Result.andThen
                                         (\condBox ->
-                                            makePBox (lpnShape thenNode) (lpnChildren thenNode)
+                                            makePBox (rnShape thenNode) (rnChildren thenNode)
                                                 |> Result.andThen
                                                     (\thenBox ->
                                                         if forceVertical then
@@ -1569,7 +1576,7 @@ peeled off the head (`spanTrailingComments`) and stacked on its own line
 Keeping it on the head line (`name = {- c -}`) would leave the multi-line value
 to glue after it in the flow assembler, which has no rule for a raw `Binop`
 sibling and crashed ("unreachable soft-glue item"). -}
-dropFieldValueBoxWithBox : Array LPNode -> Box -> Result String Box
+dropFieldValueBoxWithBox : Array RenderNode -> Box -> Result String Box
 dropFieldValueBoxWithBox headNodes valueBox =
     let
         split =
@@ -1608,9 +1615,9 @@ goes.)
 The body is rendered ONCE and the box reused down both paths. Re-rendering the
 field to test it would double the cost at every nesting level — exponential in
 depth, the hang that `renderRecordFieldBox`'s own doc warns about. -}
-renderGluedLambdaField : Array LPNode -> LPNode -> Result String Box
+renderGluedLambdaField : Array RenderNode -> RenderNode -> Result String Box
 renderGluedLambdaField headNodes bodyNode =
-    makePBox (lpnShape bodyNode) (lpnChildren bodyNode)
+    makePBox (rnShape bodyNode) (rnChildren bodyNode)
         |> Result.andThen
             (\bodyBox ->
                 let
@@ -1672,25 +1679,25 @@ The value is rendered once (`valueNodeIsHardBlock` short-circuits before ever
 rendering it) and that same box is reused for the drop decision and, however it
 resolves, the final layout — see `dropFieldValueBoxWithBox` and
 `renderFieldFlowWithValueBox`. Re-deriving the value's box a second time (either
-here, by falling through to plain `makePBox (lpnShape field) …`, or in
+here, by falling through to plain `makePBox (rnShape field) …`, or in
 `dropFieldValueBoxWithBox`) doubles the render cost at every nesting level,
 which is exponential in depth — this is what made deeply nested record literals
 (e.g. `{ a = { a = { a = … } } }`) hang. -}
-renderRecordFieldBox : LPNode -> Result String Box
+renderRecordFieldBox : RenderNode -> Result String Box
 renderRecordFieldBox field =
-    when Array.popLast (lpnChildren field) is
+    when Array.popLast (rnChildren field) is
         Nothing ->
-            makePBox (lpnShape field) (lpnChildren field)
+            makePBox (rnShape field) (rnChildren field)
 
         Just { last = valueNode, initial = headNodes } ->
             if isGluedLambdaField field valueNode then
                 renderGluedLambdaField headNodes valueNode
 
             else if valueNodeIsHardBlock valueNode then
-                makePBox (lpnShape field) (lpnChildren field)
+                makePBox (rnShape field) (rnChildren field)
 
             else
-                makePBox (lpnShape valueNode) (lpnChildren valueNode)
+                makePBox (rnShape valueNode) (rnChildren valueNode)
                     |> Result.andThen
                         (\valueBox ->
                             if isSingleLine valueBox then
@@ -1702,13 +1709,13 @@ renderRecordFieldBox field =
 
 
 {-| Render a field's `AcrossOrVertical` flow (`name = value`) reusing an
-already-rendered value box for the last item, instead of `makePBox (lpnShape
-field) (lpnChildren field)` — which would re-render the value from scratch via
+already-rendered value box for the last item, instead of `makePBox (rnShape
+field) (rnChildren field)` — which would re-render the value from scratch via
 `renderFlowItems`. Mirrors `makePBox`'s own `AcrossOrVertical` arm exactly, just
 with the last flow item supplied instead of derived. -}
-renderFieldFlowWithValueBox : LPNode -> LPNode -> Array LPNode -> Box -> Result String Box
+renderFieldFlowWithValueBox : RenderNode -> RenderNode -> Array RenderNode -> Box -> Result String Box
 renderFieldFlowWithValueBox field valueNode headNodes valueBox =
-    when lpnShape field is
+    when rnShape field is
         AcrossOrVertical { forceVertical, checkContentVertical } ->
             renderFlowItems headNodes
                 |> Result.map
@@ -1734,7 +1741,7 @@ renderFieldFlowWithValueBox field valueNode headNodes valueBox =
         _ ->
             -- Not a flow field — shouldn't happen for a `name = value` node,
             -- but fall back to the generic renderer rather than crash.
-            makePBox (lpnShape field) (lpnChildren field)
+            makePBox (rnShape field) (rnChildren field)
 
 
 {-| Pick the per-item renderer for a bracketed literal. A record (`ListCurly`)
@@ -1763,7 +1770,7 @@ of the `BodyBlock`: the attachment is what a comment RUN travels by, and moving
 one member out while a multi-line sibling stays in tears the run in half — the
 `CommentRunCrossesSeparator` hazard, measured as a fresh reparse oscillation when
 tried. The comment's placement is unchanged; only the item's `FlowStart` is. -}
-literalItemRenderer : ListBrackets -> (LPNode -> Result String Box)
+literalItemRenderer : ListBrackets -> (RenderNode -> Result String Box)
 literalItemRenderer bracket =
     when bracket is
         ListCurly _ ->
@@ -1771,12 +1778,12 @@ literalItemRenderer bracket =
 
         _ ->
             \node ->
-                when lpnShape node is
+                when rnShape node is
                     BodyBlock ->
-                        buildFlowBoxInline 0 (lpnChildren node)
+                        buildFlowBoxInline 0 (rnChildren node)
 
                     shape ->
-                        makePBox shape (lpnChildren node)
+                        makePBox shape (rnChildren node)
 
 
 {-| Render a record update `{ base | f = v, … }` via elm's `extensionGroup`.
@@ -1785,7 +1792,7 @@ own line, `| `/`, `-prefixed fields at +4, closing `}`) when the author broke it
 across rows or any field renders multi-line — matching elm-format for
 `if`/`let`/`when`/simple/multi-field cases. A lambda-valued field drops the
 `\arg ->` head like elm-format. -}
-makeRecordUpdateBox : String -> Bool -> Array LPNode -> Result String Box
+makeRecordUpdateBox : String -> Bool -> Array RenderNode -> Result String Box
 makeRecordUpdateBox baseName forceVertical children =
     let
         { opener, baseTrail, rest } =
@@ -1841,7 +1848,7 @@ makeRecordUpdateBox baseName forceVertical children =
             )
 
 
-makeRecordUpdateVerticalBox : Box -> Array LPNode -> Result String Box
+makeRecordUpdateVerticalBox : Box -> Array RenderNode -> Result String Box
 makeRecordUpdateVerticalBox baseBox children =
     let
         step node accResult =
@@ -1945,7 +1952,7 @@ makeRecordUpdateVerticalBox baseBox children =
                             -- Anything added to one of the shared arms belongs in both.
                             let
                                 fieldFlowIndent =
-                                    when lpnShape node is
+                                    when rnShape node is
                                         IndentedBlock ->
                                             0
 
@@ -1953,9 +1960,9 @@ makeRecordUpdateVerticalBox baseBox children =
                                             grenIndent
 
                                 fieldBoxResult =
-                                    when Array.popLast (lpnChildren node) is
+                                    when Array.popLast (rnChildren node) is
                                         Nothing ->
-                                            makePBox (lpnShape node) (lpnChildren node)
+                                            makePBox (rnShape node) (rnChildren node)
 
                                         Just { last = valueNode, initial = headNodes } ->
                                             if isGluedLambdaField node valueNode then
@@ -1979,20 +1986,20 @@ makeRecordUpdateVerticalBox baseBox children =
 
                                             else if valueNodeIsHardBlock valueNode then
                                                 if fieldValueDropsToOwnLine node then
-                                                    buildFlowBox fieldFlowIndent (lpnChildren node)
+                                                    buildFlowBox fieldFlowIndent (rnChildren node)
 
                                                 else
-                                                    makePBox (lpnShape node) (lpnChildren node)
+                                                    makePBox (rnShape node) (rnChildren node)
 
                                             else
-                                                makePBox (lpnShape valueNode) (lpnChildren valueNode)
+                                                makePBox (rnShape valueNode) (rnChildren valueNode)
                                                     |> Result.andThen
                                                         (\valueBox ->
                                                             if not (isSingleLine valueBox) then
                                                                 dropFieldValueBoxWithBox headNodes valueBox
 
                                                             else if fieldValueDropsToOwnLine node then
-                                                                buildFlowBox fieldFlowIndent (lpnChildren node)
+                                                                buildFlowBox fieldFlowIndent (rnChildren node)
 
                                                             else
                                                                 renderFieldFlowWithValueBox node valueNode headNodes valueBox
@@ -2042,7 +2049,7 @@ condition's rule one level out, and for the same reason (see `condBoxFrom`
 there): the comment holds the header's row, and the subject's real first token
 then starts below it, past where the parser measures the continuation from. Each
 branch sits at +4 (`branchNest`), blank-line separated (elm-format). -}
-makeWhenFlowBox : Bool -> Array LPNode -> Result String Box
+makeWhenFlowBox : Bool -> Array RenderNode -> Result String Box
 makeWhenFlowBox forceVertical children =
     when Array.popLast children is
         Nothing ->
@@ -2115,7 +2122,7 @@ makeWhenFlowBox forceVertical children =
                                         |> Result.andThen headerFrom
 
                                 branchesResult =
-                                    renderWhenBranchesBox (lpnChildren branchesBlock)
+                                    renderWhenBranchesBox (rnChildren branchesBlock)
                             in
                             Result.map2
                                 (\hdr brs -> B.stack1 [ hdr, B.indent brs ])
@@ -2124,7 +2131,7 @@ makeWhenFlowBox forceVertical children =
 
 
 {-| One `when` branch: `<pattern> ->` then the body indented +4. -}
-makeWhenBranchBox : Array LPNode -> Result String Box
+makeWhenBranchBox : Array RenderNode -> Result String Box
 makeWhenBranchBox children =
     when Array.popFirst children is
         Just { first = patNode, rest = afterPat } ->
@@ -2132,8 +2139,8 @@ makeWhenBranchBox children =
                 [ bodyNode ] ->
                     Result.map2
                         (\patBox bodyBox -> B.stack1 [ patBox, B.indent bodyBox ])
-                        (makePBox (lpnShape patNode) (lpnChildren patNode))
-                        (makePBox (lpnShape bodyNode) (lpnChildren bodyNode))
+                        (makePBox (rnShape patNode) (rnChildren patNode))
+                        (makePBox (rnShape bodyNode) (rnChildren bodyNode))
 
                 _ ->
                     -- unreachable: a WhenBranch node is always built with exactly
@@ -2148,7 +2155,7 @@ makeWhenBranchBox children =
 record/array pattern the author spread across rows) gets ` ->` appended to its
 last line via `B.addSuffix`, which appends to the last line for single- and
 multi-line boxes alike. -}
-makeWhenBranchPatternBox : Array LPNode -> Result String Box
+makeWhenBranchPatternBox : Array RenderNode -> Result String Box
 makeWhenBranchPatternBox children =
     buildFlowBox grenIndent children
         |> Result.map (\box -> B.addSuffix (B.literal " ->") box)
@@ -2163,7 +2170,7 @@ elm-format. Single-line and multi-line block comments alike are supported (the
 latter via `commentNodeBox`'s reindent stack). A same-row multi-line comment
 (can't glue onto a last line), or a comment after the last branch (no branch to
 lead), still fall back. -}
-renderWhenBranchesBox : Array LPNode -> Result String Box
+renderWhenBranchesBox : Array RenderNode -> Result String Box
 renderWhenBranchesBox children =
     let
         handleComment acc node =
@@ -2206,9 +2213,9 @@ renderWhenBranchesBox children =
             accResult
                 |> Result.andThen
                     (\acc ->
-                        when lpnShape child is
+                        when rnShape child is
                             WhenBranch ->
-                                makeWhenBranchBox (lpnChildren child)
+                                makeWhenBranchBox (rnChildren child)
                                     |> Result.map
                                         (\bx ->
                                             let
@@ -2278,10 +2285,10 @@ signature must commit to the broken layout. Verticality comes from this
 renderer's own box (`isSingleLine`; an unrenderable node counts as not-forcing,
 i.e. `Err -> False`). The head position (`i == 0`) is included only when
 `includeHead` is `True` — a multi-segment type already gets head-position
-coverage from `signatureForceVertical` (the row-break-between-segments check),
+coverage from `rnTypeSegmentsBroken` (the row-break-between-segments check),
 but a single-segment type (no `->` at all) has no such fallback, so its sole
 segment must be checked at `i == 0` too. -}
-segmentHasDroppingRecordBox : Bool -> Array LPNode -> Bool
+segmentHasDroppingRecordBox : Bool -> Array RenderNode -> Bool
 segmentHasDroppingRecordBox includeHead segment =
     segment
         |> Array.indexedMap (\i n -> { i = i, n = n })
@@ -2289,7 +2296,7 @@ segmentHasDroppingRecordBox includeHead segment =
             (\{ i, n } ->
                 (i > 0 || includeHead)
                     && isDroppingSignatureRecordNode n
-                    && (when makePBox (lpnShape n) (lpnChildren n) is
+                    && (when makePBox (rnShape n) (rnChildren n) is
                             Ok b ->
                                 not (isSingleLine b)
 
@@ -2304,7 +2311,8 @@ and a type alias body (`makeTypeAliasBody`). Both commit the whole type to the
 broken layout up front under the same two conditions, and must keep agreeing:
 they render the same segment structure.
 
-The first is `signatureForceVertical` — the author broke the type at a `->`.
+The first is `RenderTree.rnTypeSegmentsBroken` — the author broke the type at a
+`->`.
 
 The second is a segment carrying a record type that renders multi-line. Such a
 record DROPS in a flow (FlowPolicy's `DropBlock`) rather than gluing, so leaving
@@ -2313,7 +2321,7 @@ the drop's extra rows could flip the boundary-break decision on reparse (the
 idempotency fixed-point rule). The head position (`i == 0`) counts too
 (`includeHead = True`): a multi-line record can sit at a segment's head with the
 `->` still on its closing `}` line (`{ a : Int, b : Msg } -> X`, record broken,
-arrow not). Then no `->`-boundary row break exists for `signatureForceVertical`
+arrow not). Then no `->`-boundary row break exists for `rnTypeSegmentsBroken`
 to see, yet elm-format still breaks the whole thing — and without the head check
 the flow renders multi-line while `forceVertical` is `False`, hitting the
 "inline signature segment unexpectedly broke" Err.
@@ -2327,9 +2335,9 @@ callers render the comment flow and ask the resulting box
 (`FlowAssembly.typeContentSpansRows`) instead, so there is nothing to predict —
 and predicting it, one hand-written rule per comment kind, is what this avoids.
 -}
-typeSegmentsForceVertical : Bool -> Array (Array LPNode) -> Bool
-typeSegmentsForceVertical hasComment segments =
-    signatureForceVertical segments
+typeSegmentsForceVertical : Bool -> Bool -> Array (Array RenderNode) -> Bool
+typeSegmentsForceVertical segmentsBroken hasComment segments =
+    segmentsBroken
         || (not hasComment
                 && Array.any (segmentHasDroppingRecordBox True) segments
            )
@@ -2346,8 +2354,8 @@ comment-aware flow (`buildFlowBox grenIndent`), NOT a flat group — a comment's
 break points have no stable inline anchor (elm-format). A signature the author
 broke at a `->` renders per-segment either way, and `buildFlowBox` places the
 segment's inline comments. -}
-makeSignatureBox : Array LPNode -> Result String Box
-makeSignatureBox children =
+makeSignatureBox : Bool -> Array RenderNode -> Result String Box
+makeSignatureBox segmentsBroken children =
     let
         colonSplit =
             Array.foldl
@@ -2376,7 +2384,7 @@ makeSignatureBox children =
                 Array.any subtreeHasComment children
 
             forceVertical =
-                typeSegmentsForceVertical hasComment segments
+                typeSegmentsForceVertical segmentsBroken hasComment segments
 
             -- Author broke at a `->`: header on line 1, one segment per line
             -- at +4. `buildFlowBox 0` renders each segment, placing any
@@ -2472,7 +2480,7 @@ a coupled all-or-nothing group; otherwise (a `(..)` wildcard, an effect-module
 For BOTH `module` and `import` lines, `exposing` stays glued to the header even
 when the list goes vertical (list indented +4). gren-format deliberately does
 not drop an import's `exposing` to its own line the way elm-format does. -}
-makeExposingLineBox : SyntaxType -> Array LPNode -> Result String Box
+makeExposingLineBox : SyntaxType -> Array RenderNode -> Result String Box
 makeExposingLineBox stype children =
     when Array.popLast children is
         Just { last = lastNode, initial = headerNodes } ->
@@ -2482,7 +2490,7 @@ makeExposingLineBox stype children =
                 -- `AlwaysVertical ListParen` = across rows. Anything else means
                 -- the last node isn't a paren list (`(..)` wildcard, etc.).
                 exposingForceVertical =
-                    when lpnShape lastNode is
+                    when rnShape lastNode is
                         AllAcrossOrAllVertical ListParen ->
                             Just False
 
@@ -2534,7 +2542,7 @@ makeExposingLineBox stype children =
                 Just forceVertical ->
                     let
                         listChildren =
-                            lpnChildren lastNode
+                            rnChildren lastNode
 
                         -- Only a comment that can't ride the flat line forces
                         -- the list vertical; a short `{- … -}` beside a name
@@ -2676,7 +2684,7 @@ makeExposingLineBox stype children =
 -- comment before the list, a multi-line `{- -}`, or an effect-module `where`
 -- block that wraps) indents its continuation +4, which `assembleFlow` does for
 -- an inline item on a fresh line after a comment/break.
-exposingLineFallback : Array LPNode -> Result String Box
+exposingLineFallback : Array RenderNode -> Result String Box
 exposingLineFallback children =
     buildFlowBox grenIndent children
 
@@ -2689,9 +2697,9 @@ already-sorted exposed names (leaves). Inline: `(a, b, c)`. Vertical:
     )
 
 The comment-free exposing-list path. -}
-makeExposingListBox : Bool -> Array LPNode -> Result String Box
+makeExposingListBox : Bool -> Array RenderNode -> Result String Box
 makeExposingListBox forceVertical children =
-    pairInlineComments (\_ -> True) (\n -> makePBox (lpnShape n) (lpnChildren n)) children
+    pairInlineComments (\_ -> True) (\n -> makePBox (rnShape n) (rnChildren n)) children
         |> Result.andThen
             (\itemBoxes ->
                 when B.allSingles itemBoxes is
@@ -2724,7 +2732,7 @@ makeExposingListBox forceVertical children =
 
 
 {-| Render one LPT shape to a Box. Err for unported constructs. -}
-makePBox : LPShape -> Array LPNode -> Result String Box
+makePBox : LPShape -> Array RenderNode -> Result String Box
 makePBox shape children =
     when shape is
         UnbreakableText locs ->
@@ -2934,7 +2942,7 @@ makePBox shape children =
 (first child) may be multi-line — the accessor glues onto its last line via
 `B.addSuffix` — but every following child (the `.field` accessors) must be
 single-line. -}
-makeGlueBox : Array LPNode -> Result String Box
+makeGlueBox : Array RenderNode -> Result String Box
 makeGlueBox children =
     -- A trailing comment on a postfix access (`(x).name {- c -}`, `(x).name -- c`)
     -- rides the glued line with a space; it must not go through `makePBox` (a bare
@@ -2949,7 +2957,7 @@ makeGlueBox children =
             Err "box: empty glue"
 
         Just { first, rest } ->
-            makePBox (lpnShape first) (lpnChildren first)
+            makePBox (rnShape first) (rnChildren first)
                 |> Result.andThen
                     (\baseBox ->
                         Array.foldl
@@ -2957,7 +2965,7 @@ makeGlueBox children =
                                 accR
                                     |> Result.andThen
                                         (\acc ->
-                                            makePBox (lpnShape child) (lpnChildren child)
+                                            makePBox (rnShape child) (rnChildren child)
                                                 |> Result.andThen
                                                     (\childBox ->
                                                         when B.isLine childBox is
@@ -2989,7 +2997,7 @@ The vertical form anchors continuation lines and the closing `)` to the `(`
 column. Box stacking is intrinsically that anchor: the wrapped box's lines are
 all relative to its own origin, which becomes the `(` column once the enclosing
 flow indents it. -}
-makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array LPNode -> Result String Box
+makeParenBlockBox : { forceVertical : Bool, checkContentVertical : Bool } -> Array RenderNode -> Result String Box
 makeParenBlockBox flags children =
     makeParenBlockBoxWithParts flags children
         |> Result.map .box
@@ -3002,7 +3010,7 @@ rendered through here — `makePBox` keeps `.box`, `renderFlowItem` keeps both �
 so there is one paren renderer, not a renderer and a look-alike. -}
 makeParenBlockBoxWithParts :
     { forceVertical : Bool, checkContentVertical : Bool }
-    -> Array LPNode
+    -> Array RenderNode
     -> Result String { box : Box, lambdaBodyBox : Maybe Box }
 makeParenBlockBoxWithParts flags children =
     let
@@ -3014,7 +3022,7 @@ makeParenBlockBoxWithParts flags children =
             Ok { box = B.line (B.punc "()"), lambdaBodyBox = Nothing }
 
         Just first ->
-            when lpnShape first is
+            when rnShape first is
                 WhenFlow _ ->
                     -- The `when` renders through its ordinary builder, so the
                     -- paren cannot change its internal shape.
@@ -3030,7 +3038,7 @@ makeParenBlockBoxWithParts flags children =
                     -- here and is an `Err` rather than a second silent drop.
                     when Array.dropFirst 1 children is
                         [] ->
-                            makePBox (lpnShape first) (lpnChildren first)
+                            makePBox (rnShape first) (rnChildren first)
                                 |> Result.map wrapParenVerticalPadded
                                 |> noParts
 
@@ -3041,7 +3049,7 @@ makeParenBlockBoxWithParts flags children =
                                         wrapParenVerticalPadded
                                             (B.stack1 (Array.pushFirst whenBox commentBoxes))
                                     )
-                                    (makePBox (lpnShape first) (lpnChildren first))
+                                    (makePBox (rnShape first) (rnChildren first))
                                     (traverseResult commentNodeBox trailing)
                                     |> noParts
 
@@ -3083,7 +3091,7 @@ shape. Promoting either to a constant (or to a flag for "this is a call
 argument") is the mistake: the offset is not a property of the syntactic role,
 it is a property of the column the `(` happens to land in.
 -}
-blockInParenBox : Array LPNode -> Result String Box
+blockInParenBox : Array RenderNode -> Result String Box
 blockInParenBox children =
     buildFlowBox 0 children
         |> Result.map wrapParenVerticalPadded
@@ -3104,7 +3112,7 @@ leading single-line block comment stays inline (`({- c -} expr)`).
 -}
 parenGenericFallbackBox :
     { forceVertical : Bool, checkContentVertical : Bool }
-    -> Array LPNode
+    -> Array RenderNode
     -> Result String { box : Box, lambdaBodyBox : Maybe Box }
 parenGenericFallbackBox flags children =
     renderFlowItems children
@@ -3123,7 +3131,7 @@ parenGenericFallbackBox flags children =
                     lambdaBodyBox =
                         when Array.get 1 items is
                             Just second ->
-                                when lpnShape second.node is
+                                when rnShape second.node is
                                     IndentedBlock ->
                                         Just second.box
 
@@ -3203,7 +3211,7 @@ parenGenericFallbackBox flags children =
 (author wrote it inline) passes `forceMultiline = False` — `group'` still
 expands if a child is multi-line; `AlwaysVertical` (2+-field record, or author
 across rows) passes `forceMultiline = True`. -}
-makeLiteralBox : { forceMultiline : Bool } -> ListBrackets -> Array LPNode -> Result String Box
+makeLiteralBox : { forceMultiline : Bool } -> ListBrackets -> Array RenderNode -> Result String Box
 makeLiteralBox { forceMultiline } bracket children =
     if commentForcesBracketOpen forceMultiline children then
         commentBracketListBox bracket children
@@ -3233,7 +3241,7 @@ space, a comment on its own row gets its own line at the bracket column; the
 closing bracket sits on its own line. Box stacking supplies the alignment
 (elm-format). The uniform record-array coupling (a whole-list flat/expanded
 choice) is NOT reproduced — those fall back. -}
-commentBracketListBox : ListBrackets -> Array LPNode -> Result String Box
+commentBracketListBox : ListBrackets -> Array RenderNode -> Result String Box
 commentBracketListBox bracket nodes =
     when bracketPunc bracket is
         { left = left, right = right } ->
@@ -3362,7 +3370,7 @@ commentBracketListBox bracket nodes =
                             Err e
 
                         Ok acc ->
-                            when lpnShape node is
+                            when rnShape node is
                                 SingleLineComment _ ->
                                     placeComment node acc
 
@@ -3461,14 +3469,14 @@ commentBracketListBox bracket nodes =
 -- Render each flow node to a Box (Err if any is unported), tagging whether it
 -- occupies its own block line, its start row, and — for a comment — the rendered
 -- comment box so `assembleFlowImpl` can place it by row.
-renderFlowItems : Array LPNode -> Result String (Array FlowItem)
+renderFlowItems : Array RenderNode -> Result String (Array FlowItem)
 renderFlowItems nodes =
     traverseResult renderFlowItem nodes
 
 
-renderFlowItem : LPNode -> Result String FlowItem
+renderFlowItem : RenderNode -> Result String FlowItem
 renderFlowItem node =
-    when lpnShape node is
+    when rnShape node is
         SingleLineComment { loc } ->
             Ok
                 { node = node
@@ -3508,7 +3516,7 @@ renderFlowItem node =
             -- the two can never disagree.
             makeParenBlockBoxWithParts
                 { forceVertical = forceVertical, checkContentVertical = checkContentVertical }
-                (lpnChildren node)
+                (rnChildren node)
                 |> Result.map
                     (\parts ->
                         { node = node
@@ -3520,7 +3528,7 @@ renderFlowItem node =
                     )
 
         _ ->
-            makePBox (lpnShape node) (lpnChildren node)
+            makePBox (rnShape node) (rnChildren node)
                 |> Result.map
                     (\box ->
                         { node = node
@@ -3536,7 +3544,7 @@ renderFlowItem node =
 trailing block node (BodyBlock / IndentedBlock / any multi-line node) drops to
 its own line indented by `indent`. Shapes outside "inline* block?" are `Err` —
 there is no fallback renderer, so that fails the whole file. -}
-buildFlowBox : Int -> Array LPNode -> Result String Box
+buildFlowBox : Int -> Array RenderNode -> Result String Box
 buildFlowBox indent nodes =
     renderFlowItems nodes
         |> Result.andThen (assembleFlow FP.OwnStart indent)
@@ -3544,7 +3552,7 @@ buildFlowBox indent nodes =
 
 {-| `buildFlowBox`, plus the per-item row accounting `typeContentSpansRows`
 reads. Same assembly, same box. -}
-buildFlowBoxMeasured : Int -> Array LPNode -> Result String { box : Box, measures : Array FlowMeasure }
+buildFlowBoxMeasured : Int -> Array RenderNode -> Result String { box : Box, measures : Array FlowMeasure }
 buildFlowBoxMeasured indent nodes =
     renderFlowItems nodes
         |> Result.andThen (assembleFlowMeasured FP.OwnStart indent)
@@ -3554,7 +3562,7 @@ buildFlowBoxMeasured indent nodes =
 token the caller already emitted (a binop/`OpAndRhs` rhs after its operator, a
 `( … )` body). A leading single-line block comment there stays inline instead of
 dropping to its own line (`InlineStart`). -}
-buildFlowBoxInline : Int -> Array LPNode -> Result String Box
+buildFlowBoxInline : Int -> Array RenderNode -> Result String Box
 buildFlowBoxInline indent nodes =
     renderFlowItems nodes
         |> Result.andThen (assembleFlow FP.InlineStart indent)
@@ -3568,7 +3576,7 @@ caller here is the forced-vertical comment-bearing binop (`operand0` /
 `op … rest` at +4). Top-level comment items ARE handled:
 `assembleBrokenWithComments` places leading, gluing and line-leading comments
 itself. -}
-buildFlowBoxBroken : Int -> Array LPNode -> Result String Box
+buildFlowBoxBroken : Int -> Array RenderNode -> Result String Box
 buildFlowBoxBroken indent nodes =
     renderFlowItems nodes
         |> Result.andThen (assembleBrokenWithComments indent)
@@ -3688,7 +3696,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                         -- The role decided once in `Comments.gren`; the renderer
                         -- reads it instead of re-deriving glue/own-line from rows.
                         role =
-                            commentRole (lpnShape item.node)
+                            commentRole (rnShape item.node)
                                 |> Maybe.withDefault LeadsLine
                     in
                     if c.isLineComment then
@@ -3704,7 +3712,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                     -- its rendered verticality (for the type-record drop); every
                     -- block wrapper is its own fact; everything else is a plain
                     -- `LeafItem` that merely advances the separator.
-                    when lpnShape item.node is
+                    when rnShape item.node is
                         AllAcrossOrAllVertical _ ->
                             bracketFacts item
 
@@ -4107,9 +4115,9 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                 -- `B.prefix` glues it after the
                                                 -- running line and shifts every
                                                 -- row by the prefix's width.
-                                                when lpnShape item.node is
+                                                when rnShape item.node is
                                                     ParenBlock _ ->
-                                                        if parenInnerIsAlignCarrying (lpnChildren item.node) then
+                                                        if parenInnerIsAlignCarrying (rnChildren item.node) then
                                                             -- An align-carrying literal inside the
                                                             -- parens holds its `,`/`}` under its own
                                                             -- opening bracket with `Tab`s. Freeze them

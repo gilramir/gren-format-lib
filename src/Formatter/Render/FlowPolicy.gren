@@ -65,12 +65,14 @@ surfaced before facts are built.
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , roleGlues
+    )
+import Formatter.RenderTree exposing
+    ( RenderNode
     , commentGluesToPrevious
     , commentLeadsNext
-    , roleGlues
     )
 
 
@@ -301,7 +303,7 @@ The caller supplies the two facts only it can know:
 
 The result order is the priority order, and it is the same in all four.
 -}
-containerCommentSlot : { atOpener : Bool, canGlue : Bool } -> LPNode -> ContainerSlot
+containerCommentSlot : { atOpener : Bool, canGlue : Bool } -> RenderNode -> ContainerSlot
 containerCommentSlot facts node =
     if facts.atOpener then
         LeadsOpener
@@ -766,7 +768,7 @@ blockNextSep rule =
             FlowSep
 
 
--- ═══ STRUCTURAL CLASSIFIERS (renderer-neutral, LPNode-based) ═══
+-- ═══ STRUCTURAL CLASSIFIERS (renderer-neutral, RenderNode-based) ═══
 
 
 -- True if the node is a line or block comment. (Doc comments are their own

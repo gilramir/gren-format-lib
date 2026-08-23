@@ -42,7 +42,10 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , roleGlues
     , roleIs
     , roleToString
+    , shapeGluesToPrevious
     , shapeIsComment
+    , shapeRendersOwnLine
+    , shapeRoleIs
     , spanTrailingOwnLine
     , stypeToString
     , subtreeRowRange
@@ -705,7 +708,18 @@ CLASS of roles, and `commentRendersOwnLine` is `roleIs LeadsLine` **and** a
 shape test -- a role saying own-line is not the same as rendering on one. -}
 roleIs : CommentRole -> LPNode -> Bool
 roleIs role node =
-    commentRole (lpnShape node) == Just role
+    shapeRoleIs role (lpnShape node)
+
+
+{-| `roleIs` at the shape, which is where the answer actually lives.
+
+The render layer asks the same question of a `Formatter.RenderTree.RenderNode`,
+which has no `LPNode` to hand it. Both node types wrap this one body, so the
+rule stays single-implementation across the stage barrier -- the thing this
+module exists to keep true. -}
+shapeRoleIs : CommentRole -> LPShape -> Bool
+shapeRoleIs role shape =
+    commentRole shape == Just role
 
 
 commentTrailsHead : LPNode -> Bool
@@ -766,7 +780,14 @@ roleGlues role =
 `False` for any non-comment node. -}
 commentGluesToPrevious : LPNode -> Bool
 commentGluesToPrevious node =
-    when commentRole (lpnShape node) is
+    shapeGluesToPrevious (lpnShape node)
+
+
+{-| `commentGluesToPrevious` at the shape -- see `shapeRoleIs` for why the
+shape-level spelling is the one with the body. -}
+shapeGluesToPrevious : LPShape -> Bool
+shapeGluesToPrevious shape =
+    when commentRole shape is
         Just role ->
             roleGlues role
 
@@ -799,8 +820,11 @@ the pipeline-step pair, whose halves must agree
 So: scan back over comments, and split at the EARLIEST line-leading one. A run with
 no line-leading member at all peels nothing, exactly as before.
 
-Polymorphic in the element so the pre-rendered `FlowItem` path shares it: pass
-`identity` for a plain node array, `.node` for flow items.
+Polymorphic in the element so the pre-rendered `FlowItem` path shares it, and
+taken at the **shape** rather than the node so both stages share it: pass
+`lpnShape` for a plain `LPNode` array, `rnShape` for a `RenderNode` one,
+`(.node >> rnShape)` for flow items. Everything it asks is a property of the
+shape, so nothing is lost by not seeing the node.
 
 **Lives here, beside `CommentRole`, for the reason `roleGlues` does**: which
 comments form a trailing own-line run is a property of the role and of nothing
@@ -812,15 +836,15 @@ attachment pass and the renderer must agree on, implemented twice by necessity,
 is the shape this module exists to dissolve: both import `LogicalPrintingTree`
 already, so the necessity was in the placement, not in the rule.
 -}
-spanTrailingOwnLine : (a -> LPNode) -> Array a -> { body : Array a, trailing : Array a }
-spanTrailingOwnLine toNode items =
+spanTrailingOwnLine : (a -> LPShape) -> Array a -> { body : Array a, trailing : Array a }
+spanTrailingOwnLine toShape items =
     let
         -- The original rule, unchanged: the maximal suffix of `LeadsLine`
         -- comments.
         plain remaining acc =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    if commentLeadsLine (toNode last) then
+                    if shapeRoleIs LeadsLine (toShape last) then
                         plain initial (Array.pushFirst last acc)
 
                     else
@@ -842,13 +866,13 @@ spanTrailingOwnLine toNode items =
         extended remaining acc best =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    when commentRole (lpnShape (toNode last)) is
+                    when commentRole (toShape last) is
                         Just _ ->
                             let
                                 grown =
                                     Array.pushFirst last acc
                             in
-                            if commentRendersOwnLine (toNode last) then
+                            if shapeRendersOwnLine (toShape last) then
                                 extended initial grown (Just { body = initial, trailing = grown })
 
                             else
@@ -891,8 +915,16 @@ staying at its construct's indent, and whether those should move is a separate
 question with its own fixtures. -}
 commentRendersOwnLine : LPNode -> Bool
 commentRendersOwnLine node =
-    commentLeadsLine node
-        && (when lpnShape node is
+    shapeRendersOwnLine (lpnShape node)
+
+
+{-| `commentRendersOwnLine` at the shape -- see `shapeRoleIs`. `spanTrailingOwnLine`
+below calls this one, which is what lets a single implementation of that split
+serve both stages. -}
+shapeRendersOwnLine : LPShape -> Bool
+shapeRendersOwnLine shape =
+    shapeRoleIs LeadsLine shape
+        && (when shape is
                 BlockComment c ->
                     String.contains "\n" c.loc.value
 
@@ -1094,7 +1126,7 @@ bounds this is a property of the node itself, not aggregated from children.
 
 The opening bracket has no leaf of its own in the tree, so a container whose
 first item dropped to the next input row looks like it *starts* on that row.
-`NodeClassify.segFirstRow` uses this to read a signature segment's true
+`Formatter.RenderTree.segFirstRow` uses this to read a signature segment's true
 start row (`-> { ⏎ x : Int }` begins at the `{`, not the field), so a break
 inside the braces doesn't masquerade as a break between `->` segments.
 -}

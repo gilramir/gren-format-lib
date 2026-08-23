@@ -18,13 +18,7 @@ from it and from nothing else — `makePipelineBox` was the cluster's sole calle
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
-    , commentLeadsLine
-    , lpnChildren
-    , lpnReplaceChildren
-    , lpnShape
-    , lpnWithShape
     )
 import Formatter.Render.Box as B exposing (Box(..))
 import Formatter.Render.BoxOps exposing
@@ -65,6 +59,14 @@ import Formatter.Render.NodeClassify exposing
     , stepOperatorText
     , subtreeHasComment
     )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , commentLeadsLine
+    , rnChildren
+    , rnReplaceChildren
+    , rnShape
+    , rnWithShape
+    )
 import Formatter.Results exposing (traverseResult)
 
 
@@ -79,9 +81,9 @@ box from the same function the other branch uses is also what keeps the two
 branches' answers identical, which is the whole point of the flat join here. -}
 type alias Renderers =
     { assembleFlow : FP.FlowStart -> Int -> Array FlowItem -> Result String Box
-    , buildFlowBox : Int -> Array LPNode -> Result String Box
-    , renderFlowItems : Array LPNode -> Result String (Array FlowItem)
-    , renderStepInline : LPNode -> Result String Box
+    , buildFlowBox : Int -> Array RenderNode -> Result String Box
+    , renderFlowItems : Array RenderNode -> Result String (Array FlowItem)
+    , renderStepInline : RenderNode -> Result String Box
     }
 
 
@@ -92,7 +94,7 @@ seed glues its `<|` onto its own last line; a multi-line body forces the +4 drop
 even when the author kept `<|` on the seed row. A lambda step body (`\x -> …`
 authored across rows) breaks with the head at +4 and its body at +8. A boundary
 comment or a mixed `|>`/`<|` chain routes to the operator-leading fallbacks. -}
-makeBackwardPipelineBox : Renderers -> Bool -> Array LPNode -> Result String Box
+makeBackwardPipelineBox : Renderers -> Bool -> Array RenderNode -> Result String Box
 makeBackwardPipelineBox renderers forceVertical children =
     let
         stepNodes =
@@ -161,7 +163,7 @@ makeBackwardPipelineBox renderers forceVertical children =
         stepLeadsWithComment isFirst stepNode =
             let
                 kids =
-                    lpnChildren stepNode
+                    rnChildren stepNode
 
                 -- A run of comments before the `<|` that can all RIDE its row is
                 -- not a trigger: `stepLeadBoxes` glues it in front of the
@@ -205,7 +207,7 @@ makeBackwardPipelineBox renderers forceVertical children =
                 bodyLeadsWithOwnRowComment =
                     when Array.first bodyAfterGlue is
                         Just firstBodyNode ->
-                            when lpnShape firstBodyNode is
+                            when rnShape firstBodyNode is
                                 SingleLineComment _ ->
                                     True
 
@@ -232,7 +234,7 @@ makeBackwardPipelineBox renderers forceVertical children =
         -- The operator is the first NON-comment child (a step may lead with an
         -- line-leading comment before `<|`).
         stepOpIsBackward stepNode =
-            when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren stepNode)) is
+            when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (rnChildren stepNode)) is
                 Just opNode ->
                     leafValue opNode == Just "<|"
 
@@ -353,7 +355,7 @@ makeBackwardPipelineBox renderers forceVertical children =
                                     -- — on the first step it is a whole-chain trigger,
                                     -- since that operator sits on the seed's row.
                                     { leading, rest = afterLead } =
-                                        spanLeadingComments (lpnChildren stepNode)
+                                        spanLeadingComments (rnChildren stepNode)
 
                                     canRide =
                                         Array.all commentTextCanRide leading
@@ -408,7 +410,7 @@ silently reflows every step below it. (It did: this path applied a uniform
 `grenIndent` to every step and was not updated when `6f06b66` made the plain path
 cumulative, so `a <| b <| c <| d` was a staircase until you wrote a comment in
 it, then went flat.) -}
-makeBackwardCommentedPipeline : Renderers -> Box -> Array LPNode -> Result String Box
+makeBackwardCommentedPipeline : Renderers -> Box -> Array RenderNode -> Result String Box
 makeBackwardCommentedPipeline renderers seedBox stepNodes =
     traverseResult (renderCommentedBackwardStep renderers) stepNodes
         |> Result.map
@@ -426,11 +428,11 @@ makeBackwardCommentedPipeline renderers seedBox stepNodes =
             )
 
 
-renderCommentedBackwardStep : Renderers -> LPNode -> Result String (Array Box)
+renderCommentedBackwardStep : Renderers -> RenderNode -> Result String (Array Box)
 renderCommentedBackwardStep renderers stepNode =
     let
         { leading, rest } =
-            spanLeadingComments (lpnChildren stepNode)
+            spanLeadingComments (rnChildren stepNode)
 
         { body, trailing } =
             spanTrailingComments rest
@@ -451,7 +453,7 @@ renderCommentedBackwardStep renderers stepNode =
 -- over the operand, exactly as it is for a `|>` step (`stepBodyBox`) and for a
 -- binop's operator (`makeOpAndRhsBox`), so anything that drops below it lands at
 -- the operand's own column rather than back at the `<|`.
-backwardStepBodyBox : Renderers -> Array LPNode -> Result String Box
+backwardStepBodyBox : Renderers -> Array RenderNode -> Result String Box
 backwardStepBodyBox renderers body =
     when Array.popFirst body is
         Just { first = opNode, rest = operandNodes } ->
@@ -466,7 +468,7 @@ backwardStepBodyBox renderers body =
             renderers.buildFlowBox 0 body
 
 
-assembleBackwardPipeline : Renderers -> Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode, broke : Bool } -> Result String Box
+assembleBackwardPipeline : Renderers -> Bool -> Box -> Array { leadGlued : Array RenderNode, leadOwnRow : Array RenderNode, glued : Array RenderNode, rest : Array RenderNode, broke : Bool } -> Result String Box
 assembleBackwardPipeline renderers forceVertical seedBox stepBodies =
     when stepBodies is
         [ step ] ->
@@ -486,7 +488,7 @@ assembleBackwardPipeline renderers forceVertical seedBox stepBodies =
 -- `--lpt` for lambdas), so the `_` arm is what actually renders a broken lambda
 -- body. Kept rather than deleted because "believed unreachable" is not proven
 -- unreachable; if you make it fire, the layout it produces is untested.
-backwardSingleStep : Renderers -> Bool -> Box -> { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode, broke : Bool } -> Result String Box
+backwardSingleStep : Renderers -> Bool -> Box -> { leadGlued : Array RenderNode, leadOwnRow : Array RenderNode, glued : Array RenderNode, rest : Array RenderNode, broke : Bool } -> Result String Box
 backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bodyNodes, broke } =
     let
         -- `seed <|`, with any comment the author wrote on that row glued after
@@ -524,7 +526,7 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
             Err "box: backward pipeline empty body"
 
         Just { last = lastNode, initial = headNodes } ->
-            when lpnShape lastNode is
+            when rnShape lastNode is
                 IndentedBlock ->
                     -- Lambda authored across rows: seed <| \n head+4 \n body+8.
                     Result.map3
@@ -537,7 +539,7 @@ backwardSingleStep renderers forceVertical seedBox { leadGlued, glued, rest = bo
                         )
                         opLineBox
                         (renderers.buildFlowBox 0 headNodes)
-                        (renderers.buildFlowBox 0 (lpnChildren lastNode))
+                        (renderers.buildFlowBox 0 (rnChildren lastNode))
 
                 _ ->
                     when gluedLambda is
@@ -568,7 +570,7 @@ pre-R1 layout for that step:
     gave a row of its own keeps it (divergence #30) — none of the three has a
     row to spare.
 -}
-backwardLambdaStep : Array LPNode -> Array LPNode -> Maybe { lead : Array LPNode, split : { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool } }
+backwardLambdaStep : Array RenderNode -> Array RenderNode -> Maybe { lead : Array RenderNode, split : { head : RenderNode, body : Array RenderNode, bodyOnHeadRow : Bool } }
 backwardLambdaStep glued bodyNodes =
     if not (Array.isEmpty glued) then
         Nothing
@@ -621,7 +623,7 @@ with a comment inside its parameter pattern (**D3**, the only thing that can
 break one — divergence #32) then hangs its continuation rows under the `\`
 instead of being refused.
 -}
-renderGluedLambdaStep : Renderers -> Box -> Array LPNode -> { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool } -> Result String Box
+renderGluedLambdaStep : Renderers -> Box -> Array RenderNode -> { head : RenderNode, body : Array RenderNode, bodyOnHeadRow : Bool } -> Result String Box
 renderGluedLambdaStep renderers opBox leadComments { head, body, bodyOnHeadRow } =
     let
         isContinuation =
@@ -690,7 +692,7 @@ Scoped to a chain by its only caller — `renderGluedLambdaStep` calls it exactl
 where R2 gives a body +0, so a `<|` lambda standing on its own keeps the row the
 author gave it (**D5**).
 -}
-closeContinuationBelowHead : Array LPNode -> Array LPNode
+closeContinuationBelowHead : Array RenderNode -> Array RenderNode
 closeContinuationBelowHead bodyNodes =
     Array.map closeChainPipeline bodyNodes
 
@@ -699,35 +701,35 @@ closeContinuationBelowHead bodyNodes =
 -- operand, and the block wrapping the lambda's body. `isBackwardContinuation`
 -- has already established that shape, so each arm here is a no-op rather than a
 -- refusal — and the comments it ignores are simply not on the path.
-closeChainPipeline : LPNode -> LPNode
+closeChainPipeline : RenderNode -> RenderNode
 closeChainPipeline node =
-    when lpnShape node is
+    when rnShape node is
         Pipeline _ ->
-            lpnReplaceChildren node (Array.map closeChainStep (lpnChildren node))
+            rnReplaceChildren node (Array.map closeChainStep (rnChildren node))
 
         _ ->
             node
 
 
-closeChainStep : LPNode -> LPNode
+closeChainStep : RenderNode -> RenderNode
 closeChainStep node =
     if isPipelineStepNode node then
-        lpnReplaceChildren node (Array.map closeChainOperand (lpnChildren node))
+        rnReplaceChildren node (Array.map closeChainOperand (rnChildren node))
 
     else
         node
 
 
-closeChainOperand : LPNode -> LPNode
+closeChainOperand : RenderNode -> RenderNode
 closeChainOperand node =
-    when lpnShape node is
+    when rnShape node is
         BodyBlock ->
-            when Array.popLast (lpnChildren node) is
+            when Array.popLast (rnChildren node) is
                 Just { last, initial } ->
-                    when lpnShape last is
+                    when rnShape last is
                         SoftIndentedBlock ->
-                            lpnReplaceChildren node
-                                (Array.pushLast (lpnWithShape IndentedBlock last) initial)
+                            rnReplaceChildren node
+                                (Array.pushLast (rnWithShape IndentedBlock last) initial)
 
                         _ ->
                             node
@@ -745,7 +747,7 @@ body is rendered as one flow and glued after `<| `, or dropped +4 under
 `seed <|` when the author broke the step, when the body renders across rows, or
 when a comment glued to the operator ends its row.
 -}
-backwardPlainBody : Renderers -> Bool -> Box -> Array LPNode -> Bool -> Result String Box -> Bool -> Array LPNode -> Result String Box
+backwardPlainBody : Renderers -> Bool -> Box -> Array RenderNode -> Bool -> Result String Box -> Bool -> Array RenderNode -> Result String Box
 backwardPlainBody renderers forceVertical seedBox leadGlued glueForcesBreak opLineBox broke bodyNodes =
     buildBackwardBodyBox renderers broke bodyNodes
         |> Result.andThen
@@ -837,7 +839,7 @@ body's first line in the first case and stacks them above it in the second, and
 both are fixed points. Comments that already lead their own line are stacked in
 here as before and do not appear in `ridingLeading` — there is no decision to
 defer for them. -}
-buildBackwardBodyBox : Renderers -> Bool -> Array LPNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box, singleLineSansTrailingComment : Bool }
+buildBackwardBodyBox : Renderers -> Bool -> Array RenderNode -> Result String { box : Box, isBrokenCall : Bool, ridingLeading : Array Box, singleLineSansTrailingComment : Bool }
 buildBackwardBodyBox renderers stepBroke bodyNodes =
     renderers.renderFlowItems bodyNodes
         |> Result.andThen
@@ -1057,7 +1059,7 @@ buildBackwardBodyBox renderers stepBroke bodyNodes =
 --     sending the whole chain operator-leading, which used to move the seed's own
 --     `<|` off its row over a comment two steps away — see
 --     `makeBackwardPipelineBox`.
-backwardMultiStep : Renderers -> Bool -> Box -> Array { leadGlued : Array LPNode, leadOwnRow : Array LPNode, glued : Array LPNode, rest : Array LPNode, broke : Bool } -> Result String Box
+backwardMultiStep : Renderers -> Bool -> Box -> Array { leadGlued : Array RenderNode, leadOwnRow : Array RenderNode, glued : Array RenderNode, rest : Array RenderNode, broke : Bool } -> Result String Box
 backwardMultiStep renderers forceVertical seedBox stepBodies =
     traverseResult (\step -> buildBackwardBodyBox renderers step.broke step.rest) stepBodies
         |> Result.andThen

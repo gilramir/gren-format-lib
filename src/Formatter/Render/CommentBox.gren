@@ -29,16 +29,7 @@ module Formatter.Render.CommentBox exposing
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
-    , commentGluesToPrevious
-    , commentLeadsLine
-    , commentLeadsNext
-    , commentTrailsHead
-    , lpnChildren
-    , lpnReplaceChildren
-    , lpnShape
-    , roleIs
     , spanTrailingOwnLine
     )
 import Formatter.Render.Box as B exposing (Box(..))
@@ -53,6 +44,17 @@ import Formatter.Render.NodeClassify exposing
     , literalCommentsRideFlatLine
     , nodeIsComment
     )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , commentGluesToPrevious
+    , commentLeadsLine
+    , commentLeadsNext
+    , commentTrailsHead
+    , rnChildren
+    , rnReplaceChildren
+    , rnShape
+    , roleIs
+    )
 import Formatter.Results exposing (traverseResult)
 
 
@@ -60,7 +62,7 @@ import Formatter.Results exposing (traverseResult)
 join with a space; a `--` line comment (or a row change) starts a new line.
 A multi-line block comment renders via `multiLineBlockCommentBox` (the reindent
 stack). -}
-makeCommentLineBox : Array LPNode -> Result String Box
+makeCommentLineBox : Array RenderNode -> Result String Box
 makeCommentLineBox children =
     when Array.popFirst children is
         Nothing ->
@@ -124,9 +126,9 @@ makeCommentLineBox children =
 single inline `Line`. Only a single-line block comment fits inline; anything
 else (multi-line block, `--` line comment) can't be glued onto the one-line
 bracket, so it Errs rather than silently drop the comment. -}
-emptyBracketedCommentLine : LPNode -> Result String B.Line
+emptyBracketedCommentLine : RenderNode -> Result String B.Line
 emptyBracketedCommentLine node =
-    when lpnShape node is
+    when rnShape node is
         BlockComment { loc } ->
             if String.contains "\n" loc.value then
                 -- Not a crash: an `Err` here is the "can't fit the one-line form"
@@ -267,7 +269,7 @@ multiLineBlockCommentBox value =
 
 
 -- Split a run of leading comment nodes off the front of a step's children.
-spanLeadingComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+spanLeadingComments : Array RenderNode -> { leading : Array RenderNode, rest : Array RenderNode }
 spanLeadingComments nodes =
     let
         go remaining acc =
@@ -310,11 +312,11 @@ covered the multi-line kind until the comment axis gained it on 2026-08-05.
 Found as 104 cells of that axis's UNREVIEWED parity debt.
 
 -}
-spanOperatorRowComments : Array LPNode -> { glued : Array LPNode, rest : Array LPNode }
+spanOperatorRowComments : Array RenderNode -> { glued : Array RenderNode, rest : Array RenderNode }
 spanOperatorRowComments nodes =
     let
         gluesToOperatorRow node =
-            when lpnShape node is
+            when rnShape node is
                 SingleLineComment { role } ->
                     role /= LeadsLine
 
@@ -340,7 +342,7 @@ spanOperatorRowComments nodes =
 
 
 -- Split a run of trailing comment nodes off the end of a step's children.
-spanTrailingComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingComments : Array RenderNode -> { body : Array RenderNode, trailing : Array RenderNode }
 spanTrailingComments nodes =
     let
         go remaining acc =
@@ -358,15 +360,15 @@ spanTrailingComments nodes =
     go nodes []
 
 
-{-| `spanTrailingOwnLine` at `LPNode`, the shape most callers here want.
+{-| `spanTrailingOwnLine` at `RenderNode`, the shape most callers here want.
 
 The peel itself lives in `Formatter.Logical.LogicalPrintingTree`, beside
 `CommentRole` and `roleGlues`: which comments form a trailing own-line run is a
 property of the role and of nothing else, and `Formatter.Logical.Comments` needs
 the same answer while being unable to import this module. -}
-spanTrailingOwnLineComments : Array LPNode -> { body : Array LPNode, trailing : Array LPNode }
+spanTrailingOwnLineComments : Array RenderNode -> { body : Array RenderNode, trailing : Array RenderNode }
 spanTrailingOwnLineComments nodes =
-    spanTrailingOwnLine (\n -> n) nodes
+    spanTrailingOwnLine rnShape nodes
 
 
 -- Peel trailing comments off a block body / forward pipeline step: single-line
@@ -376,13 +378,13 @@ spanTrailingOwnLineComments nodes =
 -- the line and stays in the flow). Unlike `spanTrailingComments` (the backward-
 -- pipeline helper, which takes every trailing comment), this keeps the discipline
 -- that the peeled run is always inline-gluable (elm-format).
-peelTrailingCommentNodes : Array LPNode -> { bodyNodes : Array LPNode, trailing : Array LPNode }
+peelTrailingCommentNodes : Array RenderNode -> { bodyNodes : Array RenderNode, trailing : Array RenderNode }
 peelTrailingCommentNodes nodes =
     let
         go remaining acc sawLineComment =
             when Array.popLast remaining is
                 Just { last, initial } ->
-                    when lpnShape last is
+                    when rnShape last is
                         SingleLineComment _ ->
                             if sawLineComment then
                                 { bodyNodes = remaining, trailing = acc }
@@ -407,7 +409,7 @@ peelTrailingCommentNodes nodes =
 
 
 -- Glue single-line trailing comments onto a box's last line, each with a space.
-glueTrailingComments : Box -> Array LPNode -> Result String Box
+glueTrailingComments : Box -> Array RenderNode -> Result String Box
 glueTrailingComments box trailing =
     Array.foldl
         (\c accResult ->
@@ -430,9 +432,9 @@ and for one sitting in a flow.
 A multi-line block comment reindents via `multiLineBlockCommentBox`; a doc
 comment's body is emitted verbatim as a single literal (safe — it is a
 standalone root child, already carrying its own closing delimiter). -}
-commentNodeBox : LPNode -> Result String Box
+commentNodeBox : RenderNode -> Result String Box
 commentNodeBox node =
-    when lpnShape node is
+    when rnShape node is
         SingleLineComment { loc } ->
             Ok (B.line (B.lineComment ("--" ++ loc.value)))
 
@@ -452,7 +454,7 @@ commentNodeBox node =
 
 {-| Peel any leading `LeadsInline` block-comment children off the front of a
 declaration's child list, returning them (in source order) and the remainder. -}
-peelLeadingInlineComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+peelLeadingInlineComments : Array RenderNode -> { leading : Array RenderNode, rest : Array RenderNode }
 peelLeadingInlineComments children =
     Array.foldl
         (\child acc ->
@@ -487,9 +489,9 @@ inside the wrapper, `prefixOperator` glued `<| ` onto the comment's own row, and
 the reparse — now seeing the comment on the operator's row — read it as
 `RidesInline` and pulled the lambda up beside it.
 
-Rebuilding the wrapper around what is left (`lpnReplaceChildren`) keeps the
+Rebuilding the wrapper around what is left (`rnReplaceChildren`) keeps the
 operand's own rendering exactly what it was; only the comment is taken out. -}
-spanOperandLeadingComments : Array LPNode -> { leading : Array LPNode, rest : Array LPNode }
+spanOperandLeadingComments : Array RenderNode -> { leading : Array RenderNode, rest : Array RenderNode }
 spanOperandLeadingComments operandNodes =
     let
         top =
@@ -501,11 +503,11 @@ spanOperandLeadingComments operandNodes =
     else
         when operandNodes is
             [ only ] ->
-                when lpnShape only is
+                when rnShape only is
                     BodyBlock ->
                         let
                             inner =
-                                spanLeadingComments (lpnChildren only)
+                                spanLeadingComments (rnChildren only)
                         in
                         -- A wrapper holding nothing but comments has no operand
                         -- for them to lead; leave it whole.
@@ -514,7 +516,7 @@ spanOperandLeadingComments operandNodes =
 
                         else
                             { leading = inner.leading
-                            , rest = [ lpnReplaceChildren only inner.rest ]
+                            , rest = [ rnReplaceChildren only inner.rest ]
                             }
 
                     _ ->
@@ -542,7 +544,7 @@ own width, and only the argument wrap belongs at +4:
            fn arg1
                arg2
 -}
-operatorPrefixedOperandBox : (Array LPNode -> Result String Box) -> String -> Array LPNode -> Result String Box
+operatorPrefixedOperandBox : (Array RenderNode -> Result String Box) -> String -> Array RenderNode -> Result String Box
 operatorPrefixedOperandBox renderOperand op operandNodes =
     let
         { leading, rest } =
@@ -592,7 +594,7 @@ operatorPrefixedOperandBox renderOperand op operandNodes =
 -- True when the comment run between an operator and its operand was written on
 -- the OPERATOR's row (`|> -- c`) rather than on a row below it. Only the first
 -- comment of the run decides: the ones after it follow wherever it went.
-runStartsOnOperatorRow : Array LPNode -> Bool
+runStartsOnOperatorRow : Array RenderNode -> Bool
 runStartsOnOperatorRow leading =
     when Array.first leading is
         Just node ->
@@ -606,7 +608,7 @@ runStartsOnOperatorRow leading =
 the operator will trail — `fn` + `{- c -}` becomes `fn {- c -}`, and the caller
 then appends ` <|`. Only a run that can ride gets this far
 (`stepLeadsWithComment`), so the result is still one line whenever `base` was. -}
-stepLeadBoxes : Array LPNode -> Box -> Result String Box
+stepLeadBoxes : Array RenderNode -> Box -> Result String Box
 stepLeadBoxes leadGlued base =
     traverseResult commentNodeBox leadGlued
         |> Result.map (Array.foldl glueCommentSuffix base)
@@ -617,7 +619,7 @@ itself, sitting alone on a row, so that `{- c -} <|` keeps the comment on the
 side of the operator the author wrote it on. Gluing it as a suffix there gives
 `<| {- c -}`, which the reparse reads as a comment leading the OPERAND and
 renders somewhere else again. -}
-stepLeadPrefixBoxes : Array LPNode -> Box -> Result String Box
+stepLeadPrefixBoxes : Array RenderNode -> Box -> Result String Box
 stepLeadPrefixBoxes leadGlued base =
     traverseResult commentNodeBox leadGlued
         |> Result.map (\boxes -> Array.foldr glueLeadingCommentPrefix base boxes)
@@ -638,7 +640,7 @@ row-reading here:
 The rest of the leading run is not the base's: `LeadsNext` is a comment rule C2
 hands to the field after the unrecorded `|`, and `LeadsLine` one the author
 put on a row of its own. Both render among the fields. -}
-splitOpenerComments : Array LPNode -> { opener : Array LPNode, baseTrail : Array LPNode, rest : Array LPNode }
+splitOpenerComments : Array RenderNode -> { opener : Array RenderNode, baseTrail : Array RenderNode, rest : Array RenderNode }
 splitOpenerComments children =
     let
         n =
@@ -671,7 +673,7 @@ splitOpenerComments children =
 -- all-or-nothing run rule — and any `TrailsHead` comment glued onto the end of
 -- its line, the way one glues onto the item it trails. The `{ ` itself is
 -- supplied by the caller.
-updateBaseBox : String -> Array LPNode -> Array LPNode -> Result String Box
+updateBaseBox : String -> Array RenderNode -> Array RenderNode -> Result String Box
 updateBaseBox baseName opener baseTrail =
     let
         headBox =
@@ -700,7 +702,7 @@ updateBaseBox baseName opener baseTrail =
 comment's own shape (`commentTextCanRide`) — whether it belongs in front of what
 follows is already settled by its `CommentRole`, so all that is left to ask here
 is whether it fits on a row. -}
-leadCommentRunBoxes : Array LPNode -> Result String (Array { box : Box, inline : Bool })
+leadCommentRunBoxes : Array RenderNode -> Result String (Array { box : Box, inline : Bool })
 leadCommentRunBoxes nodes =
     traverseResult
         (\node ->
@@ -732,7 +734,7 @@ actually about to be emitted, for every caller and every future one.
 `BracketLineCommentClose` is the fixture, and it still passes with this clause
 deleted.
 -}
-commentForcesBracketOpen : Bool -> Array LPNode -> Bool
+commentForcesBracketOpen : Bool -> Array RenderNode -> Bool
 commentForcesBracketOpen forceVertical children =
     Array.any nodeIsComment children
         && (forceVertical || not (literalCommentsRideFlatLine children))
@@ -748,7 +750,7 @@ first. With no comments among the children this is exactly
 `traverseResult renderItem` — the same one function serves the comment-free and
 comment-bearing cases, so the two cannot drift apart.
 -}
-pairInlineComments : (Box -> Bool) -> (LPNode -> Result String Box) -> Array LPNode -> Result String (Array Box)
+pairInlineComments : (Box -> Bool) -> (RenderNode -> Result String Box) -> Array RenderNode -> Result String (Array Box)
 pairInlineComments leadMayRide renderItem children =
     Array.foldl
         (\node accResult ->

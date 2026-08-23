@@ -352,6 +352,9 @@ Everything above is the short version. The full documents are in this same
   run of comments is covered.
 - **[Testing gates](testing.md)** — every independent check, what failure
   class it aims at, and how to run it.
+- **[What lowering to a RenderNode costs](renderTreeMemory.md)** — the
+  measurement behind the render barrier's second tree, and why peak RSS is the
+  wrong instrument to measure it with.
 - **[Long fuzz sweeps](fuzzTesting.md)** — grinding through hundreds of
   thousands of random modules with `fuzzrun.py`, and
   **[across several hosts](distributedFuzzing.md)**.

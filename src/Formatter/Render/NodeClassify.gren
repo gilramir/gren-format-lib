@@ -22,8 +22,6 @@ module Formatter.Render.NodeClassify exposing
     , nodeIsComment
     , nodesLeadWithComment
     , parenContentIsLambdaHead
-    , rowsSpanMultiple
-    , signatureForceVertical
     , splitOffLambdaHead
     , splitSignatureSegments
     , stepBrokeItsRows
@@ -33,31 +31,36 @@ module Formatter.Render.NodeClassify exposing
     , valueNodeIsHardBlock
     )
 
-{-| Boolean predicates and small structural queries over LPT nodes.
+{-| Boolean predicates and small structural queries over render-tree nodes.
+
+Everything here reads a node's `LPShape`, its children, or its comment text.
+Nothing here can read a source row: the render layer's `RenderNode`
+(`Formatter.RenderTree`) has no position fields on it, which is what makes the
+"placement is decided in `Comments.gren`, never re-derived at render time"
+barrier a compile error rather than a convention.
 -}
 
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
     , ListBrackets(..)
     , PrefixKind(..)
     , RecordKind(..)
     , commentRole
-    , firstRowInSubtree
-    , lpnBracketStart
-    , lpnChildren
-    , lpnHasComment
-    , lpnMaxRow
-    , lpnShape
     , shapeIsComment
     )
 import Formatter.Render.Box as B
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , rnChildren
+    , rnHasComment
+    , rnShape
+    )
 
 
-nodeIsComment : LPNode -> Bool
+nodeIsComment : RenderNode -> Bool
 nodeIsComment node =
-    shapeIsComment (lpnShape node)
+    shapeIsComment (rnShape node)
 
 
 {-| True when a flow's first node is a comment — the one arrangement under which
@@ -68,7 +71,7 @@ nothing to choose between.
 
 Structural: reads the first child's shape, no rows and no rendered text.
 -}
-nodesLeadWithComment : Array LPNode -> Bool
+nodesLeadWithComment : Array RenderNode -> Bool
 nodesLeadWithComment nodes =
     when Array.first nodes is
         Just first ->
@@ -85,9 +88,9 @@ nodesLeadWithComment nodes =
 -- O(1): the answer is cached on the node by `lpnNode`, alongside the position
 -- bounds and for the same reason -- the renderer asks it at several levels of
 -- one descent, and walking the subtree per level made it O(size x depth).
-subtreeHasComment : LPNode -> Bool
+subtreeHasComment : RenderNode -> Bool
 subtreeHasComment =
-    lpnHasComment
+    rnHasComment
 
 
 {-| True when the subtree's last descendant is a **multi-line** `{- … -}`.
@@ -107,9 +110,9 @@ the next glue lands on. (The `--` twin of this predicate is gone — a `--` leav
 a mark on the rendered box itself, so `B.endsOpen` answers that one without a
 walk. This one cannot follow: a multi-line `{- … -}` leaves a box whose extra
 rows are indistinguishable from any other multi-row box's.) -}
-subtreeEndsWithMultilineBlockComment : LPNode -> Bool
+subtreeEndsWithMultilineBlockComment : RenderNode -> Bool
 subtreeEndsWithMultilineBlockComment node =
-    when lpnShape node is
+    when rnShape node is
         BlockComment { loc } ->
             String.contains "\n" loc.value
 
@@ -129,7 +132,7 @@ subtreeEndsWithMultilineBlockComment node =
             False
 
         _ ->
-            when Array.last (lpnChildren node) is
+            when Array.last (rnChildren node) is
                 Just child ->
                     subtreeEndsWithMultilineBlockComment child
 
@@ -141,9 +144,9 @@ subtreeEndsWithMultilineBlockComment node =
 line, or a block comment that carries its own newlines. A single-line `{- … -}`
 does not, which is exactly why it can ride a flat line. Shared by every "does
 this comment force a break" question so they cannot drift apart. -}
-commentEndsItsLine : LPNode -> Bool
+commentEndsItsLine : RenderNode -> Bool
 commentEndsItsLine node =
-    when lpnShape node is
+    when rnShape node is
         SingleLineComment _ ->
             True
 
@@ -186,7 +189,7 @@ shape and must stay one.
 Reads LPT shape kinds only — no source rows, no rendered text — so it is
 render-invariant safe.
 -}
-commentBreaksFlowRow : Array LPNode -> Bool
+commentBreaksFlowRow : Array RenderNode -> Bool
 commentBreaksFlowRow children =
     let
         step node acc =
@@ -220,12 +223,12 @@ comment the author wrote across an unrecorded `,`/`|`, which rule C2 hands to
 the item *after* the separator (`[ 1, {- c -} 2 ]`); by rule C3 that must not be
 a reason to break the literal open, so it rides too when its own text can.
 -}
-literalCommentsRideFlatLine : Array LPNode -> Bool
+literalCommentsRideFlatLine : Array RenderNode -> Bool
 literalCommentsRideFlatLine children =
     not
         (Array.any
             (\node ->
-                when commentRole (lpnShape node) is
+                when commentRole (rnShape node) is
                     Just RidesInline ->
                         False
 
@@ -251,9 +254,9 @@ is settled by the stored `CommentRole` before the renderer sees the node.
 `RidesInline` bundles both answers (single-line block AND written on the previous
 item's row); a `LeadsNext` comment has its side already decided by the role and
 only this half left to ask. -}
-commentTextCanRide : LPNode -> Bool
+commentTextCanRide : RenderNode -> Bool
 commentTextCanRide node =
-    when lpnShape node is
+    when rnShape node is
         BlockComment { loc } ->
             not (String.contains "\n" loc.value)
 
@@ -264,9 +267,9 @@ commentTextCanRide node =
 -- ═══ BINOPS ═══
 
 
-isOpAndRhsNode : LPNode -> Bool
+isOpAndRhsNode : RenderNode -> Bool
 isOpAndRhsNode node =
-    when lpnShape node is
+    when rnShape node is
         OpAndRhs ->
             True
 
@@ -274,24 +277,12 @@ isOpAndRhsNode node =
             False
 
 
--- True when the given source rows are not all equal (the author spread items
--- across rows).
-rowsSpanMultiple : Array Int -> Bool
-rowsSpanMultiple rows =
-    when Array.popFirst rows is
-        Nothing ->
-            False
-
-        Just { first, rest } ->
-            Array.any (\r -> r /= first) rest
-
-
 -- ═══ PIPELINES ═══
 
 
-isPipelineStepNode : LPNode -> Bool
+isPipelineStepNode : RenderNode -> Bool
 isPipelineStepNode node =
-    when lpnShape node is
+    when rnShape node is
         PipelineStep _ ->
             True
 
@@ -308,14 +299,14 @@ its SECOND child too — its first branch — so without it this reports
 `(if c then a else b)` as a lambda, and the callers that split a lambda into
 `[head, body]` drop every later branch, `else` included.
 -}
-isMultilineLambdaParenBlockBox : LPNode -> Bool
+isMultilineLambdaParenBlockBox : RenderNode -> Bool
 isMultilineLambdaParenBlockBox node =
-    when lpnShape node is
+    when rnShape node is
         ParenBlock _ ->
             parenContentIsLambdaHead node
-                && (when Array.get 1 (lpnChildren node) is
+                && (when Array.get 1 (rnChildren node) is
                         Just secondChild ->
-                            when lpnShape secondChild is
+                            when rnShape secondChild is
                                 IndentedBlock ->
                                     True
 
@@ -334,9 +325,9 @@ isMultilineLambdaParenBlockBox node =
 -- `if`/`when`/`let` — identified by the first child's box (matching
 -- `makeParenBlockBox`'s content dispatch). Guards the direct-operand lambda split
 -- against mangling a paren-`if`/`when` (whose branches are also blocks).
-parenContentIsLambdaHead : LPNode -> Bool
+parenContentIsLambdaHead : RenderNode -> Bool
 parenContentIsLambdaHead node =
-    when Array.first (lpnChildren node) is
+    when Array.first (rnChildren node) is
         Just headNode ->
             not (isBlockKeywordHead headNode)
 
@@ -351,9 +342,9 @@ parenContentIsLambdaHead node =
 --
 -- Asking for the keyword text is a comparison against LANGUAGE SYNTAX, which is
 -- the one thing a layout change cannot move (see `leafValue`).
-isBlockKeywordHead : LPNode -> Bool
+isBlockKeywordHead : RenderNode -> Bool
 isBlockKeywordHead headNode =
-    when lpnShape headNode is
+    when rnShape headNode is
         IfCondition _ ->
             True
 
@@ -374,9 +365,9 @@ recorded it is unwrapped into the step's children at build time. Everything else
 about a step's layout is read off the rendered boxes; this one fact cannot be,
 the rows being exactly what the unwrap spent.
 -}
-stepBrokeItsRows : LPNode -> Bool
+stepBrokeItsRows : RenderNode -> Bool
 stepBrokeItsRows stepNode =
-    when lpnShape stepNode is
+    when rnShape stepNode is
         PipelineStep step ->
             step.forceVertical
 
@@ -396,14 +387,14 @@ A `when` arrives as a `WhenFlow` in its own right; an `if` and a `let` arrive
 wrapped in a `BodyBlock`, so they are recognised by what heads that block — the
 same question `parenContentIsLambdaHead` asks one level down.
 -}
-isBareBlockOperand : LPNode -> Bool
+isBareBlockOperand : RenderNode -> Bool
 isBareBlockOperand operandNode =
-    when lpnShape operandNode is
+    when rnShape operandNode is
         WhenFlow _ ->
             True
 
         BodyBlock ->
-            when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren operandNode)) is
+            when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (rnChildren operandNode)) is
                 Just headNode ->
                     isBlockKeywordHead headNode
 
@@ -418,9 +409,9 @@ isBareBlockOperand operandNode =
 comment among the field's children (e.g. `gamma = {- c -} 3`). `buildFlowBox`
 drops such a value below `= `, so it composes with the field's `| `/`, `
 prefix — unlike a soft broken-call/binop value, which stays glued (elm-format). -}
-fieldValueDropsToOwnLine : LPNode -> Bool
+fieldValueDropsToOwnLine : RenderNode -> Bool
 fieldValueDropsToOwnLine node =
-    Array.any nodeIsComment (lpnChildren node)
+    Array.any nodeIsComment (rnChildren node)
 
 
 {-| The literal text of a leaf node (`UnbreakableText` / `SynthesizedText`), or
@@ -438,9 +429,9 @@ at construction and nothing about the separator's spelling should be load-bearin
 for it. Comment PLACEMENT is the third case, and the strictest: it is decided
 once in `Comments.gren` and stored as a `CommentRole`, and
 `check-render-invariant.py` fails the build if anything here re-derives it. -}
-leafValue : LPNode -> Maybe String
+leafValue : RenderNode -> Maybe String
 leafValue node =
-    when lpnShape node is
+    when rnShape node is
         UnbreakableText locs ->
             Just locs.value
 
@@ -451,19 +442,26 @@ leafValue node =
             Nothing
 
 
-isArrowLeaf : LPNode -> Bool
+isArrowLeaf : RenderNode -> Bool
 isArrowLeaf node =
     leafValue node == Just "->"
 
 
-isColonLeaf : LPNode -> Bool
+isColonLeaf : RenderNode -> Bool
 isColonLeaf node =
     leafValue node == Just ":"
 
 
 {-| Split a signature's type nodes at each top-level `->`: the first segment is
-the leading type; each later one begins with its `->`. -}
-splitSignatureSegments : Array LPNode -> Array (Array LPNode)
+the leading type; each later one begins with its `->`.
+
+This is the position-free half of what used to be four functions here. The other
+half -- `segFirstRow` / `segLastRow` / `signatureForceVertical`, which asked
+whether the AUTHOR broke the type at one of these boundaries -- read source rows,
+so it moved to `Formatter.RenderTree` and arrives as the precomputed
+`rnTypeSegmentsBroken` flag. The split itself stays: the renderer still lays out
+one segment per line, and that needs no rows. -}
+splitSignatureSegments : Array RenderNode -> Array (Array RenderNode)
 splitSignatureSegments nodes =
     Array.foldl
         (\node acc ->
@@ -482,64 +480,6 @@ splitSignatureSegments nodes =
         nodes
 
 
--- A segment's first / last content row, ignoring the leading arrow.
---
--- A segment beginning with a bracketed type (`{ … }`, `( … )`) starts where its
--- *opening bracket* sits, not at its first inner token — the bracket has no leaf,
--- so `firstRowInSubtree` alone would report the first field's row, and a break
--- just inside the bracket would masquerade as a break between `->` segments,
--- flipping the whole signature to multi-line.
-segFirstRow : Array LPNode -> Int
-segFirstRow seg =
-    Array.foldl
-        (\node acc ->
-            if isArrowLeaf node || nodeIsComment node then
-                acc
-
-            else
-                let
-                    leafR =
-                        firstRowInSubtree node
-
-                    r =
-                        when lpnBracketStart node is
-                            Just open ->
-                                if leafR < 0 then
-                                    open.row
-
-                                else
-                                    min open.row leafR
-
-                            Nothing ->
-                                leafR
-                in
-                if acc < 0 then
-                    r
-
-                else if r < 0 then
-                    acc
-
-                else
-                    min acc r
-        )
-        -1
-        seg
-
-
-segLastRow : Array LPNode -> Int
-segLastRow seg =
-    Array.foldl
-        (\node acc ->
-            if isArrowLeaf node || nodeIsComment node then
-                acc
-
-            else
-                max acc (lpnMaxRow node)
-        )
-        -1
-        seg
-
-
 {-| True when `node` is a curly-bracket *type* record literal (`{ a : T, … }`),
 as opposed to an *expression* record (`{ a = v }`), a record update, an array,
 or a pattern. The discriminator is the field separator: a type field is built
@@ -550,9 +490,9 @@ line (elm-format's application rule for type applications / type field values)
 without disturbing the many *expression* flows that share the fold and must
 keep their records/arrays/patterns inline.
 -}
-isTypeRecordLiteral : LPNode -> Bool
+isTypeRecordLiteral : RenderNode -> Bool
 isTypeRecordLiteral node =
-    when lpnShape node is
+    when rnShape node is
         AlwaysVertical (ListCurly RecordType) ->
             True
 
@@ -570,10 +510,10 @@ EXPRESSION does (`{ r | a : Int }`; see `LogicalPrintingTree.gren`'s
 `RecordUpdate` doc). Treating any `RecordUpdate` found here as a type is safe
 only because every call site restricts `node` to a signature's TYPE position,
 where `RecordUpdate` can never mean an update expression. -}
-isDroppingSignatureRecordNode : LPNode -> Bool
+isDroppingSignatureRecordNode : RenderNode -> Bool
 isDroppingSignatureRecordNode node =
     isTypeRecordLiteral node
-        || (when lpnShape node is
+        || (when rnShape node is
                 RecordUpdate _ ->
                     True
 
@@ -582,39 +522,10 @@ isDroppingSignatureRecordNode node =
            )
 
 
-{-| True when the author broke the type across rows at a `->` boundary (a later
-segment starts on a row after the previous segment ended). -}
-signatureForceVertical : Array (Array LPNode) -> Bool
-signatureForceVertical segments =
-    (Array.foldl
-        (\seg acc ->
-            let
-                first =
-                    segFirstRow seg
-
-                last =
-                    segLastRow seg
-            in
-            { broken =
-                acc.broken
-                    || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
-            , prevLast =
-                if last >= 0 then
-                    last
-
-                else
-                    acc.prevLast
-            }
-        )
-        { broken = False, prevLast = -1 }
-        segments
-    ).broken
-
-
 -- The `Line` (not boxed) of the given leaf nodes joined by single spaces. Only
 -- valid for all-leaf node arrays (caller must have checked `headerAllLeaves`);
 -- a non-leaf renders as "".
-leafLineRow : Array LPNode -> B.Line
+leafLineRow : Array RenderNode -> B.Line
 leafLineRow nodes =
     B.row
         (Array.intersperse B.space
@@ -625,9 +536,9 @@ leafLineRow nodes =
 -- ═══ MODULE & IMPORT LINES ═══
 
 
-isEmptyLine : LPNode -> Bool
+isEmptyLine : RenderNode -> Bool
 isEmptyLine node =
-    when lpnShape node is
+    when rnShape node is
         EmptyLine ->
             True
 
@@ -650,15 +561,15 @@ A paren with more children relocates through the generic paren box instead, whic
 renders all of them — and puts the trailing comment one column past the `(`,
 which is both what gren already does for the identical paren in a plain call and
 what elm-format prints for both. -}
-lambdaParenIsHeadAndBodyOnly : LPNode -> Bool
+lambdaParenIsHeadAndBodyOnly : RenderNode -> Bool
 lambdaParenIsHeadAndBodyOnly node =
-    Array.length (lpnChildren node) <= 2
+    Array.length (rnChildren node) <= 2
 
 
 -- The `|>` / `<|` leaf a pipeline step starts with. Anything else (a step whose
 -- children were rewritten, a leading comment left in place) is not an operator
 -- and keeps the whole child array on the flow path.
-stepOperatorText : LPNode -> Maybe String
+stepOperatorText : RenderNode -> Maybe String
 stepOperatorText node =
     when leafValue node is
         Just v ->
@@ -676,9 +587,9 @@ stepOperatorText node =
 lambda body, …). A hard-block value already drops after `=` through its own
 block box, so the soft-value drop rule (`dropFieldValueBoxWithBox`) never
 applies to it — callers short-circuit on this before rendering the value. -}
-valueNodeIsHardBlock : LPNode -> Bool
+valueNodeIsHardBlock : RenderNode -> Bool
 valueNodeIsHardBlock valueNode =
-    when lpnShape valueNode is
+    when rnShape valueNode is
         BodyBlock ->
             True
 
@@ -714,9 +625,9 @@ Either makes the lambda render multi-line while still glued — and the reparse
 then sees the body on a later row, flips to the drop form, and the file
 oscillates. `renderGluedLambdaField` settles it by observing the rendered box
 instead of predicting it. -}
-isGluedLambdaField : LPNode -> LPNode -> Bool
+isGluedLambdaField : RenderNode -> RenderNode -> Bool
 isGluedLambdaField field valueNode =
-    when { f = lpnShape field, v = lpnShape valueNode } is
+    when { f = rnShape field, v = rnShape valueNode } is
         { f = IndentedBlock, v = SoftIndentedBlock } ->
             True
 
@@ -729,7 +640,7 @@ the LAST node that is not a comment. What precedes it is the field head
 (`fld =`), what follows is the lambda head and any comment written between it and
 the body, which drops with it. `Nothing` when there is no non-comment node at
 all, which the container's shape rules out. -}
-splitOffLambdaHead : Array LPNode -> Maybe { fieldHead : Array LPNode, lambdaNodes : Array LPNode }
+splitOffLambdaHead : Array RenderNode -> Maybe { fieldHead : Array RenderNode, lambdaNodes : Array RenderNode }
 splitOffLambdaHead nodes =
     Array.foldl
         (\node acc ->
@@ -781,13 +692,13 @@ the glued form.
 A comment there also means the body cannot ride the `->`'s row, whatever block
 wraps it, so `bodyOnHeadRow` is False as soon as one is present.
 -}
-lambdaOperandSplit : Array LPNode -> Maybe { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool }
+lambdaOperandSplit : Array RenderNode -> Maybe { head : RenderNode, body : Array RenderNode, bodyOnHeadRow : Bool }
 lambdaOperandSplit operandNodes =
     when operandNodes is
         [ only ] ->
-            when lpnShape only is
+            when rnShape only is
                 BodyBlock ->
-                    when Array.popFirst (lpnChildren only) is
+                    when Array.popFirst (rnChildren only) is
                         Just { first = headNode, rest = afterHead } ->
                             if isLambdaHeadNode headNode then
                                 lambdaBodySplit headNode afterHead
@@ -808,7 +719,7 @@ lambdaOperandSplit operandNodes =
 -- What follows a lambda's head inside the operand: the body block, with any
 -- comments the author wrote between the two in front of it. Anything else there
 -- (a second non-comment node) is not a shape R1 can place, so it declines.
-lambdaBodySplit : LPNode -> Array LPNode -> Maybe { head : LPNode, body : Array LPNode, bodyOnHeadRow : Bool }
+lambdaBodySplit : RenderNode -> Array RenderNode -> Maybe { head : RenderNode, body : Array RenderNode, bodyOnHeadRow : Bool }
 lambdaBodySplit headNode afterHead =
     when Array.popLast afterHead is
         Just { last = bodyNode, initial = between } ->
@@ -818,12 +729,12 @@ lambdaBodySplit headNode afterHead =
             else
                 let
                     body =
-                        between ++ lpnChildren bodyNode
+                        between ++ rnChildren bodyNode
 
                     onHeadRow =
                         Array.isEmpty between
                 in
-                when lpnShape bodyNode is
+                when rnShape bodyNode is
                     SoftIndentedBlock ->
                         Just { head = headNode, body = body, bodyOnHeadRow = onHeadRow }
 
@@ -843,11 +754,11 @@ lambdaBodySplit headNode afterHead =
 -- ask the shape instead because it is handed the whole content). A comment
 -- written in front of the `\` does not stop it being a lambda head; it renders
 -- inside the head flow either way.
-isLambdaHeadNode : LPNode -> Bool
+isLambdaHeadNode : RenderNode -> Bool
 isLambdaHeadNode node =
-    when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren node)) is
+    when Array.first (Array.keepIf (\n -> not (nodeIsComment n)) (rnChildren node)) is
         Just firstChild ->
-            when lpnShape firstChild is
+            when rnShape firstChild is
                 PrefixGlue loc ->
                     loc.value == PrefixLambdaHead
 
@@ -880,19 +791,19 @@ anything it cannot place, while this one only asks what the step *is*. A comment
 in the step must not move the column every row below it sits at (rule C4); all
 it can cost is the head glue for the step it is written in.
 -}
-isBackwardContinuation : Array LPNode -> Bool
+isBackwardContinuation : Array RenderNode -> Bool
 isBackwardContinuation bodyNodes =
     when Array.keepIf (\n -> not (nodeIsComment n)) bodyNodes is
         [ only ] ->
-            when lpnShape only is
+            when rnShape only is
                 Pipeline p ->
                     if p.op /= "<|" then
                         False
 
                     else
-                        when Array.keepIf isPipelineStepNode (lpnChildren only) is
+                        when Array.keepIf isPipelineStepNode (rnChildren only) is
                             [ step ] ->
-                                when Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren step) is
+                                when Array.keepIf (\n -> not (nodeIsComment n)) (rnChildren step) is
                                     [ opNode, operandNode ] ->
                                         (leafValue opNode == Just "<|")
                                             && isBareLambdaOperand operandNode
@@ -920,14 +831,14 @@ stays glued to the operator's row instead of stranding it — the same exclusion
 parenthesized lambda has always had, which is why `|> (\x -> …)` looked right
 and `|> \x -> …` did not.
 -}
-isBareLambdaOperand : LPNode -> Bool
+isBareLambdaOperand : RenderNode -> Bool
 isBareLambdaOperand operandNode =
-    when lpnShape operandNode is
+    when rnShape operandNode is
         BodyBlock ->
-            when Array.keepIf (\n -> not (nodeIsComment n)) (lpnChildren operandNode) is
+            when Array.keepIf (\n -> not (nodeIsComment n)) (rnChildren operandNode) is
                 [ headNode, bodyNode ] ->
                     isLambdaHeadNode headNode
-                        && (when lpnShape bodyNode is
+                        && (when rnShape bodyNode is
                                 SoftIndentedBlock ->
                                     True
 

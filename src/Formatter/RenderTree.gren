@@ -1,0 +1,504 @@
+module Formatter.RenderTree exposing
+    ( RenderNode
+    , commentGluesToPrevious
+    , commentLeadsLine
+    , commentLeadsNext
+    , commentRidesInline
+    , commentTrailsHead
+    , lower
+    , rnChildren
+    , rnHasComment
+    , rnHasSourceContent
+    , rnReplaceChildren
+    , rnShape
+    , rnSharesRowWithPrevItem
+    , rnTypeSegmentsBroken
+    , rnVariantsSpanRows
+    , rnWithShape
+    , roleIs
+    )
+
+{-| The render tree: an `LPNode` with the source positions taken off it.
+
+This module is the **barrier** between the two stages. `Formatter.Logical`
+builds an `LPNode`, whose record caches seven source-position fields
+(`firstPos`, `lastPos`, `minRow`, `maxRow`, `lastBracketEnd`, `bracketStart`,
+and the two bracket flags) that the comment-placement pass reads constantly.
+`Formatter.Render` must not: after `Comments.gren` has run, layout is decided
+from author-intent flags captured at LPT build and from the *rendered box shape*
+(`isSingleLine` / `allSingles`), never re-derived from source rows. Re-deriving
+one is the oscillation/crash class this architecture was built to eliminate --
+the renderer's own output has different rows from the author's, so a rule that
+reads rows at render time can disagree with itself on the second format.
+
+`lower` drops the position cache, and every module under `Formatter/Render/`
+takes `RenderNode` instead of `LPNode`. A row read in the render layer is then
+not a reviewed exception, it is a **type error**: there is no field to read and
+no accessor that accepts the type. That used to be enforced by
+`tests/check-render-invariant.py`, an allowlist keyed on a regex enumerating
+eight accessor names -- which is exactly the shape of gate this repo keeps
+finding holes in, and it had one: `lpnBracketStart` was not in the enumeration
+and *was* called in `Render/NodeClassify.gren`. Nothing unreviewed slipped
+through only because that call happened to sit inside an allowlisted function.
+
+`LPShape` is carried across unchanged. Render only ever reads `.value` off its
+`Located` payloads, never `.start` / `.end`, so the shapes are already
+position-free in practice. That one spelling is all `check-render-invariant.py`
+has left to gate; making it a type error too -- an `LPShape` mirrored without its
+`Located`s -- is the second half of this refactor. `docs/commentAlgorithm.md`
+§2.2 states the barrier, and `docs/testing.md` covers what the script still
+does.
+
+
+## The five facts that were rows
+
+Five render-side decisions genuinely needed the author's rows. They are not
+comment placement or verticality -- each is a structural or author-intent
+question with a boolean answer -- so `lower` computes them once, here, and the
+renderer reads the answer:
+
+  - `rnSharesRowWithPrevItem` -- did the author write this node on the same row
+    as the item before it? (`FlowAssembly`'s function+arg0 glue.)
+  - `rnHasSourceContent` -- does this node cover any source row at all?
+    (`FlowAssembly`'s "the previous entry is real content" guard.)
+  - `rnVariantsSpanRows` -- did the author write this node's children across
+    rows? (`MakeRenderBox.makeUnionBodyBox`: flat `= A | B` vs one variant per
+    line.)
+  - `rnTypeSegmentsBroken` -- did the author break this node's children at a
+    `->` boundary? (`makeSignatureBox` / `makeTypeAliasBody`.)
+
+That finishes the doctrine rather than inventing a mechanism: these were
+author-intent flags all along, computed lazily at render time instead of eagerly
+at build time like `AcrossOrVertical`'s `forceVertical`.
+
+@docs RenderNode, lower
+@docs rnShape, rnChildren, rnHasComment, rnReplaceChildren, rnWithShape
+@docs roleIs, commentTrailsHead, commentLeadsLine, commentLeadsNext
+@docs commentRidesInline, commentGluesToPrevious
+@docs rnSharesRowWithPrevItem, rnHasSourceContent, rnVariantsSpanRows, rnTypeSegmentsBroken
+
+-}
+
+import Formatter.Logical.LogicalPrintingTree as LPT exposing
+    ( CommentRole(..)
+    , LPNode
+    , LPShape(..)
+    , firstRowInSubtree
+    , lpnBracketStart
+    , lpnChildren
+    , lpnFirstPos
+    , lpnHasComment
+    , lpnMaxRow
+    , lpnShape
+    , shapeIsComment
+    , shapeRoleIs
+    )
+
+
+{-| A logical-printing-tree node with no source positions on it.
+
+Carries the `shape` and `children` the renderer dispatches on, the
+`hasComment` cache it routes comment-bearing constructs by, and the four
+position-derived booleans `lower` precomputes. Opaque, like `LPNode`: the only
+way to make one is `lower`, so no render-side code can mint a node with a
+made-up flag.
+-}
+type RenderNode
+    = RenderNode
+        { shape : LPShape
+        , children : Array RenderNode
+        , hasComment : Bool
+        , sharesRowWithPrevItem : Bool
+        , hasSourceContent : Bool
+        , variantsSpanRows : Bool
+        , typeSegmentsBroken : Bool
+        }
+
+
+{-| Drop the position cache from a finished LPT, precomputing the four facts the
+renderer still needs from it. Called by `Formatter.Render` (and by the two
+`Formatter.Audit` tools, which ask the renderer's own predicates); nothing under
+`Formatter/Render/` calls it, because nothing there has an `LPNode` to lower.
+-}
+lower : LPNode -> RenderNode
+lower node =
+    lowerNode False node
+
+
+lowerNode : Bool -> LPNode -> RenderNode
+lowerNode sharesRow node =
+    let
+        children =
+            lpnChildren node
+    in
+    RenderNode
+        { shape = lpnShape node
+        , children = lowerChildren children
+        , hasComment = lpnHasComment node
+        , sharesRowWithPrevItem = sharesRow
+        , hasSourceContent = lpnMaxRow node >= 0
+        , variantsSpanRows = childRowsSpanMultiple children
+        , typeSegmentsBroken = segmentsBrokenAtArrow children
+        }
+
+
+{-| Lower a sibling run, handing each child the one fact it cannot compute
+alone: whether the author wrote it on the same row as the item before it.
+
+"Before it" means the previous **non-comment** sibling, matching the render-side
+question this replaces: the fn+arg0 glue skips the riding comments between the
+two and refuses outright when either end is a comment, so a comment in the gap
+must not move the answer -- writing one changes neither token's row.
+-}
+lowerChildren : Array LPNode -> Array RenderNode
+lowerChildren children =
+    (Array.foldl
+        (\child acc ->
+            { prev =
+                if shapeIsComment (lpnShape child) then
+                    acc.prev
+
+                else
+                    Just child
+            , out = Array.pushLast (lowerNode (startsOnRowOf acc.prev child) child) acc.out
+            }
+        )
+        { prev = Nothing, out = [] }
+        children
+    ).out
+
+
+{-| Do `prev` and `node` share the source row their first positioned tokens sit
+on? `False` when either has no position, and when there is no `prev` at all. -}
+startsOnRowOf : Maybe LPNode -> LPNode -> Bool
+startsOnRowOf prev node =
+    when prev is
+        Nothing ->
+            False
+
+        Just p ->
+            when { pa = lpnFirstPos p, pb = lpnFirstPos node } is
+                { pa = Just posA, pb = Just posB } ->
+                    posA.row == posB.row
+
+                _ ->
+                    False
+
+
+{-| Did the author start these children on more than one source row? Comments
+are skipped: a comment's row is not the author's layout of the code around it.
+
+This is the union body's flat-vs-vertical question (`= A | B | C` on one row, or
+one variant per line), asked of every node because the answer is a plain
+structural fact about a sibling run and the union body is simply the node that
+needs it.
+-}
+childRowsSpanMultiple : Array LPNode -> Bool
+childRowsSpanMultiple children =
+    let
+        rows =
+            children
+                |> Array.keepIf (\n -> not (shapeIsComment (lpnShape n)))
+                |> Array.map firstRowInSubtree
+    in
+    when Array.popFirst rows is
+        Nothing ->
+            False
+
+        Just { first, rest } ->
+            Array.any (\r -> r /= first) rest
+
+
+{-| Did the author break a type across rows at a `->` boundary -- a later
+segment starting on a row after the previous one ended?
+
+Asked of a signature's or a type alias body's children; the leading `name :`
+header is dropped first (a type alias body has no colon, so the drop is a no-op
+there). Computed for every node for the same reason `childRowsSpanMultiple` is:
+it is a fact about a sibling run, and the two type-rendering shapes are just the
+nodes that read it.
+
+The segment split and the two row folds moved here bodily out of
+`Render/NodeClassify.gren`, where they were `splitSignatureSegments` /
+`segFirstRow` / `segLastRow` / `signatureForceVertical`. The split itself is
+position-free and stayed there -- the renderer still lays out one segment per
+line -- so only the row-reading halves are here.
+-}
+segmentsBrokenAtArrow : Array LPNode -> Bool
+segmentsBrokenAtArrow children =
+    (Array.foldl
+        (\seg acc ->
+            let
+                first =
+                    segFirstRow seg
+
+                last =
+                    segLastRow seg
+            in
+            { broken =
+                acc.broken
+                    || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
+            , prevLast =
+                if last >= 0 then
+                    last
+
+                else
+                    acc.prevLast
+            }
+        )
+        { broken = False, prevLast = -1 }
+        (splitAtArrows (dropThroughColon children))
+    ).broken
+
+
+{-| Everything after the first top-level `:` leaf, or the whole array when there
+is none. Mirrors `MakeRenderBox.makeSignatureBox`'s own colon split. -}
+dropThroughColon : Array LPNode -> Array LPNode
+dropThroughColon children =
+    if Array.any (\n -> leafText n == Just ":") children then
+        (Array.foldl
+            (\node acc ->
+                if acc.pastColon then
+                    { acc | out = Array.pushLast node acc.out }
+
+                else if leafText node == Just ":" then
+                    { acc | pastColon = True }
+
+                else
+                    acc
+            )
+            { pastColon = False, out = [] }
+            children
+        ).out
+
+    else
+        children
+
+
+-- Split at each top-level `->`: the first segment is the leading type, each
+-- later one begins with its `->`. The renderer's `splitSignatureSegments` does
+-- the same, on `RenderNode`s.
+splitAtArrows : Array LPNode -> Array (Array LPNode)
+splitAtArrows nodes =
+    Array.foldl
+        (\node acc ->
+            if leafText node == Just "->" then
+                Array.pushLast [ node ] acc
+
+            else
+                when Array.popLast acc is
+                    Just { last = seg, initial = front } ->
+                        Array.pushLast (Array.pushLast node seg) front
+
+                    Nothing ->
+                        [ [ node ] ]
+        )
+        []
+        nodes
+
+
+leafText : LPNode -> Maybe String
+leafText node =
+    when lpnShape node is
+        UnbreakableText locs ->
+            Just locs.value
+
+        SynthesizedText s ->
+            Just s
+
+        _ ->
+            Nothing
+
+
+-- A segment's first content row, ignoring the leading arrow and any comment.
+--
+-- A segment beginning with a bracketed type (`{ … }`, `( … )`) starts where its
+-- *opening bracket* sits, not at its first inner token — the bracket has no leaf,
+-- so `firstRowInSubtree` alone would report the first field's row, and a break
+-- just inside the bracket would masquerade as a break between `->` segments,
+-- flipping the whole signature to multi-line.
+segFirstRow : Array LPNode -> Int
+segFirstRow seg =
+    Array.foldl
+        (\node acc ->
+            if leafText node == Just "->" || shapeIsComment (lpnShape node) then
+                acc
+
+            else
+                let
+                    leafR =
+                        firstRowInSubtree node
+
+                    r =
+                        when lpnBracketStart node is
+                            Just open ->
+                                if leafR < 0 then
+                                    open.row
+
+                                else
+                                    min open.row leafR
+
+                            Nothing ->
+                                leafR
+                in
+                if acc < 0 then
+                    r
+
+                else if r < 0 then
+                    acc
+
+                else
+                    min acc r
+        )
+        -1
+        seg
+
+
+-- A segment's last content row, ignoring the leading arrow and any comment.
+segLastRow : Array LPNode -> Int
+segLastRow seg =
+    Array.foldl
+        (\node acc ->
+            if leafText node == Just "->" || shapeIsComment (lpnShape node) then
+                acc
+
+            else
+                max acc (lpnMaxRow node)
+        )
+        -1
+        seg
+
+
+-- ═══ ACCESSORS ═══
+
+
+rnShape : RenderNode -> LPShape
+rnShape node =
+    when node is
+        RenderNode r ->
+            r.shape
+
+
+rnChildren : RenderNode -> Array RenderNode
+rnChildren node =
+    when node is
+        RenderNode r ->
+            r.children
+
+
+{-| True when this node or any descendant is a comment. The `LPNode` cache,
+carried across unchanged. -}
+rnHasComment : RenderNode -> Bool
+rnHasComment node =
+    when node is
+        RenderNode r ->
+            r.hasComment
+
+
+{-| Rebuild a node around a new set of children.
+
+The four precomputed flags are **kept**, not recomputed, and that is the point:
+they record what the *author* wrote, and the renderer reshuffling nodes does not
+change that. It is the same discipline `LPShape`'s own `forceVertical` follows.
+`hasComment` is recomputed, since it is a fact about the children present.
+-}
+rnReplaceChildren : RenderNode -> Array RenderNode -> RenderNode
+rnReplaceChildren old newChildren =
+    when old is
+        RenderNode r ->
+            RenderNode
+                { r
+                    | children = newChildren
+                    , hasComment = shapeIsComment r.shape || Array.any rnHasComment newChildren
+                }
+
+
+{-| Swap a node's shape, keeping its children and flags. `hasComment` is
+recomputed for the reason `LogicalPrintingTree.lpnWithShape` gives: swap a
+comment shape for a non-comment one and the old answer is simply wrong. -}
+rnWithShape : LPShape -> RenderNode -> RenderNode
+rnWithShape newShape node =
+    when node is
+        RenderNode r ->
+            RenderNode
+                { r
+                    | shape = newShape
+                    , hasComment = shapeIsComment newShape || Array.any rnHasComment r.children
+                }
+
+
+-- ═══ COMMENT ROLES ═══
+--
+-- The `LPNode` spellings of these live in `LogicalPrintingTree`, beside
+-- `CommentRole` itself; both delegate to the same shape-level core there, so the
+-- rule has one implementation and two node types ask it.
+
+
+roleIs : CommentRole -> RenderNode -> Bool
+roleIs role node =
+    shapeRoleIs role (rnShape node)
+
+
+commentTrailsHead : RenderNode -> Bool
+commentTrailsHead =
+    roleIs TrailsHead
+
+
+commentLeadsLine : RenderNode -> Bool
+commentLeadsLine =
+    roleIs LeadsLine
+
+
+commentLeadsNext : RenderNode -> Bool
+commentLeadsNext =
+    roleIs LeadsNext
+
+
+commentRidesInline : RenderNode -> Bool
+commentRidesInline =
+    roleIs RidesInline
+
+
+{-| Does a comment glue onto what precedes it, rather than take a line of its
+own? `False` for any non-comment node. -}
+commentGluesToPrevious : RenderNode -> Bool
+commentGluesToPrevious node =
+    LPT.shapeGluesToPrevious (rnShape node)
+
+
+-- ═══ PRECOMPUTED AUTHOR-INTENT FLAGS ═══
+
+
+{-| Did the author write this node on the same source row as the item before it?
+See `lowerChildren` for what "the item before it" means. -}
+rnSharesRowWithPrevItem : RenderNode -> Bool
+rnSharesRowWithPrevItem node =
+    when node is
+        RenderNode r ->
+            r.sharesRowWithPrevItem
+
+
+{-| Does this node cover any source row -- i.e. is it real content rather than
+synthesized punctuation? -}
+rnHasSourceContent : RenderNode -> Bool
+rnHasSourceContent node =
+    when node is
+        RenderNode r ->
+            r.hasSourceContent
+
+
+{-| Did the author start this node's (non-comment) children on more than one
+source row? -}
+rnVariantsSpanRows : RenderNode -> Bool
+rnVariantsSpanRows node =
+    when node is
+        RenderNode r ->
+            r.variantsSpanRows
+
+
+{-| Did the author break this node's children across rows at a `->` boundary? -}
+rnTypeSegmentsBroken : RenderNode -> Bool
+rnTypeSegmentsBroken node =
+    when node is
+        RenderNode r ->
+            r.typeSegmentsBroken

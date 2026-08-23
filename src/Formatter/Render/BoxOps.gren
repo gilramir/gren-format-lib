@@ -9,7 +9,6 @@ module Formatter.Render.BoxOps exposing
     , isBlockNode
     , isSingleLine
     , joinInline
-    , nodesShareStartRow
     , prefixOperator
     , spaceJoinLines
     , stackWithBlanks
@@ -19,13 +18,12 @@ module Formatter.Render.BoxOps exposing
 {-| Low-level `Box`/`Line` manipulation helpers shared by the renderer.
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPNode
-    , LPShape(..)
-    , lpnFirstPos
-    , lpnShape
-    )
+import Formatter.Logical.LogicalPrintingTree exposing (LPShape(..))
 import Formatter.Render.Box as B exposing (Box(..))
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , rnShape
+    )
 
 
 grenIndent : Int
@@ -179,16 +177,6 @@ glueLeadingCommentPrefix commentBox declBox =
                     declBox
 
 
-nodesShareStartRow : LPNode -> LPNode -> Bool
-nodesShareStartRow a b =
-    when { pa = lpnFirstPos a, pb = lpnFirstPos b } is
-        { pa = Just posA, pb = Just posB } ->
-            posA.row == posB.row
-
-        _ ->
-            False
-
-
 -- Join boxes horizontally on one line with single spaces, iff all single-line.
 joinInline : Array Box -> Maybe Box
 joinInline boxes =
@@ -200,9 +188,9 @@ joinInline boxes =
             Nothing
 
 
-isBlockNode : LPNode -> Box -> Bool
+isBlockNode : RenderNode -> Box -> Bool
 isBlockNode node box =
-    when lpnShape node is
+    when rnShape node is
         BodyBlock ->
             True
 

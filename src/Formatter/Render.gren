@@ -1,5 +1,6 @@
 module Formatter.Render exposing
     ( lptToBoxJson
+    , renderLoweredChildren
     , renderRoot
     , renderRootChildren
     )
@@ -12,15 +13,23 @@ results with newlines. Box is the only backend: every construct goes through
 `Formatter.Render.Box`'s `Line`/`Box` IR, and one the renderer does not handle
 is an `Err` that fails the format rather than falling back to anything.
 
-@docs lptToBoxJson, renderRoot, renderRootChildren
+This module is also the **doorway** through the stage barrier. It is the only
+one on the render side that names `LPNode`: it calls `Formatter.RenderTree.lower`
+on the way in, and everything under `Formatter/Render/` sees the position-free
+`RenderNode` instead. That is what makes "no source rows are read at render
+time" a compile error rather than a convention -- see `Formatter.RenderTree`.
+
+@docs lptToBoxJson, renderRoot, renderRootChildren, renderLoweredChildren
 -}
 
-import Formatter.Logical.LogicalPrintingTree exposing
-    ( LPNode
-    , lpnChildren
-    )
+import Formatter.Logical.LogicalPrintingTree exposing (LPNode)
 import Formatter.Render.Box as RB
 import Formatter.Render.MakeRenderBox as MRB
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , lower
+    , rnChildren
+    )
 import Formatter.Results exposing (traverseResult)
 import Json.Encode as Json
 
@@ -46,14 +55,30 @@ output is unchanged caused nothing, and reporting it beside the ones that did
 would bury them. -}
 renderRootChildren : LPNode -> Result String (Array String)
 renderRootChildren root =
+    renderLoweredChildren (lower root)
+
+
+{-| `renderRootChildren` for a caller that has already lowered the tree.
+
+`Formatter.Audit.DecisionTrace` is the one such caller, and it needs both halves
+at once: this render, *and* the render tree itself, which it walks to read the
+decisions back. Going through `renderRootChildren` made it `lower` the whole
+tree twice per formatting pass -- four times per `--decisions` run, which formats
+twice. Lowering is O(n) and allocates a node per node, so that is not free, and
+the second copy answers a question the first already answered.
+
+`renderRoot` and `lptToBoxJson` keep taking the `LPNode`: they lower once and
+have no use for the result afterwards, which is the normal case. -}
+renderLoweredChildren : RenderNode -> Result String (Array String)
+renderLoweredChildren root =
     -- `traverseResult` rather than a fold that pushes onto an accumulator: see
     -- its own note on why that is O(n^2) here of all places.
-    lpnChildren root
+    rnChildren root
         |> traverseResult (\node -> Result.map String.trimRight (renderChild node))
 
 
 {-| Render one top-level LPT child through the Box renderer. -}
-renderChild : LPNode -> Result String String
+renderChild : RenderNode -> Result String String
 renderChild node =
     MRB.renderNodeBox node
         |> Result.map RB.render
@@ -64,6 +89,6 @@ entry per declaration), for the `--box` debug flag — the Box analogue of the
 `--lpt` LPT dump. An `Err` from any child (an unhandled construct) aborts. -}
 lptToBoxJson : LPNode -> Result String String
 lptToBoxJson root =
-    lpnChildren root
+    rnChildren (lower root)
         |> traverseResult (\child -> Result.map RB.toJson (MRB.renderNodeBox child))
         |> Result.map (\values -> Json.encode 2 (Json.array identity values))

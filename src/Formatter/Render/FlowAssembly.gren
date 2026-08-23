@@ -36,15 +36,10 @@ module Formatter.Render.FlowAssembly exposing
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
-    , LPNode
     , LPShape(..)
     , ListBrackets(..)
     , RecordKind(..)
-    , commentGluesToPrevious
     , commentRole
-    , lpnChildren
-    , lpnMaxRow
-    , lpnShape
     , roleGlues
     )
 import Formatter.Render.BinopLayout exposing (isChainBreakingOperandShape)
@@ -56,7 +51,6 @@ import Formatter.Render.BoxOps exposing
     , isBlockNode
     , isSingleLine
     , joinInline
-    , nodesShareStartRow
     )
 import Formatter.Render.NodeClassify exposing
     ( isBareBlockOperand
@@ -67,6 +61,14 @@ import Formatter.Render.NodeClassify exposing
     , isTypeRecordLiteral
     , nodeIsComment
     , subtreeEndsWithMultilineBlockComment
+    )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , commentGluesToPrevious
+    , rnChildren
+    , rnHasSourceContent
+    , rnShape
+    , rnSharesRowWithPrevItem
     )
 import Formatter.Results exposing (traverseResult)
 
@@ -162,7 +164,7 @@ bracketPunc bracket =
 `lambdaBodyBox` is set only for a `ParenBlock` whose second child is an
 `IndentedBlock` — a lambda whose body the author wrote on a later row. It is
 that block's own box, taken from the very render that produced `box`, and it is
-exactly `buildFlowBox 0 (lpnChildren bodyNode)` (`makePBox IndentedBlock` *is*
+exactly `buildFlowBox 0 (rnChildren bodyNode)` (`makePBox IndentedBlock` *is*
 that call). Two consumers need the body separately from the head to build the
 `… (\x ->` / body / `)` layouts — `makeMultilineLambdaArgBox` and
 `directOperandLambdaSplit` — and both used to render it a second time, which
@@ -170,7 +172,7 @@ made a lambda nested through its own body cost 2^depth. Carrying it here is what
 makes them free.
 -}
 type alias FlowItem =
-    { node : LPNode
+    { node : RenderNode
     , box : Box
     , isBlock : Bool
     , comment : Maybe { box : Box, isLineComment : Bool, multiLine : Bool }
@@ -182,7 +184,7 @@ type alias FlowItem =
 how many rows the assembled box grew by when it was placed. See
 `typeContentSpansRows` for the one question these answer. -}
 type alias FlowMeasure =
-    { node : LPNode
+    { node : RenderNode
     , box : Box
     , rowsAdded : Int
     }
@@ -207,7 +209,7 @@ reasons, and asking the box gets both at once:
 
   - **layout.** elm-format drops a type below `name :` as soon as something
     breaks it open, and so did gren before, via this predicate.
-  - **stability.** `NodeClassify.signatureForceVertical` asks of the *source*
+  - **stability.** `RenderTree.segmentsBrokenAtArrow` asks of the *source*
     rows whether a later `->` segment starts below the previous one, so an
     inline format that let a comment push a segment down is read back as
     author-broken and re-rendered per-segment: the file oscillates. A type whose
@@ -220,7 +222,7 @@ Two details make the measured rows the right ones:
     leaf. A signature has exactly one (a record field's `:` is a child of the
     record node, never a flow sibling of the type); an alias body has none, and
     drops nothing.
-  - **comments are skipped**, exactly as `segFirstRow`/`segLastRow` skip them.
+  - **comments are skipped**, exactly as that flag's own row folds skip them.
     That is what keeps `foo : -- c` ⏎ `Int -> Int` inline: the comment brings a
     row of its own, but the *type* is still on one row, and pulling it below the
     header would be re-laying-out code the comment only moved. The same skip at
@@ -307,7 +309,7 @@ may carry comments.
 **This is the comment-placement policy for a flow the caller has already
 committed to breaking**, and it is the second such policy in `Render/` —
 `FlowPolicy.decide` is the one for a flow that may still glue, and nothing here
-calls it. Its `pending` / `poisoned` / `lastRow` accumulator plays the part
+calls it. Its `pending` / `poisoned` / `afterContent` accumulator plays the part
 `decide`'s separator states play there. The two agree on how a comment is
 *classified* (the stored `CommentRole`, `commentGluesToPrevious`,
 `pairableCommentLine` are shared) and differ on assembly, which is the finding
@@ -387,7 +389,7 @@ assembleBrokenWithComments indent items =
                     in
                     { flushed
                         | entries = Array.pushLast c.box flushed.entries
-                        , lastRow = -1
+                        , afterContent = False
                         , poisoned = True
                     }
             in
@@ -396,7 +398,7 @@ assembleBrokenWithComments indent items =
                     if glues then
                         { acc
                             | pending = Array.pushLast (Array.pushLast cl row) rowsAbove
-                            , lastRow = -1
+                            , afterContent = False
                             , poisoned = True
                         }
 
@@ -414,13 +416,13 @@ assembleBrokenWithComments indent items =
                             Just c ->
                                 when Array.popLast acc.entries is
                                     Just { last = lastBox, initial } ->
-                                        if commentGluesToPrevious item.node && acc.lastRow >= 0 && Array.isEmpty acc.pending then
+                                        if commentGluesToPrevious item.node && acc.afterContent && Array.isEmpty acc.pending then
                                             -- Glue the comment onto the item's last
                                             -- line; the item may itself be multi-line
                                             -- (`glueCommentSuffix` joins its last line).
-                                            -- `acc.lastRow >= 0` still guards "the
+                                            -- `acc.afterContent` still guards "the
                                             -- previous entry is real content" (it
-                                            -- resets to -1 after a comment).
+                                            -- clears after a comment).
                                             -- `pending` must be empty or the glue
                                             -- would reorder this comment before the
                                             -- ones already waiting.
@@ -441,7 +443,7 @@ assembleBrokenWithComments indent items =
                                                     -- After a comment nothing
                                                     -- row-glues (the policy is
                                                     -- AlreadyTerminated), so
-                                                    -- `lastRow` resets.
+                                                    -- `afterContent` clears.
                                                     Ok (ownRow (commentGluesToPrevious item.node) c acc)
 
                                     Nothing ->
@@ -461,7 +463,7 @@ assembleBrokenWithComments indent items =
                             Nothing ->
                                 if not (Array.isEmpty acc.pending) && not acc.poisoned && isSingleLine item.box then
                                     -- The waiting comments ride this term's line:
-                                    -- `{- c -} term`. `lastRow` advances like a
+                                    -- `{- c -} term`. `afterContent` is set like a
                                     -- plain term's — a comment trailing the term
                                     -- must still glue on, or its own-row form
                                     -- would re-pair FORWARD on reparse and
@@ -486,7 +488,7 @@ assembleBrokenWithComments indent items =
                                             Ok
                                                 { stacked
                                                     | entries = Array.pushLast (B.prefix prefixRow item.box) stacked.entries
-                                                    , lastRow = lpnMaxRow item.node
+                                                    , afterContent = rnHasSourceContent item.node
                                                     , pending = []
                                                     , poisoned = False
                                                 }
@@ -497,13 +499,13 @@ assembleBrokenWithComments indent items =
                                                 Ok
                                                     { a
                                                         | entries = Array.pushLast item.box a.entries
-                                                        , lastRow = lpnMaxRow item.node
+                                                        , afterContent = rnHasSourceContent item.node
                                                         , poisoned = False
                                                     }
                                            )
                     )
     in
-    Array.foldl step (Ok { entries = [], lastRow = -1, pending = [], poisoned = False }) items
+    Array.foldl step (Ok { entries = [], afterContent = False, pending = [], poisoned = False }) items
         |> Result.map flushPending
         |> Result.andThen
             (\acc ->
@@ -533,7 +535,7 @@ assembleBrokenCall indent items =
         -- it matched elm-format's `ElmStructure.application` gates. It does not:
         -- elm attaches such a comment to the ARGUMENT, so its arg0 is still an
         -- argument and still glues. Refusing here also contradicted gren's own
-        -- rule — the glue is gated on `nodesShareStartRow fn arg0`, and writing a
+        -- rule — the glue is gated on arg0's `rnSharesRowWithPrevItem`, and writing a
         -- comment between them moves neither token's row, so nothing about the
         -- author's layout changed and nothing about ours should have.
         --
@@ -615,11 +617,17 @@ spanRidingComments items =
 
 
 -- Both single-line and on the same source row → keep glued on the opening line.
+--
+-- "The same row" is asked of `arg0Item` alone, because `rnSharesRowWithPrevItem`
+-- already means "the row of the item before me" — and the item before arg0 IS
+-- the function: every item between them is a riding comment (`spanRidingComments`
+-- stops at anything else, and a comment at either end refuses the glue outright),
+-- and the flag skips comments for exactly that reason. See `RenderTree.lowerChildren`.
 shouldGlueBox : FlowItem -> FlowItem -> Bool
 shouldGlueBox fnItem arg0Item =
     isSingleLine fnItem.box
         && isSingleLine arg0Item.box
-        && nodesShareStartRow fnItem.node arg0Item.node
+        && rnSharesRowWithPrevItem arg0Item.node
 
 
 {-| Which indent discipline a multi-line box's continuation lines carry —
@@ -690,11 +698,11 @@ literal / record / record update) — the shapes whose continuation lines anchor
 at their own start column, so wrapping them in `(` must pad every line (not just
 the first) to keep `,`/`}` under the opening bracket. Leading single-line block
 comments are skipped (they ride on the `(`-line). -}
-parenInnerIsAlignCarrying : Array LPNode -> Bool
+parenInnerIsAlignCarrying : Array RenderNode -> Bool
 parenInnerIsAlignCarrying children =
     when Array.popFirst children is
         Just { first, rest } ->
-            when lpnShape first is
+            when rnShape first is
                 BlockComment _ ->
                     parenInnerIsAlignCarrying rest
 
@@ -716,7 +724,7 @@ parenInnerIsAlignCarrying children =
             False
 
 
-softGlueAlignment : LPNode -> SoftGlueAlignment
+softGlueAlignment : RenderNode -> SoftGlueAlignment
 softGlueAlignment node =
     if subtreeEndsWithMultilineBlockComment node then
         -- A multi-line `{- … -}` glued onto the box's last row pads its own
@@ -733,9 +741,9 @@ softGlueAlignment node =
         softGlueAlignmentByType node
 
 
-softGlueAlignmentByType : LPNode -> SoftGlueAlignment
+softGlueAlignmentByType : RenderNode -> SoftGlueAlignment
 softGlueAlignmentByType node =
-    when lpnShape node is
+    when rnShape node is
         AlwaysVertical _ ->
             AlignCarrying
 
@@ -783,7 +791,7 @@ softGlueAlignmentByType node =
 -- pads continuation lines to stay aligned under the opening bracket.
 isSoftGlueLiteral : FlowItem -> Bool
 isSoftGlueLiteral item =
-    when lpnShape item.node is
+    when rnShape item.node is
         AlwaysVertical _ ->
             True
 
@@ -1083,7 +1091,7 @@ pairLeadingComments items =
 -- the same name until 2026-08-02.
 commentDoesNotGlue : FlowItem -> Bool
 commentDoesNotGlue item =
-    when commentRole (lpnShape item.node) is
+    when commentRole (rnShape item.node) is
         Just role ->
             not (roleGlues role)
 
@@ -1096,7 +1104,7 @@ commentDoesNotGlue item =
 -- the running line.
 softBlockDropsBox : FlowItem -> Bool
 softBlockDropsBox item =
-    when lpnShape item.node is
+    when rnShape item.node is
         SoftIndentedBlock ->
             not (isSingleLine item.box)
 
@@ -1106,12 +1114,12 @@ softBlockDropsBox item =
 
 -- A `SoftIndentedBlock` whose SOLE child is a bracket literal (record, record
 -- update, or array) that renders vertical switches from the soft glue to the
--- hard indented drop. The structural test is on the LPNode; the verticality
+-- hard indented drop. The structural test is on the RenderNode; the verticality
 -- fact comes from this renderer's own box (single-line ⇔ the sole child is
 -- single-line, since it is the block's only content).
 softBlockChildForcesVerticalBox : FlowItem -> Bool
 softBlockChildForcesVerticalBox item =
-    when Array.popFirst (lpnChildren item.node) is
+    when Array.popFirst (rnChildren item.node) is
         Just { first = only, rest } ->
             if not (Array.isEmpty rest) then
                 False
@@ -1119,7 +1127,7 @@ softBlockChildForcesVerticalBox item =
             else
                 let
                     isBracketLiteral =
-                        when lpnShape only is
+                        when rnShape only is
                             AlwaysVertical _ ->
                                 True
 
@@ -1141,7 +1149,7 @@ softBlockChildForcesVerticalBox item =
 {-| The flow item for a node whose box the caller already has. The generic arm of
 `renderFlowItem`, minus the render — valid for any node kind that arm handles
 (everything but a comment and a `ParenBlock`, which carry extra parts). -}
-flowItemFromBox : LPNode -> Box -> FlowItem
+flowItemFromBox : RenderNode -> Box -> FlowItem
 flowItemFromBox node box =
     { node = node
     , box = box
@@ -1172,7 +1180,7 @@ operandItemsRenderMultiline items =
     when Array.popFirst (Array.keepIf (\it -> not (nodeIsComment it.node)) items) is
         Just { first = it, rest = rest } ->
             Array.isEmpty rest
-                && isChainBreakingOperandShape (lpnShape it.node)
+                && isChainBreakingOperandShape (rnShape it.node)
                 && not (isSingleLine it.box)
 
         Nothing ->
@@ -1394,7 +1402,7 @@ splitStepTriggerItems stepItems =
 
 itemIsMultilineParenBlock : FlowItem -> Bool
 itemIsMultilineParenBlock item =
-    when lpnShape item.node is
+    when rnShape item.node is
         ParenBlock _ ->
             not (isSingleLine item.box)
 
@@ -1413,7 +1421,7 @@ would be a claim about a case that never arises.
 -}
 itemIsMultilineString : FlowItem -> Bool
 itemIsMultilineString item =
-    when lpnShape item.node is
+    when rnShape item.node is
         MultilineString _ ->
             not (isSingleLine item.box)
 
@@ -1423,7 +1431,7 @@ itemIsMultilineString item =
 
 itemIsMultilineBracketContainer : FlowItem -> Bool
 itemIsMultilineBracketContainer item =
-    (when lpnShape item.node is
+    (when rnShape item.node is
         AllAcrossOrAllVertical _ ->
             True
 
@@ -1507,7 +1515,7 @@ parenLambdaMultilineItems : Array FlowItem -> Bool
 parenLambdaMultilineItems items =
     when Array.get 1 items is
         Just second ->
-            when lpnShape second.node is
+            when rnShape second.node is
                 IndentedBlock ->
                     True
 
