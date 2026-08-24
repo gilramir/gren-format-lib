@@ -458,7 +458,9 @@ kind, constructors with arguments (qualified included), record destructuring, an
 live: own-line before a declaration, a `let` binding, a `when` branch or a broken
 container item; inline before an atom; trailing a binding or declaration; glued
 to the front of an import; the two slots a lambda has; before a multi-line
-string. A comment may span several rows. Several comments may be **chained** onto
+string; between `import` and the module name; trailing a type signature's own
+row; and an own-line run between a signature and its definition. A comment may
+span several rows. Several comments may be **chained** onto
 one row, or written as a **run** of one or two, each on its own row, at a `when`
 branch's lead and a `let` binding's lead. Import runs are generated with the
 anchoring shapes `docs/sorting.md` specifies, and so is a module header's own

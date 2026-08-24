@@ -1802,3 +1802,88 @@ clean. Nothing else in the repo watches that slot: the
 fixture corpus has one hand-written case of it
 (`KitchenSink/LambdaLeadingBlockCommentRides`), and `fuzz-idempotency.py` reaches
 it only where a fixture already put a lambda after a `<|`.
+
+---
+
+**v1.38 (implemented 2026-08-23):** three comment slots that the *whole* grammar
+had no way to fill, each of them the exact position of a bug the dirty-corpus
+sweep had just found by hand.
+
+- **`Import.inner`** — one block comment BETWEEN the `import` keyword and the
+  module name (`import {- c -} Foo`). `glued_lead` (v1.25) sits in *front* of
+  the keyword, and the difference is the whole point: with `inner`, the module
+  name rides the comment's LAST row, so a multi-row one **ends on the import's
+  own first row**. Both of `sortImportGroups`' row rules misread exactly that —
+  `takeGluedLeadingIdx` asked whether the next node starts on
+  `origRowsLast comment + 1` and overshot by one, `takeIndentedTrailingIdx` then
+  claimed the comment for the import above (fixed in `d2b927c`). The
+  single-row spelling reaches neither misreading, which is why
+  `SortingCommentZoo` carried it for months without finding this.
+- **`Decl.sig_trailing`** — a trailing chain on the SIGNATURE's own last row
+  (`f : Int -- c`). `Decl.trailing` lands on the *body*'s last row; nothing
+  could put a comment on the signature's.
+- **`Decl.sig_lead`** — an own-line comment run BETWEEN the signature and the
+  definition. The signature-to-definition unit is where `VerticalSpace`
+  suppresses author blank lines, and it decides that from rows the same pass
+  then moves — so a comment inside the unit is judged against a gap that is
+  about to close. `sig_trailing` is what opens a gap above `sig_lead`; either
+  alone is stable, which is why no hand-written fixture had it.
+
+**What it found, immediately.** `--base-seed 910000 --comment-rate 0.7`, seed
+900000 of the first smoke run: a **non-idempotent import sort**. Shrunk by hand
+to
+
+```gren
+import Qux0
+import {- k1
+   bravo -} Foo2 {- k2
+   tango -}
+```
+
+The first format leaves `Qux0` above `Foo2`; the second sorts them. The trigger
+is a **conjunction** — the inner comment multi-row AND the trailing comment
+multi-row. Each alone is stable, and so is a single-row spelling of either:
+
+| inner | trailing | |
+|---|---|---|
+| multi-row | — | stable |
+| single-row | multi-row | stable |
+| — | multi-row | stable |
+| multi-row | single-row | stable |
+| **multi-row** | **multi-row** | **non-idempotent** |
+
+That is the feature-co-occurrence axis this generator exists for, reached one
+generation after the position was added: same rule family as `d2b927c`, one step
+past where the hand-written fix stopped.
+
+**Cost of the grammar change was nil.** `fuzzrun.py status` already reported
+`gen-random.py is now 67485159d4c2 — the next run starts a new generation`, and
+the only open failure in generation 4 was `fixed`, so no cursor or open finding
+was lost to the bump.
+
+**Verified non-vacuous, and the first attempt was not.** `sig_trailing` /
+`sig_lead` were written for the blank-line bug fixed the same day
+(`SignatureTrailerCommentNotFloating`). With that fix reverted, `-n 200
+--base-seed 920000 --comment-rate 0.7 --max-depth 4` found **nothing** — the
+slots reached the rule but never its decision. `VerticalSpace`'s `floating` is
+guarded by `gap`, "did the author leave a blank line above this comment", and
+`sig_lead` was emitted flush against the signature, so `gap` was False and
+`floating` was never asked.
+
+`sig_lead_spaced` — a blank line on each side of the run — is what closes that.
+The same 200 seeds then report **46 non-idempotent**; restoring the fix takes the
+same 200 back to 0. Author blank lines *inside* the signature unit are precisely
+what the pass suppresses, so a slot that cannot write one cannot reach it.
+
+The general form is worth keeping: a comment slot placed where a rule lives is
+not the same as a slot that can make the rule *decide*. Check a new slot against
+the reverted fix before believing it.
+
+**Still open after v1.38.** The `sort-order` oracle fails on this same import
+shape (seed 920039 and 5 of the first 300): with a multi-row comment inside an
+import and another trailing it, writing the two imports in the other order
+yields a different blank line. The idempotency half is fixed and pinned by
+`ImportStatements/ImportInnerAndTrailingMultiline`; the author-order half is not.
+A running-maximum `last` in `VerticalSpace`'s `gap` fixes the two-import case and
+makes seed 910271 non-idempotent, so it is the wrong shape of fix and was
+reverted rather than shipped.

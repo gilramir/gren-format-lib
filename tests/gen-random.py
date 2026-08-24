@@ -365,13 +365,39 @@ class PAs:
 class Decl:
     def __init__(self, name, params, body, sig=None, sig_broken=False,
                  doc=None, lead=None, trailing=None, arrow_comment=None,
-                 body_below=False):
+                 body_below=False, sig_trailing=None, sig_lead=None,
+                 sig_lead_spaced=False):
         self.name, self.params, self.body = name, params, body
         # As `LetBind.val_below`, for a top-level declaration's body.
         self.body_below = body_below
         self.sig, self.sig_broken = sig, sig_broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
         self.arrow_comment = arrow_comment  # (seg_idx, (kind, text)) | None
+        # Two comment slots INSIDE the signature-to-definition unit, both only
+        # meaningful when `sig` is set. `trailing` above is the declaration's,
+        # and lands on the BODY's last row; neither of these had a slot.
+        #
+        #   sig_trailing  a chain trailing the signature's own last row
+        #                 (`f : Int -- c`)
+        #   sig_lead      an own-line comment run between the signature and the
+        #                 definition (`f : Int` / `-- c` / `f = 1`)
+        #
+        # The unit is where `VerticalSpace` suppresses author blank lines, and
+        # it decides that from rows the same pass then moves — so a comment
+        # inside it is measured against a gap that is about to close. Both
+        # slots together are the shape that reached it: the trailing comment is
+        # what opens a gap ABOVE the own-line one, and the own-line one is what
+        # `floating` then had to judge. Either alone is stable, which is why no
+        # hand-written fixture had found it.
+        self.sig_trailing = sig_trailing
+        self.sig_lead = sig_lead
+        # Whether `sig_lead` is written with a BLANK line on each side. Author
+        # blank lines inside the unit are exactly what `VerticalSpace`
+        # suppresses, so without them the comment abuts the signature, `gap` is
+        # False and `floating` is never asked -- the slot reaches the rule but
+        # not the decision. `-n 200` with the fix reverted found nothing until
+        # this flag existed.
+        self.sig_lead_spaced = sig_lead_spaced
 
 
 # Type-alias / custom-type / port declarations. Unlike Decl (function), these
@@ -458,7 +484,7 @@ class InfixDecl:
 class Import:
     def __init__(self, mod, as_name=None, exposing=None, lead=None, blank=False,
                  trailing=None, item_lead=None, item_trailing=None, anchor=None,
-                 glued_lead=None):
+                 glued_lead=None, inner=None):
         self.mod, self.as_name, self.exposing = mod, as_name, exposing
         # `lead`: None, or a non-empty list of own-line comments stacked
         # directly above the import (docs/sorting.md's "stacked own-line
@@ -473,6 +499,23 @@ class Import:
         self.item_lead, self.item_trailing = item_lead, item_trailing
         self.anchor = anchor
         self.glued_lead = glued_lead
+        # `inner`: None, or ONE block comment written BETWEEN the `import`
+        # keyword and the module name (`import {- c -} Foo`). Distinct from
+        # `glued_lead`, which sits in front of the keyword, and it is the
+        # difference that matters: the module name rides the comment's LAST
+        # row, so a multi-row one ENDS on the import's own first row.
+        #
+        # That geometry is what defeated both of `sortImportGroups`' row rules
+        # (d2b927c): `takeGluedLeadingIdx` asked whether the next node starts
+        # on `origRowsLast comment + 1` and overshot by one, and
+        # `takeIndentedTrailingIdx` then claimed the comment for the import
+        # ABOVE. The single-row spelling reaches neither misreading, which is
+        # why `SortingCommentZoo` carried it for months without finding this.
+        #
+        # Mutually exclusive with `glued_lead` for the reason `glued_lead` is
+        # exclusive with `lead`: two comments on one import's own row is a
+        # further interaction, not this addition's scope.
+        self.inner = inner
 
 
 class Module:
@@ -1434,6 +1477,19 @@ def emit_infix(d):
     return out
 
 
+def _import_head_rows(mod, inner):
+    """The `import <mod>` head as rows, with `inner` between the two.
+
+    The module name rides the comment's LAST row, so a multi-row comment ends
+    on the import's own first row rather than above it. Returned as rows (not
+    one string) because only the last row can carry `as` / `exposing`.
+    """
+    rows = comment_rows(inner)
+    rows = ["import " + rows[0]] + rows[1:]
+    rows[-1] = rows[-1] + " " + mod
+    return rows
+
+
 def emit_import(imp):
     """Emit one `import` statement, preceded by its own boundary lines and
     possibly broken across lines to carry a comment on one `exposing` item.
@@ -1455,11 +1511,14 @@ def emit_import(imp):
     if imp.lead:
         for c in imp.lead:
             _append_own_line(out, 0, c)
-    head = "import " + imp.mod
+    head_rows = (["import " + imp.mod] if imp.inner is None
+                 else _import_head_rows(imp.mod, imp.inner))
     if imp.glued_lead is not None:
         rows = comment_rows(imp.glued_lead)
         out.extend(rows[:-1])
-        head = rows[-1] + " " + head
+        head_rows[0] = rows[-1] + " " + head_rows[0]
+    out.extend(head_rows[:-1])
+    head = head_rows[-1]
     if imp.as_name is not None:
         head += " as " + imp.as_name
     if imp.exposing is None or imp.exposing == "(..)":
@@ -1604,6 +1663,19 @@ def emit_function_decl(d):
                     for l in emit_type_multiline(d.sig, d.sig_broken, d.arrow_comment)]
         else:
             out.append(d.name + " : " + emit_type(d.sig))
+        if d.sig_trailing is not None:
+            # A CHAIN, like `d.trailing` — glue its first row onto the
+            # signature's last row and let any further rows follow.
+            rows = emit_comment_chain(d.sig_trailing)
+            out[-1] = out[-1] + " " + rows[0]
+            out.extend(rows[1:])
+        if d.sig_lead:
+            if d.sig_lead_spaced:
+                out.append("")
+            for c in d.sig_lead:
+                _append_own_line(out, 0, c)
+            if d.sig_lead_spaced:
+                out.append("")
     rows = append_params([d.name], d.params, 0)
     if multiline(d.body) or d.body_below:
         rows[-1] = rows[-1] + " ="
@@ -2665,10 +2737,25 @@ class Gen:
         lead = None
         if doc is None and self.chance(self.crate):
             lead = [self.comment() or ("line", "k%d" % self.next_cid())]
+        # The two signature-unit slots (see `Decl.__init__`). Rolled
+        # independently so the pair occurs on its own, which is the shape that
+        # matters — a comment inside the unit judged against a gap the blank
+        # suppression is about to close.
+        sig_trailing = sig_lead = None
+        sig_lead_spaced = False
+        if sig is not None:
+            sig_trailing = self.comment_chain()
+            if self.chance(self.crate):
+                n = self.rng.randint(1, 2)
+                sig_lead = [self.maybe_multirow(c)
+                            for c in self.forced_comments(n)] or None
+                sig_lead_spaced = sig_lead is not None and self.chance(0.5)
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
                     doc=doc, lead=lead, trailing=trailing,
                     arrow_comment=arrow_comment,
-                    body_below=self.value_below(body, p=0.5))
+                    body_below=self.value_below(body, p=0.5),
+                    sig_trailing=sig_trailing, sig_lead=sig_lead,
+                    sig_lead_spaced=sig_lead_spaced)
 
     def type_params(self):
         if not self.chance(0.4):
@@ -2881,14 +2968,17 @@ class Gen:
             exposing = self.import_exposing_items()
         else:
             exposing = "(..)"
-        lead, blank, anchor, glued_lead = None, False, None, None
-        # `lead` (a stack of 1-2 own-line comments) and `glued_lead` (one
-        # comment glued to the front of `import` on the same row) are mutually
-        # exclusive — see `Import.__init__`.
+        lead, blank, anchor, glued_lead, inner = None, False, None, None, None
+        # `lead` (a stack of 1-2 own-line comments), `glued_lead` (one comment
+        # glued to the front of `import` on the same row) and `inner` (one
+        # BETWEEN `import` and the module name) are mutually exclusive — see
+        # `Import.__init__`.
         r2 = self.rng.random()
         if r2 < 0.1:
             glued_lead = self.maybe_multirow(self.forced_comment(kinds=("block",)))
-        elif r2 < 0.3:
+        elif r2 < 0.2:
+            inner = self.maybe_multirow(self.forced_comment(kinds=("block",)))
+        elif r2 < 0.4:
             n = self.rng.randint(1, 2)
             lead = [self.maybe_multirow(c) for c in self.forced_comments(n)] or None
         if self.chance(0.2):
@@ -2913,7 +3003,7 @@ class Gen:
                     item_trailing = (idx, chain)
         return Import(mod, as_name=as_name, exposing=exposing, lead=lead, blank=blank,
                       trailing=trailing, item_lead=item_lead, item_trailing=item_trailing,
-                      anchor=anchor, glued_lead=glued_lead)
+                      anchor=anchor, glued_lead=glued_lead, inner=inner)
 
     def module(self):
         name = "Gen%d" % self.rng.randint(0, 999)
@@ -3955,6 +4045,10 @@ def comment_clearers(m):
     """Yield closures that remove one comment (for the shrinker)."""
     def clear_attr(obj, attr):
         return lambda: setattr(obj, attr, None)
+    def unset_flag(obj, attr):
+        """Turn a boolean layout flag off — `clear_attr`'s counterpart for a
+        field whose empty value is `False`, not `None` (`sig_lead_spaced`)."""
+        return lambda: setattr(obj, attr, False)
     def chain_pop(obj, attr):
         """Shrink a CHAIN-shaped field (`Gen.comment_chain`'s plain-list
         shape — `imp.trailing` / `m.header_trailing`) by one link, finer
@@ -3999,6 +4093,8 @@ def comment_clearers(m):
                 yield chain_pop(imp, "lead")
         if imp.glued_lead is not None:
             yield clear_attr(imp, "glued_lead")
+        if imp.inner is not None:
+            yield clear_attr(imp, "inner")
         if imp.anchor is not None:
             yield clear_attr(imp, "anchor")
         if imp.trailing is not None:
@@ -4016,6 +4112,16 @@ def comment_clearers(m):
             yield clear_attr(d, "doc")
         if d.lead:
             yield clear_attr(d, "lead")
+        if getattr(d, "sig_trailing", None) is not None:
+            yield clear_attr(d, "sig_trailing")
+            if len(d.sig_trailing) > 1:
+                yield chain_pop(d, "sig_trailing")
+        if getattr(d, "sig_lead", None):
+            yield clear_attr(d, "sig_lead")
+            if len(d.sig_lead) > 1:
+                yield chain_pop(d, "sig_lead")
+            if getattr(d, "sig_lead_spaced", False):
+                yield unset_flag(d, "sig_lead_spaced")
         if d.trailing is not None:
             yield clear_attr(d, "trailing")
         if getattr(d, "arrow_comment", None) is not None:
