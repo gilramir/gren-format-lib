@@ -506,7 +506,8 @@ takeIndentedTrailingIdxHelp prevLastRow nodes i acc =
 
 
 {-| True when `comment` was written **inside** the statement of the node at
-index `i` — that is, the comment ends on the very row that node begins on.
+index `i` — that is, the comment's own row span COVERS the row that node begins
+on.
 
 For two top-level nodes that can only mean one thing. A top-level node starts at
 column 1, so nothing else can share its first row and still end before it; the
@@ -525,10 +526,43 @@ a rewrite that relocates a comment and thereby flips a decision keyed on where i
 sat. The formatter's own output puts this comment on its own rows at column 1
 above the import, and *both* rules below then answer differently than they did on
 the author's spelling, so a second format sorted differently from the first.
+
+**Containment, not `last == first`.** The first spelling asked whether the
+comment ENDS on the node's first row, which is the same question only while the
+comment stops there. It does not when a second comment trails the same import
+and brings its own rows: `Formatter.Logical.Comments` merges the run into ONE
+sibling `OriginalRows`, whose span then reaches past the import —
+
+    import Qux0
+    import {- k1
+       bravo -} Foo2 {- k2
+       tango -}
+
+leaving one node spanning rows 4–6 while `import Foo2` is 5–5. Neither rule
+claimed it, the run broke at that point, and the first format left `Qux0` above
+`Foo2` while the second sorted them. Each comment ALONE is stable, and so is
+either one written on a single row — four of the five spellings are fine, which
+is why no hand-written fixture had it and why `gen-random.py` found it the first
+time it could emit the position at all (v1.38).
+
+Widening to containment adds only the case where the comment starts strictly
+before and ends strictly after the node's first row. The two ends it already
+covered answer as they did: a comment ending on that row, and one starting on
+it (`{- c -} import B`, a glued leading comment, which sorts after nothing and
+is still that import's).
 -}
 writtenInsideNodeAtIdx : LPNode -> Array LPNode -> Int -> Bool
 writtenInsideNodeAtIdx comment nodes i =
-    startsOnRowIdx (origRowsLast comment) nodes i
+    when Array.get i nodes is
+        Just node ->
+            let
+                nodeFirst =
+                    origRowsFirst node
+            in
+            origRowsFirst comment <= nodeFirst && nodeFirst <= origRowsLast comment
+
+        Nothing ->
+            False
 
 
 {-| True when `comment` is the leading comment of the node at index `i`: either

@@ -1,0 +1,28 @@
+module ImportInnerMultilineComment exposing (v)
+
+-- A MULTI-LINE comment written between the `import` keyword and the module
+-- name, in a group the sorter has to reorder.
+--
+-- `Formatter.Logical.Comments` promotes it to a sibling `OriginalRows`, so
+-- `sortImportGroups` meets it sitting between two imports and has to decide
+-- which one it belongs to. Both row rules got it wrong:
+--
+--   * `takeGluedLeadingIdx` asked whether the next node starts on
+--     `origRowsLast comment + 1`. This comment ENDS on the import's own first
+--     row, so the test overshot by one and it was not taken as leading.
+--   * `takeIndentedTrailingIdx` then claimed it for the import ABOVE, because
+--     it starts on a row after that one -- so it moved with the wrong import.
+--
+-- `SortingCommentZoo` has only the SINGLE-line form of this position
+-- (`import {- between iz -} Zebra`), whose comment starts and ends on the same
+-- row as its import and so misses both misreadings. Fixed in d2b927c; nothing
+-- but a full dirty-corpus sweep covered it until this fixture.
+
+import Set
+import {- x
+   y -} Dict
+import Array
+
+
+v =
+    Dict.empty

@@ -31,6 +31,7 @@ nothing is going wrong.
 - [Block comment body indentation](#block-comment-body-indentation)
 - [A custom-type variant with two or more arguments still parses](#a-custom-type-variant-with-two-or-more-arguments-still-parses)
 - [A comment run just inside a bracket doesn't keep its rows](#a-comment-run-just-inside-a-bracket-doesnt-keep-its-rows)
+- [Import sorting depends on the author's order when one import carries two multi-row comments](#import-sorting-depends-on-the-authors-order-when-one-import-carries-two-multi-row-comments)
 - [Very deep lambda or unary-minus nesting can overflow the stack](#very-deep-lambda-or-unary-minus-nesting-can-overflow-the-stack)
 
 
@@ -1128,3 +1129,38 @@ above. The pattern is worth knowing if you touch the renderer: a suspected
 blowup here has always turned out to be a second render, not a slow function.
 [`docs/testing.md`](testing.md#scaling-bench-scalingpy-and-how-to-check-a-suspected-blowup)
 has the measurements and the shapes that were timed.
+
+## Import sorting depends on the author's order when one import carries two multi-row comments
+
+**Open.** Found by `gen-random.py` v1.38's `sort-order` oracle (seed 920039, and
+5 of the first 300 seeds swept once the grammar could emit the shape at all).
+
+An import written with a multi-row comment *inside* it — between `import` and the
+module name — **and** a multi-row comment trailing it formats differently
+depending on the order the author wrote the imports in. These two modules mean
+the same thing:
+
+```gren
+import Qux0                     import {- k1
+import {- k1                       bravo -} Foo2 {- k2
+   bravo -} Foo2 {- k2             tango -}
+   tango -}                    import Qux0
+```
+
+Both sort to `Foo2` then `Qux0` with the comment run hoisted above, but the
+second gains a blank line between the two imports that the first does not have.
+
+The cause is that `Formatter.Logical.Comments` merges the two comments into one
+sibling `OriginalRows` whose row span *straddles* the import it was written in.
+`VerticalSpace`'s `gap` — "did the author leave a blank line here" — is measured
+against the immediately preceding sibling's last row, and against a straddling
+sibling that row is one the comment already occupies.
+
+The **idempotency** half of this shape is fixed and pinned by
+`ImportStatements/ImportInnerAndTrailingMultiline`: each module is individually a
+fixed point. Only the equality *between the two authorings* is broken.
+
+A running-maximum `last` in `gap` (so it measures from the furthest row anything
+above reaches, rather than from the immediate predecessor) fixes the two-import
+case — and makes generator seed 910271 non-idempotent, so it is the wrong shape
+of fix. It was tried and reverted rather than shipped.

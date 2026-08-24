@@ -1,0 +1,32 @@
+module ImportInnerAndTrailingMultiline exposing (v)
+
+-- A multi-row comment INSIDE an import (between `import` and the module name)
+-- and a multi-row comment TRAILING the same import, together.
+--
+-- `Formatter.Logical.Comments` merges the two into ONE sibling `OriginalRows`,
+-- whose span then straddles the import: the comment node covers rows 24-26
+-- while `import Foo2` is recorded at 25. `writtenInsideNodeAtIdx` asked whether
+-- the comment ENDS on the import's first row, which is the same question only
+-- while the comment stops there -- so neither of `sortImportGroups`' row rules
+-- claimed it, the run broke at that point, and the first format left `Qux0`
+-- above `Foo2` while the second sorted them. The predicate now asks
+-- CONTAINMENT.
+--
+-- Four of the five spellings are stable: the inner comment alone, the trailing
+-- one alone, and either of them written on a single row. Only both-multi-row
+-- reaches it, which is why no hand-written fixture had it -- `gen-random.py`
+-- v1.38 found it the first run it could emit the position at all.
+--
+-- NOTE: this file pins the IDEMPOTENCY half only. The author-order half is
+-- still open: writing the two imports in the other order yields a different
+-- blank line, which `gen-random.py`'s `sort-order` oracle reports (seed 920039).
+
+
+import Qux0
+import {- k1
+   bravo -} Foo2 {- k2
+   tango -}
+
+
+v =
+    0
