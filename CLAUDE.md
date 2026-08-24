@@ -51,6 +51,21 @@ where its code lives):
 
 Pass `-j 12` — this machine has 16 cores and the fuzzers default to `-j 2`.
 
+**The corpus has two halves, and `--corpus` picks them.** Every fixture is a
+pair: a `.formatted.gren` is already a fixed point, so a gate that formats it
+asks the formatter to perform *no rewrite* and any instability comes from the
+probe; a `.dirty.gren` is not, so the probe interacts with a real rewrite, and
+rule families keyed on author rows that the formatting itself moves are only
+reachable from that half. `fuzz-idempotency.py`, `check-decision-stability.py`
+and `audit-predicates.py` sweep **both** by default; `fuzz-whitespace.py`
+defaults to `dirty` (perturbing an input is its whole probe). `corpus.py` owns
+the axis — `--corpus {formatted,dirty,both}` is wired identically everywhere, so
+a gate chooses only its default.
+
+The dirty half was added to the standing sweep on 2026-08-23. It had never been
+swept before, and the first sweep of it found 24 findings in 66,252 probe sites
+that the formatted half could not reach.
+
 The five `tests/_run_*.py` are **instruments, not gates** — they answer a
 question (is this pile of findings a bug, or is the instrument asking the wrong
 one?) and guard nothing. Nothing runs them automatically and their exit status
@@ -72,7 +87,10 @@ finding: the labelled ones are registered in `tests/idempotency-known-baseline.j
 finding that is *not* registered fails, and so does a registered one that has
 stopped reproducing — so a regression cannot hide behind the automatic
 classification, and a fix cannot leave a stale exemption. Re-register with
-`--update-known-baseline` after a deliberate change. Before this the gate failed
+`--update-known-baseline` after a deliberate change. `--corpus` narrows the run
+the same way `--kind` / `--run` / a file list do, so only the default half
+(`both`) is gated against the baseline — a narrower run would report the other
+half's entries as stale. Before this the gate failed
 on any finding, ran permanently red, and hid eight findings of a real bug among
 the upstream ones for weeks.
 

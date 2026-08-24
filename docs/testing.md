@@ -123,10 +123,12 @@ wrong and it is not always the fixture.
 - **`tests/src/Test/Formatter/Format.gren`** — the fixture list, one
   `assertPrettyIn` call per case.
 - **`tests/testfiles/*/*.dirty.gren` / `*.formatted.gren`** — the fixture pairs;
-  the `.formatted.gren` half also doubles as the corpus every other gate
-  (matrix, both fuzzers, the audit) walks. `tests/corpus.py` is where those
-  gates ask which directories exist, so a new suite directory is swept the day
-  it is added rather than the day somebody remembers to widen four globs.
+  both halves also double as the corpus every other gate (matrix, both fuzzers,
+  the audit) walks. `tests/corpus.py` is where those gates ask which directories
+  exist *and which half to sweep*, so a new suite directory is swept the day it
+  is added rather than the day somebody remembers to widen four globs — and so
+  the half is a flag rather than a constant copied into each gate. See
+  [The two corpus halves](#the-two-corpus-halves).
 - **`tests/run-tests.sh`** — builds and runs the harness.
 
 ## Idempotency fuzzer (`fuzz-idempotency.py`)
@@ -142,17 +144,46 @@ placement bugs no hand-written fixture thought to cover.
 
 ### What it checks
 
-For each `*.formatted.gren` fixture, it inserts a `{- ¤ -}` block comment into
+For each corpus fixture, it inserts a `{- ¤ -}` block comment into
 every inter-token gap in turn, formats the perturbed file twice, and requires
 the two outputs to be byte-identical. A gap where the two formattings diverge
 is a finding — the comment (or the surrounding layout) moved between the first
 and second format.
 
+#### The two corpus halves
+
+`--corpus {formatted,dirty,both}` picks which half of each fixture pair the
+sweep walks. The default is `both`, and the two halves are genuinely different
+questions:
+
+- a `.formatted.gren` is already a fixed point, so formatting it performs **no
+  rewrite** — every byte the second format could move is a byte the spliced
+  probe put in motion;
+- a `.dirty.gren` is not, so the probe interacts with a **real rewrite**. Rules
+  keyed on a source row that the formatting itself invalidates — the single
+  largest family of idempotency bugs in this formatter — can only be reached
+  from this half, because on the formatted half those rows are already the
+  output's rows.
+
+The fuzzers swept only the formatted half until 2026-08-23. The first sweep of
+the dirty half found 24 findings in 66,252 probe sites, in three rule families,
+none of them reachable from the half that had been swept for months.
+
+`check-decision-stability.py` and `audit-predicates.py` take the same flag with
+the same default; `fuzz-whitespace.py` takes it with default `dirty`, since
+perturbing an input's whitespace is its whole probe.
+
+`--corpus` narrows a run the way `--kind` / `--run` / a file list do, so only
+the default half is gated against `idempotency-known-baseline.json` — a narrower
+run would report the unswept half's entries as stale and fail for having been
+asked a smaller question.
+
 ### How to run it
 
 ```bash
 cd gren-format-lib/tests
-python3 fuzz-idempotency.py -j 12                                      # whole corpus
+python3 fuzz-idempotency.py -j 12                                      # whole corpus, both halves
+python3 fuzz-idempotency.py --corpus dirty -j 12                       # just the rewritten half
 python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file, with the format¹/format² diff per gap
 python3 fuzz-idempotency.py --pairs -j 12                              # the PAIR axis (slow; see below)
 python3 fuzz-idempotency.py --update-known-baseline -j 12              # re-register the upstream findings
@@ -1117,8 +1148,10 @@ cd gren-format-lib/tests
 
 Exit status is non-zero if any finding is reported.
 
-The corpus it walks is `testfiles/*/*.formatted.gren` (via `corpus.py`) — the
-same fixture set the effectful suite uses. The matrix (`matrix-syntax.py`) additionally runs
+The corpus it walks is both halves of `testfiles/*/*.gren` (via `corpus.py`,
+`--corpus` to narrow it) — the same fixture set the effectful suite uses, on
+both sides of the rewrite. See
+[The two corpus halves](#the-two-corpus-halves). The matrix (`matrix-syntax.py`) additionally runs
 `--audit-predicates` on every generated cell, so the audit also covers synthetic
 syntax beyond what the corpus happens to contain.
 

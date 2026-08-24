@@ -26,8 +26,12 @@ the premise that format(perturbed) == format(original) does not hold and the
 mode was testing the wrong thing.
 
 Usage:
-    ./fuzz-whitespace.py [--mode stretch|indent] [-v] [FILE ...]
-Defaults to mode=stretch over all testfiles/*/*.dirty.gren.
+    ./fuzz-whitespace.py [--mode stretch|indent] [--corpus HALF] [-v] [FILE ...]
+Defaults to mode=stretch over all testfiles/*/*.dirty.gren. `--corpus` picks the
+half (see `corpus.py`); this gate defaults to `dirty` rather than `both` because
+perturbing an input's whitespace is its whole probe, and the formatted half is
+the one input whose whitespace is already the formatter's own — so the
+perturbation there re-asks a question the idempotency gate already owns.
 A perturbation that fails to PARSE or changes the AST is reported as
 "ast-changed" (the perturbation was illegal, not necessarily a formatter bug).
 A perturbation that parses to the same AST but formats differently is a
@@ -49,7 +53,7 @@ import sys
 import tempfile
 import threading
 
-from corpus import corpus_files
+from corpus import add_corpus_argument, corpus_files_for
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
@@ -1130,12 +1134,13 @@ def main(argv):
     ap.add_argument("--mode", choices=["stretch", "indent"], default="stretch")
     ap.add_argument("-v", action="store_true")
     ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent `gren format`s (default 2)")
+    add_corpus_argument(ap, default="dirty")
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
 
     files = args.files
     if not files:
-        files = corpus_files(".dirty.gren")
+        files = corpus_files_for(args.corpus)
 
     total = 0
     with tempfile.TemporaryDirectory() as base:

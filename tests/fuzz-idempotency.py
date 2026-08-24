@@ -80,7 +80,7 @@ import sys
 import tempfile
 import threading
 
-from corpus import corpus_files
+from corpus import add_corpus_argument, corpus_files_for
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
@@ -980,6 +980,11 @@ def report_decl_ends(base, pool, path, src, verbose):
 
 KNOWN_BASELINE = pathlib.Path(__file__).resolve().parent / "idempotency-known-baseline.json"
 
+#: The corpus half the default sweep covers, and therefore the half
+#: `idempotency-known-baseline.json` was written from. Both halves: the
+#: dirty inputs reach rule families the fixed points cannot (see `corpus.py`).
+DEFAULT_CORPUS = "both"
+
 
 def check_known_baseline(registry, full_sweep, update):
     """Gate the KNOWN-upstream findings against a registered set. Returns True
@@ -1091,6 +1096,7 @@ def main(argv):
 
                     help=f"rewrite {KNOWN_BASELINE.name} from this run's findings "
                          "(full sweep only)")
+    add_corpus_argument(ap, default=DEFAULT_CORPUS)
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
 
@@ -1137,6 +1143,11 @@ def main(argv):
     # The baseline holds the findings of the DEFAULT sweep and only those: any
     # flag that narrows or changes which gaps are probed takes the run out of
     # its scope. `-v` and `-j` do not, being output and concurrency only.
+    #
+    # `--corpus` narrows it like any other: the half a run does not sweep
+    # contributes no findings, so every baseline entry from that half would
+    # report as STALE and the run would fail for having been asked a smaller
+    # question. `DEFAULT_CORPUS` is what the baseline was written from.
     full_sweep = (
         not args.files
         and not args.kind
@@ -1145,12 +1156,13 @@ def main(argv):
         and not args.pairs
         and run_gaps
         and run_decl_ends
+        and args.corpus == DEFAULT_CORPUS
     )
 
 
     files = args.files
     if not files:
-        files = corpus_files(".formatted.gren")
+        files = corpus_files_for(args.corpus)
 
 
     # Precompute gaps (pure Python, no subprocesses).

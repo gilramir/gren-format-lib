@@ -61,7 +61,7 @@ import pathlib
 import subprocess
 import sys
 
-from corpus import corpus_files
+from corpus import add_corpus_argument, corpus_files_for
 
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
@@ -96,12 +96,13 @@ def main():
     ap.add_argument("files", nargs="*", type=pathlib.Path)
     ap.add_argument("-j", "--jobs", type=int, default=2, help="concurrent audits (default 2)")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every finding")
+    add_corpus_argument(ap)
     args = ap.parse_args()
 
     if not APP.exists():
         sys.exit(f"{APP} not found -- run (cd ../../gren-format && ./build.sh) first")
 
-    files = args.files or corpus_files(".formatted.gren")
+    files = args.files or [pathlib.Path(p) for p in corpus_files_for(args.corpus)]
     if not files:
         sys.exit("no input files")
 

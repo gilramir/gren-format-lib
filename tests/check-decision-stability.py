@@ -69,7 +69,7 @@ import subprocess
 import sys
 import tempfile
 
-from corpus import corpus_files
+from corpus import add_corpus_argument, corpus_files_for
 
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
@@ -433,13 +433,14 @@ def main(argv):
         action="store_true",
         help="every ordered triple that is not all one kind (24 sequences)",
     )
+    add_corpus_argument(ap)
     ap.add_argument("files", nargs="*")
     args = ap.parse_args(argv[1:])
 
     if not APP.exists():
         sys.exit(f"{APP} not found -- run (cd ../../gren-format && ./build.sh) first")
 
-    files = args.files or corpus_files(".formatted.gren")
+    files = args.files or corpus_files_for(args.corpus)
     kinds = resolve_kinds(ap, args)
     findings = Findings()
 
