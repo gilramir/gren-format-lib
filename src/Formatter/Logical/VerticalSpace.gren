@@ -426,6 +426,9 @@ Runs after `Formatter.Logical.MakeLogical` has built the tree and
     two blank lines above it, same as a declaration unit, once any gap is
     present at all. A comment glued to whatever follows it (e.g. leading an
     import) is not free-floating and keeps the single-blank gap-driven rule.
+    Neither is a comment *inside* a unit — between a signature and its
+    definition — however the author spaced it: the gap below it is one this
+    pass closes itself.
 -}
 insertEmptyLines : LPNode -> LPNode
 insertEmptyLines root =
@@ -580,8 +583,29 @@ insertEmptyLines root =
                                     -- the module line's fixed one. `afterModule`'s own
                                     -- fixed one-blank rule (below) already covers it
                                     -- stably.
+                                    --
+                                    -- Excludes `p.sigPending` for a different reason,
+                                    -- and one this pass has to own: `infoDetachedBelow`
+                                    -- reads the INPUT rows, and the gap it finds below a
+                                    -- comment inside a signature unit is the very gap
+                                    -- `sigThenDef` is about to close two iterations
+                                    -- later. So the comment looked free-floating and
+                                    -- took two blanks, the definition moved up under it,
+                                    -- and the reparse — now seeing no gap below the
+                                    -- comment — called it not floating and gave one.
+                                    -- `sigPending` is the same span `classifyChildren`
+                                    -- and `sigThenDef` already read (a signature and its
+                                    -- definition, comments transparent), asked here so
+                                    -- all three agree: a comment inside a unit is never
+                                    -- free-floating, whatever the author's rows say.
+                                    -- Same class as `45f7269`: a placement decided from
+                                    -- a source row this pass itself invalidates.
                                     floating =
-                                        gap && info.isComment && infoDetachedBelow && not afterModule
+                                        gap
+                                            && info.isComment
+                                            && infoDetachedBelow
+                                            && not afterModule
+                                            && not p.sigPending
                                 in
                                 if floating then
                                     { newChildren =

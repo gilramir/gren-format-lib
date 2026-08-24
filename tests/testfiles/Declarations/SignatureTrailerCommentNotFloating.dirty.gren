@@ -1,0 +1,23 @@
+module SignatureTrailerCommentNotFloating exposing (withComment)
+
+-- A comment BETWEEN a signature and its definition is never free-floating, so
+-- it never takes the two-blank treatment -- however the author spaced it.
+--
+-- `floating` reads `infoDetachedBelow`, which is computed from the INPUT rows.
+-- The gap it finds below this comment is the very gap `sigThenDef` closes two
+-- iterations later when it pulls the definition up under the signature. So the
+-- first format called the comment free-floating and gave it two blanks, moved
+-- the definition up, and the reparse -- now seeing no gap below the comment --
+-- called it not floating and gave it one. `p.sigPending` is the same span
+-- `classifyChildren` and `sigThenDef` already read, so all three now agree.
+--
+-- The `-- trailing` on the signature row is what opens the gap above: without
+-- it the comment abuts the signature and `gap` is False.
+
+
+withComment : Int -- trailing
+
+-- a note about the definition
+
+withComment =
+    1

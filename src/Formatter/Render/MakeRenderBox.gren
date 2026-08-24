@@ -1866,10 +1866,27 @@ makeRecordUpdateVerticalBox baseBox children =
                             -- Slot per `FP.containerCommentSlot`. The opener slot is
                             -- peeled off before this fold (`splitOpenerComments`), so
                             -- `atOpener` is always False here. `canGlue` is
-                            -- `lastWasField`: a comment glues only onto a real FIELD,
-                            -- never onto a preceding comment, so two comments flanking
-                            -- the `|` each keep their own line instead of chaining —
-                            -- deliberately unlike the union body and the bracket list.
+                            -- `acc.canGlue`: the last thing emitted ends on a row a
+                            -- comment may still join — a real FIELD, or a comment that
+                            -- ITSELF glued onto one. A comment that took a line of its
+                            -- own does not qualify, which is what keeps two comments
+                            -- flanking the `|` on separate lines instead of chaining.
+                            --
+                            -- The second half of that (`GluesPrevious` re-arming it)
+                            -- is not a widening of the flanking rule but the same
+                            -- rule read correctly: **gren never moves a comment
+                            -- between rows**, so a run the author wrote on ONE row
+                            -- stays on one row, and the row in question is the
+                            -- field's — the first member already moved there. Asking
+                            -- only `lastWasField` broke the run apart at its second
+                            -- member: `q {- x -} {- t` ⏎ `second -}` glued `{- x -}`
+                            -- onto the field and then dropped `{- t -}` to the
+                            -- update's own indent, eight columns left of the code it
+                            -- was written beside. The reparse reads that placement
+                            -- back as written, so it is a fixed point and the first
+                            -- format never reached it — the non-idempotency was the
+                            -- two formats disagreeing about the run, not about the
+                            -- comment.
                             --
                             -- The slot has to come from the role: placing every
                             -- comment here on its own line unconditionally
@@ -1879,7 +1896,7 @@ makeRecordUpdateVerticalBox baseBox children =
                             commentNodeBox node
                                 |> Result.map
                                     (\cbox ->
-                                        when FP.containerCommentSlot { atOpener = False, canGlue = acc.lastWasField } node is
+                                        when FP.containerCommentSlot { atOpener = False, canGlue = acc.canGlue } node is
                                             FP.LeadsFollowing ->
                                                 -- Rule C2: written across the unrecorded
                                                 -- `|` (or a `,` between fields), so it
@@ -1891,22 +1908,28 @@ makeRecordUpdateVerticalBox baseBox children =
                                                 -- prefix's width — `| -- c` ⏎ `  a = 1`.
                                                 { acc
                                                     | lead = Array.pushLast { box = cbox, inline = commentTextCanRide node } acc.lead
-                                                    , lastWasField = False
+                                                    , canGlue = False
                                                 }
 
                                             FP.GluesPrevious ->
                                                 when Array.popLast acc.lines is
                                                     Just { last = lastBox, initial } ->
-                                                        { acc | lines = Array.pushLast (glueCommentSuffix cbox lastBox) initial, lastWasField = False }
+                                                        -- Still gluable: this comment is
+                                                        -- now ON the previous line, so
+                                                        -- the next member of the same
+                                                        -- authored run joins it there.
+                                                        { acc | lines = Array.pushLast (glueCommentSuffix cbox lastBox) initial, canGlue = True }
 
                                                     Nothing ->
-                                                        -- unreachable: `canGlue` is
-                                                        -- `lastWasField`, which is only
-                                                        -- True once a field is in `lines`.
-                                                        { acc | lines = [ cbox ], lastWasField = False }
+                                                        -- unreachable: `canGlue` is only
+                                                        -- True once a field is in
+                                                        -- `lines`, and the arm above is
+                                                        -- the only other thing that
+                                                        -- re-arms it.
+                                                        { acc | lines = [ cbox ], canGlue = False }
 
                                             _ ->
-                                                { acc | lines = Array.pushLast cbox acc.lines, lastWasField = False }
+                                                { acc | lines = Array.pushLast cbox acc.lines, canGlue = False }
                                     )
 
                         else
@@ -2025,13 +2048,13 @@ makeRecordUpdateVerticalBox baseBox children =
                                         in
                                         { lines = Array.pushLast (B.prefix pref (glueLeadingCommentRun True acc.lead fieldBox)) acc.lines
                                         , seenField = True
-                                        , lastWasField = True
+                                        , canGlue = True
                                         , lead = []
                                         }
                                     )
                     )
     in
-    Array.foldl step (Ok { lines = [], seenField = False, lastWasField = False, lead = [] }) children
+    Array.foldl step (Ok { lines = [], seenField = False, canGlue = False, lead = [] }) children
         |> Result.map
             (\acc ->
                 B.stack1

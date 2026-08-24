@@ -1,0 +1,28 @@
+module RecordUpdateTrailingCommentRun exposing (run)
+
+-- A RUN of two comments trailing the last field of a VERTICAL record update.
+--
+-- `makeRecordUpdateVerticalBox`'s comment fold asked `containerCommentSlot` for
+-- a `canGlue` that meant "the previous child is a real FIELD". The first member
+-- of the run therefore glued onto the field's row and the second, whose
+-- predecessor was now a comment rather than a field, dropped to the update's
+-- own indent -- eight columns left of the code the author wrote it beside.
+--
+-- Gren never moves a comment between rows, so a run written on one row stays on
+-- one row: `GluesPrevious` re-arms `canGlue`, because the comment it just glued
+-- is itself on the field's row.
+--
+-- Only the second format could see it. The authored shape below puts the field
+-- on one row, which makes it an `IndentedBlock` whose last rendered row already
+-- carries both comments; reformatting that output splits the field across rows,
+-- the trailing run re-attaches at the update level, and the fold that ran there
+-- broke the run apart. The multi-line `{- multi -}` in front is what puts the
+-- run's own row past the field's, which is what sends it to the update.
+
+
+run rec fn =
+    { rec
+        | fld = \q -> fn {- multi
+   second row -} q {- rides -} {- and this one too
+                     second row -}
+    }

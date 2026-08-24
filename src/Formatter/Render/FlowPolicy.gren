@@ -296,10 +296,11 @@ The caller supplies the two facts only it can know:
     before the fold (`splitOpenerComments`) so it passes `False` too.
   - `canGlue` — there is something this comment may glue onto. Each container
     defines that differently, and the differences are deliberate: the update
-    requires the previous child to be a real FIELD (so two comments flanking a
-    `|` each keep their own line instead of chaining), while the union body,
-    the when-branches and the bracket list allow a second trailing comment to
-    chain onto the first.
+    requires the previous child to be a real FIELD **or a comment that itself
+    glued onto one** (so two comments flanking a `|` each keep their own line,
+    while a run the author wrote on one field's row stays on that row), while
+    the union body, the when-branches and the bracket list allow a second
+    trailing comment to chain onto the first unconditionally.
 
 The result order is the priority order, and it is the same in all four.
 -}
