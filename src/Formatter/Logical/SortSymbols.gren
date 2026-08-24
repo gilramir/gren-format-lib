@@ -319,24 +319,52 @@ type alias ImportUnit =
     }
 
 
+{-| The row EXTENT of a whole unit — the minimum first row and the maximum last
+row over its leading comments, its import, and its trailing comments.
+
+Both used to read one designated member: the FIRST leading comment for the start
+and the LAST trailing comment (else the import) for the end. That is the same
+answer whenever a unit's members are laid out in row order and do not overlap,
+which is every unit an author writes by hand — and it is not the unit
+`Formatter.Logical.Comments` builds from a comment written INSIDE an import
+statement. Such a comment is promoted to a sibling `OriginalRows` whose span
+STRADDLES the import:
+
+    import {- k0
+        tango -} Qux0 exposing (..) {- k1
+                tango -}
+    import Bar3
+
+The two comments merge into one leading node spanning rows 3–5, while
+`import Qux0` is recorded at row 4. `unitLastRow` answered **4** — the import's
+own last row — so `collectRun`'s "next unit starts on the row right after this
+one ends" test measured from a row the comment is still occupying, `import Bar3`
+at row 6 looked two rows away, and the run ENDED between two adjacent imports.
+
+Nothing was sorted across that break, and `VerticalSpace` then emitted the blank
+line the same misreading implies — which made the wrong grouping **stable**, so
+only `gen-random.py`'s `sort-order` oracle could see it (v1.38, seed 920039).
+
+Taking the extent over every member is what "the group of imports has to account
+for the comment's span" means, and it belongs here rather than at either of the
+two places that ask: `collectRun` and `reflowUnits` both read these two
+functions, and fixing only the blank-line pass left `collectRun` still splitting
+the run — the first format then failed to sort while the second, reading the
+hoisted comment back at column 1, succeeded. That attempt is in
+`docs/knownLimitations.md`.
+-}
 unitFirstRow : ImportUnit -> Int
 unitFirstRow unit =
-    when Array.first unit.leading is
-        Just n ->
-            origRowsFirst n
-
-        Nothing ->
-            origRowsFirst unit.item
+    Array.foldl (\n acc -> min acc (origRowsFirst n))
+        (origRowsFirst unit.item)
+        (unit.leading ++ unit.trailing)
 
 
 unitLastRow : ImportUnit -> Int
 unitLastRow unit =
-    when Array.popLast unit.trailing is
-        Just { last = n } ->
-            origRowsLast n
-
-        Nothing ->
-            origRowsLast unit.item
+    Array.foldl (\n acc -> max acc (origRowsLast n))
+        (origRowsLast unit.item)
+        (unit.leading ++ unit.trailing)
 
 
 {-| True for a root-level comment: an `OriginalRows` wrapping one detached

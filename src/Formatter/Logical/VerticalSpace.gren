@@ -483,7 +483,37 @@ insertEmptyLines root =
                         prevRec =
                             { isGroupStart = isGroupStart
                             , isComment = info.isComment
-                            , last = info.last
+                            -- The furthest row anything ABOVE this point
+                            -- reaches, not this node's own last row. The two
+                            -- differ only where two root children's spans
+                            -- OVERLAP, which at the top level means one thing: a
+                            -- comment written INSIDE a statement, which
+                            -- `Formatter.Logical.Comments` promotes to a sibling
+                            -- whose span then STRADDLES the node it was written
+                            -- in (`import {- c` ⏎ `  x -} Foo`).
+                            --
+                            -- `gap` asks whether the AUTHOR left a blank line
+                            -- here, and against a straddling sibling the
+                            -- immediate predecessor's `last` answers about a row
+                            -- the comment still occupies -- so the next import
+                            -- looked separated by a blank that is not there.
+                            --
+                            -- This is `SortSymbols.unitLastRow`'s correction one
+                            -- pass later, and the two are not interchangeable:
+                            -- fixing only this one leaves `collectRun` splitting
+                            -- the run, so the first format fails to sort while
+                            -- the second -- reading the hoisted comment back at
+                            -- column 1 -- succeeds. Fixing only that one leaves
+                            -- the run sorted and this blank still emitted. Both
+                            -- ask the same question of the same overlap, one
+                            -- pass apart.
+                            , last = max info.last (when acc.prev is
+                                                        Just prior ->
+                                                            prior.last
+
+                                                        Nothing ->
+                                                            info.last
+                                                   )
                             , stype = info.stype
                             , docLeadsBelow = info.docLeadsBelow
                             -- Is a signature still open above this point — i.e.

@@ -1,0 +1,30 @@
+module ImportInnerCommentSortsEitherOrder exposing (v)
+
+-- The same two imports as `ImportInnerAndTrailingMultiline`, written in the
+-- OTHER order. Both spellings must format to the same bytes -- the sort is what
+-- makes the author's order stop mattering -- and this one did not.
+--
+-- A comment written INSIDE an import is promoted to a sibling `OriginalRows`
+-- whose span STRADDLES the import, so a unit's rows are no longer in row order.
+-- `unitLastRow` read only the trailing comments and the import, answering with a
+-- row the LEADING comment is still occupying, so `collectRun`'s "the next unit
+-- starts on the row right after this one ends" test saw a gap between two
+-- adjacent imports and ENDED the run. Nothing sorted across the break, and
+-- `VerticalSpace` emitted the blank line the same misreading implies -- which
+-- made the wrong grouping stable, so no idempotency check could see it. Only
+-- `gen-random.py` v1.38's `sort-order` oracle could, by asking whether the two
+-- authorings agree.
+--
+-- Both row tests had to move together. Correcting only the blank-line pass left
+-- `collectRun` still splitting the run: the first format then failed to sort
+-- while the second, reading the hoisted comment back at column 1, succeeded.
+
+
+import {- k1
+   bravo -} Foo2 {- k2
+   tango -}
+import Qux0
+
+
+v =
+    0

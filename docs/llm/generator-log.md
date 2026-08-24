@@ -1887,3 +1887,32 @@ yields a different blank line. The idempotency half is fixed and pinned by
 A running-maximum `last` in `VerticalSpace`'s `gap` fixes the two-import case and
 makes seed 910271 non-idempotent, so it is the wrong shape of fix and was
 reverted rather than shipped.
+
+**Closed the same day.** The `sort-order` failure above is fixed, and it took a
+correction in **two** places, one pass apart, which is why the first attempt
+looked like a dead end.
+
+Both are the same misreading of the same overlap. A comment written inside an
+import is promoted to a sibling `OriginalRows` whose span *straddles* the import,
+so a unit's members are no longer in row order — and two row tests read a unit's
+extent from one designated member each:
+
+- `SortSymbols.unitLastRow` took the last *trailing* comment (else the import),
+  ignoring the leading comments. `collectRun` therefore measured "is the next
+  unit on the row right after this one ends" from a row the leading comment still
+  occupies, saw a gap between two adjacent imports, and **ended the run**.
+- `VerticalSpace`'s `gap` took the immediately preceding sibling's `last`, which
+  against a straddling sibling is likewise a row the comment occupies, and
+  emitted a blank line that is not in the source.
+
+Fixing only the second is what produced the oscillation recorded above: the run
+still split, so format¹ failed to sort while format² — reading the hoisted
+comment back at column 1, where the spans no longer overlap — succeeded. Fixing
+only the first leaves the run sorted and the phantom blank still emitted, which
+is stable and therefore invisible to every oracle but `sort-order`.
+
+`unitFirstRow`/`unitLastRow` now take the min/max over every member, and `gap`
+takes a running maximum of the rows above. All six previously-failing seeds
+(910064, 910123, 910222, 910231, 910271, 920039) are clean. Pinned by
+`ImportStatements/ImportInnerCommentSortsEitherOrder`, which is the authoring the
+sort used to disagree about.

@@ -17,9 +17,9 @@ module ImportInnerAndTrailingMultiline exposing (v)
 -- reaches it, which is why no hand-written fixture had it -- `gen-random.py`
 -- v1.38 found it the first run it could emit the position at all.
 --
--- NOTE: this file pins the IDEMPOTENCY half only. The author-order half is
--- still open: writing the two imports in the other order yields a different
--- blank line, which `gen-random.py`'s `sort-order` oracle reports (seed 920039).
+-- This order happened to be the one that worked: it pins the sorter's row rule.
+-- `ImportInnerCommentSortsEitherOrder` pins the same two imports written the
+-- OTHER way round, which needed the unit's row EXTENT as well.
 
 
 import Qux0
