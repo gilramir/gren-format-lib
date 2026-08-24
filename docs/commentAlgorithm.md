@@ -56,6 +56,7 @@ document has the model behind it.
   - [8.4 Every local rule reads at most one neighbour](#84-every-local-rule-reads-at-most-one-neighbour)
   - [8.5 Where one neighbour is *not* enough](#85-where-one-neighbour-is-not-enough--and-why-that-is-still-bounded)
   - [8.6 The fixed point, restated for runs](#86-the-fixed-point-restated-for-runs)
+  - [8.7 The anchor — the obligation this argument does *not* discharge](#87-the-anchor--the-obligation-this-argument-does-not-discharge)
 - [9. An example](#9-an-example)
 - [10. Coverage: what each gate actually varies](#10-coverage-what-each-gate-actually-varies)
 - [11. The functions to be careful about](#11-the-functions-to-be-careful-about)
@@ -1592,7 +1593,9 @@ there are known non-idempotent inputs, all of them a parser bug upstream of here
 new cases** — so the correctness of a run reduces to the correctness of one
 comment and of its boundary with one neighbour, which is a finite thing to check.
 
-It rests on four properties of the code, plus one honest boundary.
+It rests on four properties of the code, plus **two** honest boundaries: §8.5,
+where a rule is about the whole run rather than about a neighbour, and §8.7,
+where the *code* the roles hang off moves underneath them.
 
 ### 8.1 Placement is prefix-determined, so *n* is never an input
 
@@ -1769,7 +1772,8 @@ rows the first format already committed to, so it re-derives the same *n* roles.
 
 So idempotency for a run is not a separate property needing a separate argument:
 it is *n* instances of the per-comment one, and the only thing joining them is
-R1's reference row.
+R1's reference row. That holds **given the same code on the second parse** —
+which is an assumption, not a fact, and §8.7 is where it is paid for.
 
 Which is also the practical advice. When a run misbehaves, the three things that
 have actually been wrong are, in order of how often: a **stale reference row**
@@ -1784,6 +1788,141 @@ never a cleverer rule — it is to make **format¹ build the tree format² would
 build** (`detachOwnLineTrailer`, `rehomePipelineStepTrailers`, §4.6). Those are
 repairs precisely because they need the finished tree, which §6.1 says the fold
 cannot have.
+
+### 8.7 The anchor — the obligation this argument does *not* discharge
+
+Everything above quantifies over *the run*, holding the tree fixed. Look again at
+§8.1's formula:
+
+```
+role(k) = f(code, comments 1 … k−1)
+```
+
+§8.1–8.6 show that `f` is length-independent in its **second** argument. But
+`code` is an argument too, and nothing above says a word about it. So the
+fixed-point obligation §2.2 localises onto `f` is really *two* obligations, and
+§8 discharges only one:
+
+> **(i)** given the same `code`, `f` returns the same roles when re-asked over the
+> output's rows; and
+> **(ii)** the second run *is given the same* `code`.
+
+**(ii) is not free.** It holds exactly insofar as formatting does not rewrite
+concrete syntax — and this one does, in three ways that delete, insert or reorder
+a token:
+
+- `SortSymbols` **reorders** exposing lists and import groups ([sorting.md](sorting.md));
+- a pattern's parens are **synthesized from need** rather than echoed, because
+  `Src.Pattern_` has no paren constructor for the parser to record one in, so a
+  redundant paren the author wrote around a pattern disappears
+  ([SD4b](settledDecisions.md#sd4b-pattern-parens-are-synthesized-not-preserved) —
+  note that expressions and types are the opposite, SD4, and keep every paren);
+- the `port` keyword is **added or dropped** on the module header to match whether
+  the module declares ports
+  ([rule](formatterRules.md#the-port-in-port-module-follows-the-ports)).
+
+Two further rewrites — uppercasing hex digits, normalising string escapes — change
+bytes only *inside* a token, so they cannot move an anchor and are not in scope
+here.
+
+#### Why every comment sweep was blind to this
+
+Until 2026-08-23 every comment-gap sweep in this repo ran against the
+**already-formatted** half of the corpus. On a `.formatted.gren` no rewrite
+occurs by construction: the imports are already sorted, the pattern parens
+already synthesized, the `port` keyword already correct. **The rewrite that can
+move an anchor cannot happen on a fixed point.** The instrument was exhaustive,
+correct, and pointed at an input class that excluded the bug.
+
+Running the same instrument unchanged over the 391 *unformatted* halves —
+66,252 probe sites — produced **24 findings in 10 fixtures** on the first sweep,
+22 of them one class. That is what `--corpus` exists for, and why `both` is now
+the default for `fuzz-idempotency.py`, `check-decision-stability.py` and
+`audit-predicates.py` (§10).
+
+#### The mechanism is narrower than "the anchor moved"
+
+Worth stating exactly, because the precise shape is what makes the class hard to
+test for. **Attachment promotes a comment written *inside* a statement to a
+sibling of that statement** (§4.2). The sibling's row range then *straddles* the
+node it was written in — the comment spans rows 3–5 while the import it sits
+inside is recorded at row 4:
+
+```gren
+import {- k0
+    tango -} Qux0 exposing (..) {- k1
+            tango -}
+import Bar3
+```
+
+The first pass hoists that comment onto its own rows. On the next parse it is a
+**leading** comment of the import, which moves the import-group boundary, which
+changes the sort order.
+
+Every downstream row test was written under an invariant nobody had stated:
+
+> **siblings are disjoint and in row order.**
+
+`SortSymbols`' run detection ("does the next import unit begin on the row after
+this one ends?") and `VerticalSpace`'s gap question ("did the author leave a
+blank line here?") are both correct under that invariant and both wrong without
+it. Attachment is what breaks it — and it breaks it *only* for a comment written
+inside a statement, which is precisely a shape the formatter's own output never
+contains, since the first pass hoists such comments to column 1 where the ranges
+are disjoint again.
+
+So the invariant holds on every fixed point **by construction**, and the
+already-formatted corpus could not have held a single counterexample. That is
+sharper than "no rewrite occurs on a fixed point": the input class is not merely
+absent from that corpus, it is *excluded* from it.
+
+#### And the class has members that are idempotent
+
+This is the part that matters most for §10, and it is why this subsection is not
+just another entry in §13.
+
+We first read the defect as a format¹-vs-format² disagreement and fixed it that
+way. It is not only that. When the same misreading also makes `VerticalSpace`
+emit a blank line — which it does, since that pass asks the same adjacency
+question of the same overlapping range — the phantom blank becomes a **real run
+boundary on the next parse**, and the wrong grouping is *self-consistent*.
+Formatting is then a fixed point that has silently declined to sort two adjacent
+imports.
+
+**No idempotency gate can see that, and none of ours did.** The shape survived
+the first fix, survived a second fix to the sorter's row rule, and was finally
+caught by `gen-random.py`'s **author-order oracle** (§10) — emit the same module
+with its import run in the other order and require byte-identical output — which
+is the one gate in the portfolio that does not ask about repetition at all.
+
+The fix cost three attempts over two rounds, because the same misread row range
+is consulted by two passes and correcting either alone leaves a bug: correcting
+`VerticalSpace` alone leaves the sort silently disabled, correcting `SortSymbols`
+alone re-opens the oscillation. Both passes, together, or neither.
+
+#### The scope of §8, stated exactly
+
+> §8 establishes that **run length and composition are not inputs to placement**.
+> It does **not** establish that placement is a fixed point, because it assumes an
+> anchor the formatter is free to move.
+
+Obligation (ii) is discharged by testing rather than by argument — and, more
+precisely, it *cannot* be discharged by idempotency testing at all, since the
+paragraph above exhibits a member of the class that is a fixed point. Covering
+(ii) needs an oracle that varies the input's **authoring** rather than repeating
+the formatter, and there is exactly one of those in the repo today. Building a
+second is open work.
+
+**What this means when you touch the code.** Two rules follow, and neither is
+implied by §8.1–8.6:
+
+1. If you add a rewrite that **deletes, inserts or reorders a token**, you have
+   added to obligation (ii). Sweep `--corpus dirty` before believing it, and ask
+   whether the author-order oracle reaches the syntax you moved.
+2. If you write a row test over siblings, do not assume they are disjoint. A
+   comment promoted out of a statement straddles it (§4.2), and that shape does
+   not appear anywhere in the formatter's own output — so no fixture built by
+   running the formatter will ever show it to you.
 
 ---
 
@@ -1868,14 +2007,14 @@ exists for.
 | gate | what it varies | what it proves | blind to |
 |---|---|---|---|
 | **Fixture suite** (`run-tests.sh`, 368 `.formatted.gren` across 12 suites) | hand-written cases | exact bytes, AST equivalence, idempotency, per fixture | anything nobody thought to write |
-| **`fuzz-idempotency.py`** | inserts a comment into **every** inter-token gap of every fixture (and, in a second pass, past every declaration's end), formats twice | the fixed point, and — via a marker count — that the comment survives exactly once | only says *whether* something moved |
+| **`fuzz-idempotency.py`** | inserts a comment into **every** inter-token gap of every fixture (and, in a second pass, past every declaration's end), formats twice — over **both** halves of the corpus (`--corpus both`, the default since 2026-08-23) | the fixed point, and — via a marker count — that the comment survives exactly once | only says *whether* something moved; and nothing at all about a wrong answer that is **stable** (§8.7) |
 | ⤷ `--run N` | the same, with a **run of N** in each gap | the rules whose neighbour is another comment (§8.4) | a run whose members are all one kind has one neighbour shape |
 | ⤷ `--mix-pairs` / `--mix-triples` | run **composition** — every ordered pair, then all 24 non-uniform triples | the boundaries between *different* kinds | — (triples found nothing pairs had not; §8.4) |
 | **`check-decision-stability.py`** | the same gaps and the same run axes, but diffs the *decisions* | **which** decision was unstable, as named branches with no positions in them | a decision nobody traced |
 | **`fuzz-whitespace.py`** | inter-token whitespace | `format(perturbed) == format(original)` — placement must not depend on your spacing | comments |
 | **`matrix-syntax.py --comments`** (68,922 cells) | 41 expression × 25 contexts + 11 type × 15 contexts, × 3 comment kinds × 2 positions, each diffed against **elm-format** | placement *divergence* — a stable, idempotent, AST-preserving wrong answer | shapes outside its vocabulary; it reports zero for those exactly as it does for agreement |
 | ⤷ `--comment-runs` (113,796 cells) | the same cells with a **two-member run**, all nine compositions | that a run is idempotent, AST-preserving and preserved *in order*, over generated syntax | elm-format parity (deliberately not baselined — see below) |
-| **`gen-random.py`** | random-but-legal modules, structure **and** comments | comment **multiset** preservation (drop / duplication / kind change), **author-order invariance**, and predicate/renderer agreement | shapes outside its grammar |
+| **`gen-random.py`** | random-but-legal modules, structure **and** comments — including the **same module spelled two legal ways** | comment **multiset** preservation (drop / duplication / kind change), **author-order invariance** — the only gate here covering §8.7's obligation (ii) — and predicate/renderer agreement | shapes outside its grammar |
 | **`audit-predicates.py`** | the corpus | that a "does this break?" predicate agrees with the renderer | under-approximation (deliberate) |
 | **`fuzzrun.py`** | drives `gen-random.py` over days, across hosts, with a persistent seed cursor per profile | depth — the conjunctions of features nobody would write | the same as `gen-random.py` |
 
@@ -1894,6 +2033,13 @@ Three of those deserve emphasis, because they cover holes that look covered:
   oracle**: emit the same module twice with its import runs and exposing lists in
   reversed author order, with each comment still on the same owner, and require
   byte-identical output. That is something only a generator can do.
+
+  **This is the hole that turned out to matter most.** It is the only gate
+  covering §8.7's obligation (ii), and the anchor-move class has members that are
+  *fixed points* — a run boundary the formatter wrongly inserts is a run boundary
+  the next parse agrees with. Both of the last two bugs in that class were stable,
+  this oracle is what found them, and the six idempotency axes above read zero on
+  inputs one of them was sweeping at the time.
 - **A run reassembled *backwards* is a perfectly good fixed point.** Tear a run
   across a separator with the mover written first (§7's R2) and the output is
   stable, AST-equivalent and comment-preserving — the multiset oracle discards
@@ -1908,6 +2054,15 @@ Three of those deserve emphasis, because they cover holes that look covered:
 the *shape* of the result, which has been stable:
 
 - The fixture suite and `check-decision-stability.py` are green over the corpus.
+- **The corpus has two halves and they are not interchangeable.** A
+  `.formatted.gren` is already a fixed point, so formatting it performs no
+  rewrite and any instability comes from the spliced probe alone; a
+  `.dirty.gren` is rewritten for real, so the probe interacts with that rewrite
+  — which is the only way to reach a rule keyed on an author row the formatting
+  itself moves (§8.7). `corpus.py` owns the `--corpus {formatted,dirty,both}`
+  axis and every gate wires it identically. The dirty half had never been swept
+  until 2026-08-23; its first sweep found **24 findings in 66,252 probe sites**
+  that the formatted half could not reach.
 - `fuzz-idempotency.py`'s residual is upstream, not formatter-side: every
   finding at n=1 classifies to a known parser bug — chiefly
   [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
