@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Formatter.RenderTree` and `Formatter.RenderTree.Json` are exposed.** The
+  first is the barrier between the formatter's two stages: `lower` copies the
+  Logical Printing Tree with every source position taken off, so no stage-two
+  code can re-derive a layout decision from the author's rows — the rule that
+  used to be a lint script is now a type error. The second serialises that tree
+  for the CLI's new `--rt` flag, including the four author-intent booleans
+  `lower` computes, which appear in no other dump.
+
+### Fixed
+
+- **Import sorting no longer misplaces a comment written inside an `import`
+  statement**, and a unit's row extent now spans its leading comments, so a
+  comment above an import sorts with the import it belongs to rather than being
+  left behind.
+- **Two non-idempotencies** found by sweeping the dirty half of the fixture
+  corpus for the first time: files whose second format differed from the first.
+
+### Changed
+
+- The render-stage architecture invariant is enforced by the Gren compiler
+  rather than by `tests/check-render-invariant.py`, which is deleted. Nothing
+  about the formatter's output changes; see `docs/testing.md`.
+
+
 ## [1.0.1] - 2026-08-22
 
 The exposed API is unchanged from 1.0.0. Everything here is formatter

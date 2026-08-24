@@ -117,10 +117,14 @@ Formatter/Logical/
   Comments.gren                   re-attach parse-context comments by position
   SortSymbols.gren                sort exposing lists + import groups
   VerticalSpace.gren              insert blank lines
-Formatter/Render.gren           LPT → String: maps RootBox children through
-                                  MakeRenderBox, joins with "\n"
+Formatter/RenderTree.gren       the stage barrier: lower : LPNode → RenderNode,
+                                  the same tree with no source positions on it
+Formatter/RenderTree/
+  Json.gren                       --rt debug serialiser
+Formatter/Render.gren           LPT → String: lowers, maps RootBox children
+                                  through MakeRenderBox, joins with "\n"
 Formatter/Render/
-  MakeRenderBox.gren               LPT → Box, one builder per LPShape constructor
+  MakeRenderBox.gren               RenderTree → Box, one builder per RenderShape constructor
   Box.gren                         elm-format's Box IR (Line/Box, Tab tab-stops, prefix) + renderer
   FlowPolicy.gren                  shared inline/break decision layer for flow sequences
   ElmStructure.gren                faithful port of elm-format's ElmStructure.hs layout combinators
@@ -743,7 +747,11 @@ layers above `Box.gren` just materialize that decision:
 When you add a new shape type, add an arm to `renderNodeBox`'s `when shape is
 …` dispatch returning `Result String Box`. Reuse an existing shape if one
 fits — a new `LPShape` constructor requires new arms in *every* `when shape is` in
-`MakeRenderBox` plus `selfShapeBounds` in `LogicalPrintingTree`.
+`MakeRenderBox`, plus `selfShapeBounds` and `LPTJson`'s serialiser in the logical
+stage, plus a mirrored constructor in `RenderTree`'s `RenderShape` with arms in
+`lowerShape` and `RenderTree/Json.gren`. All of those are total over their shape
+type on purpose, so the compiler lists them for you — but it is four files, not
+one.
 
 ### Why Box, and not a pretty-printer
 
@@ -936,8 +944,10 @@ primitives. Reuse an existing shape if one fits — prefer
 `AcrossOrVertical`, `AllAcrossOrAllVertical`, `IndentedBlock` etc. over
 inventing a new one. Only add a new `LPShape` constructor when no existing shape
 expresses the breaking behaviour you need; a new constructor means new arms in
-*every* `when shape is` in `MakeRenderBox` plus `selfShapeBounds` in
-`LogicalPrintingTree`.
+*every* `when shape is` in `MakeRenderBox`, plus `selfShapeBounds` and `LPTJson`
+in the logical stage, plus a mirrored `RenderShape` constructor with arms in
+`RenderTree.lowerShape` and `RenderTree/Json.gren`. Every one of those matches
+is total, so none of them can be forgotten silently.
 
 ### 7. Blank lines (top-level only)
 If you added a top-level `SyntaxType`, check `Formatter.Logical.VerticalSpace`: is your
@@ -1018,6 +1028,7 @@ comment, or as a bug report that a file changed on the *second* run of
 node ../gren-format/app --show   src/F.gren   # formatted output to stdout
 node ../gren-format/app --pre-ast  src/F.gren # parsed AST + comment context as JSON
 node ../gren-format/app --lpt    src/F.gren   # the Logical Printing Tree as JSON
+node ../gren-format/app --rt     src/F.gren   # the same tree the renderer gets: no positions, plus lower's flags
 node ../gren-format/app --post-ast src/F.gren # format, verify ASTs match, print formatted AST
 node ../gren-format/app --box    src/F.gren   # the Box tree, one entry per top-level decl
 node ../gren-format/app --decisions src/F.gren # which layout decisions moved between two formats

@@ -9,6 +9,7 @@ looks like before and after — see [Gren Formatter Rules](formatterRules.md).
 - [Step 1: building the Logical Printing Tree](#step-1-building-the-logical-printing-tree)
   - [Where comments and blank lines fit in](#where-comments-and-blank-lines-fit-in)
   - [Example](#example)
+- [Between the steps: throwing the positions away](#between-the-steps-throwing-the-positions-away)
 - [Step 2: turning the Logical Printing Tree into a render plan](#step-2-turning-the-logical-printing-tree-into-a-render-plan)
   - [Example](#example-1)
 - [Step 3: turning the render plan into text](#step-3-turning-the-render-plan-into-text)
@@ -127,6 +128,34 @@ Notice there's no `EmptyLine` between the comment, the signature, and the
 function itself — all three stay glued together as one declaration unit.
 (See [Blank lines around comments](formatterRules.md#blank-lines-around-comments)
 for the general rule.)
+
+---
+
+## Between the steps: throwing the positions away
+
+Step 1 is where every layout decision gets made, and it makes them by looking
+at how you wrote the code — which line each piece started on, whether you put
+a list on one line or several, where each comment sat relative to what it
+describes. By the end of Step 1 all of that has been turned into answers and
+recorded in the tree.
+
+So before Step 2 runs, the formatter makes a copy of the tree with your line
+and column numbers removed, and Step 2 onward only ever sees the copy.
+
+That may look like extra work for nothing, and it is worth saying why it is
+not. The moment Step 2 starts producing output, that output has *different*
+line numbers from the ones you wrote — the formatter is moving things. Any rule
+down there that peeked back at your original line numbers would be reading a
+fact that has already stopped being true, and would give a different answer the
+second time the formatter ran over its own output. That is precisely the bug
+that makes a formatter unstable: run it twice, get two different files.
+
+Taking the positions off the copy means such a rule cannot be written by
+accident. There is nothing left to peek at, so the compiler rejects the attempt
+rather than a reviewer having to catch it. The handful of genuine questions
+about your original layout that Step 2 *does* need — "did you write these two
+things on the same line?", "did you break this type signature at an arrow?" —
+are answered once, during the copy, and travel along as plain yes/no answers.
 
 ---
 

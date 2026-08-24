@@ -43,7 +43,9 @@ reach the pieces it checks.
 | **Formatter API** | `Formatter` | The whole API: `prettyPrint ast context` → formatted source, or an error. |
 | **Advanced** | `Formatter.Logical` | Stage one alone — parsed module + comments → Logical Printing Tree. |
 | **Advanced** | `Formatter.Render` | Stage two alone — Logical Printing Tree → the final string. |
+| **Advanced** | `Formatter.RenderTree` | The barrier between the two stages: `lower` copies the tree with every source position taken off, so no stage-two code can re-decide layout from the author's rows. |
 | **Inspection** | `Formatter.Logical.LPTJson` | The Logical Printing Tree as JSON (`--lpt`). |
+| **Inspection** | `Formatter.RenderTree.Json` | The render tree as JSON (`--rt`) — the same tree without positions, plus the four author-intent booleans `lower` computes. |
 | **Inspection** | `Compiler.Ast.Source.Json` | A parsed module as JSON (`--pre-ast`, `--post-ast`). |
 | **Inspection** | `Compiler.Parse.Context.Json` | The parse context — every comment and its position — as JSON (`--pre-context`, `--post-context`). |
 | **Inspection** | `Formatter.Audit.DecisionTrace` | The layout decisions a format took, and which ones moved between two formats (`--decisions`). |

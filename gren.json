@@ -15,7 +15,9 @@
         "Formatter.Logical",
         "Formatter.Logical.LPTJson",
         "Formatter.Logical.LiteralFormat",
-        "Formatter.Render"
+        "Formatter.Render",
+        "Formatter.RenderTree",
+        "Formatter.RenderTree.Json"
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {

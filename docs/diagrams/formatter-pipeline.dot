@@ -44,12 +44,14 @@ digraph FormatterPipeline {
         margin=12;
 
         node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
-        lpt        [label="a Logical Printing Tree"];
+        lpt        [label="a Logical Printing Tree\n(carries your source positions)"];
+        renderTree [label="a render tree\n(the same shape, no source positions)"];
         renderPlan [label="a render plan\n(Box tree)"];
         formatted  [label="formatted code\n(text)"];
 
         node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
         step1 [label="Step 1\nbuild the Logical Printing Tree"];
+        lower [label="drop the source positions\n(RenderTree.lower)"];
         step2 [label="Step 2\nbuild the render plan"];
         step3 [label="Step 3\nrender to text\n(cannot fail)"];
 
@@ -59,8 +61,10 @@ digraph FormatterPipeline {
 
         node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
         errNote [label="Err from Step 1 and Step 2 indicate gaps in the\lgren formatter logic, not evidence of invalid source.\l"];
+        barrierNote [label="Every layout decision is made by the end of Step 1.\lPast this point your line and column numbers are gone,\lso Step 2 cannot quietly re-decide anything from them.\l"];
 
         { rank=same; lpt; step1Fail }
+        { rank=same; renderTree; barrierNote }
         { rank=same; renderPlan; step2Fail; errNote }
     }
 
@@ -69,7 +73,9 @@ digraph FormatterPipeline {
     parse  -> astCtx;
     astCtx -> step1;
     step1  -> lpt;
-    lpt    -> step2;
+    lpt    -> lower;
+    lower  -> renderTree;
+    renderTree -> step2;
     step2  -> renderPlan;
     renderPlan -> step3;
     step3  -> formatted;
@@ -81,4 +87,5 @@ digraph FormatterPipeline {
 
     step1Fail -> errNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
     step2Fail -> errNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    renderTree -> barrierNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
 }

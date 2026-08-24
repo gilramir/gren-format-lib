@@ -1,0 +1,275 @@
+module Formatter.RenderTree.Json exposing (renderNodeToJson, renderTreeToJson)
+
+{-| Serialise the render tree to JSON for debugging.
+
+Exposed via the CLI's `gren-format --rt`, and the Box-stage analogue of
+`Formatter.Logical.LPTJson`'s `--lpt`. The two dumps are deliberately close in
+shape, because the trees are: the useful way to read this one is beside the
+`--lpt` of the same file.
+
+What it shows that `--lpt` cannot is the whole reason the flag exists. Four of
+the renderer's decisions genuinely need to know how the *author* laid the code
+out, and `Formatter.RenderTree.lower` answers them once, on the way past the
+stage barrier, as booleans -- see the "five facts that were rows" in
+`Formatter.RenderTree`. They do not exist in the LPT, and by the time there is a
+`Box` to dump they have already been consumed, so before this flag the only way
+to learn one was to read the LPT's source rows and re-derive it by hand. That is
+exactly the re-derivation the barrier exists to make impossible, which makes
+doing it to debug the barrier a poor way to spend an afternoon.
+
+**The booleans arrive as one `"flags"` string, naming the ones that are set.**
+The question anyone brings to this dump is "which nodes is it set on?", which
+greps by name whatever the encoding; what differs is how much of the file the
+answer is buried in. Five booleans spelled out is five lines per node, and a
+JSON array of the set ones is no better, since `Json.encode 2` puts every
+element on its own line -- a space-joined string is the one spelling that costs
+a single line.
+
+The key is always present, and always written from all five, so `""` positively
+means "none of them" and a name's absence never means "not reported for this
+kind of node".
+
+Positions are absent for a stronger reason: `RenderNode` and `RenderShape` do
+not carry any. If you want a row or a column, `--lpt` is the dump that has them.
+
+@docs renderTreeToJson, renderNodeToJson
+-}
+
+import Json.Encode as Json
+
+import Formatter.Logical.LogicalPrintingTree exposing
+    ( LPNode
+    , ListBrackets
+    , bracketsToString
+    , prefixGlyph
+    , recordKindToString
+    , roleToString
+    , stypeToString
+    )
+import Formatter.RenderTree exposing
+    ( RenderNode
+    , RenderShape(..)
+    , lower
+    , rnChildren
+    , rnHasComment
+    , rnHasSourceContent
+    , rnShape
+    , rnSharesRowWithPrevItem
+    , rnTypeSegmentsBroken
+    , rnVariantsSpanRows
+    )
+
+
+{-| Lower a finished Logical Printing Tree and serialise the result.
+
+This is the CLI's path: `--rt` has an `LPNode` in hand, the same one `--lpt`
+prints, and wants to see what the renderer will be handed instead of it.
+-}
+renderTreeToJson : LPNode -> String
+renderTreeToJson node =
+    renderNodeToJson (lower node)
+
+
+{-| Serialise a tree that has already been lowered.
+
+For a caller holding the `RenderNode` itself -- `Formatter.Audit.DecisionTrace`
+is the shape of caller that does -- so that dumping it costs no second `lower`.
+-}
+renderNodeToJson : RenderNode -> String
+renderNodeToJson node =
+    Json.encode 2 (nodeToJson node)
+
+
+nodeToJson : RenderNode -> Json.Value
+nodeToJson node =
+    let
+        childrenJson =
+            Json.array nodeToJson (rnChildren node)
+    in
+    Json.object
+        (shapeFields (rnShape node)
+            ++ nodeFlags node
+            ++ [ { key = "children", value = childrenJson } ]
+        )
+
+
+-- Every boolean the node carries, named when set, space-joined. `hasComment`
+-- rides along with the four `lower` computed: it is the same kind of cached
+-- answer, and the same question gets asked of this dump.
+--
+-- Written from all five every time, so the string is exhaustive and an empty
+-- one means none are set. It is not a shorter way of saying "only the
+-- interesting ones": `hasSourceContent` is true on nearly every node and
+-- `typeSegmentsBroken` on almost none, so there is no single polarity that
+-- would be signal for all five.
+nodeFlags : RenderNode -> Array { key : String, value : Json.Value }
+nodeFlags node =
+    let
+        set =
+            Array.mapAndKeepJust
+                (\{ name, flag } ->
+                    if flag then
+                        Just name
+
+                    else
+                        Nothing
+                )
+                [ { name = "hasComment", flag = rnHasComment node }
+                , { name = "sharesRowWithPrevItem", flag = rnSharesRowWithPrevItem node }
+                , { name = "hasSourceContent", flag = rnHasSourceContent node }
+                , { name = "variantsSpanRows", flag = rnVariantsSpanRows node }
+                , { name = "typeSegmentsBroken", flag = rnTypeSegmentsBroken node }
+                ]
+    in
+    [ { key = "flags", value = Json.string (String.join " " set) } ]
+
+
+{-| Total over `RenderShape`, which is itself total over `LPShape`: adding a
+shape to the tree is a compile error here until this dump learns to print it.
+-}
+shapeFields : RenderShape -> Array { key : String, value : Json.Value }
+shapeFields shape =
+    when shape is
+        RootBox ->
+            [ { key = "type", value = Json.string "RootBox" } ]
+
+        OriginalRows stype ->
+            [ { key = "type", value = Json.string "OriginalRows" }
+            , { key = "stype", value = Json.string (stypeToString stype) }
+            ]
+
+        EmptyLine ->
+            [ { key = "type", value = Json.string "EmptyLine" } ]
+
+        UnbreakableText text ->
+            [ { key = "type", value = Json.string "UnbreakableText" }
+            , { key = "value", value = Json.string text }
+            ]
+
+        SynthesizedText text ->
+            [ { key = "type", value = Json.string "SynthesizedText" }
+            , { key = "value", value = Json.string text }
+            ]
+
+        SingleLineComment { text = text, role = role } ->
+            [ { key = "type", value = Json.string "SingleLineComment" }
+            , { key = "value", value = Json.string text }
+            , { key = "role", value = Json.string (roleToString role) }
+            ]
+
+        BlockComment { text = text, role = role } ->
+            [ { key = "type", value = Json.string "BlockComment" }
+            , { key = "value", value = Json.string text }
+            , { key = "role", value = Json.string (roleToString role) }
+            ]
+
+        DocComment text ->
+            [ { key = "type", value = Json.string "DocComment" }
+            , { key = "value", value = Json.string text }
+            ]
+
+        AcrossOrVertical { forceVertical, checkContentVertical } ->
+            [ { key = "type", value = Json.string "AcrossOrVertical" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            , { key = "checkContentVertical", value = Json.bool checkContentVertical }
+            ]
+
+        IfCondition { forceVertical } ->
+            [ { key = "type", value = Json.string "IfCondition" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
+        AllAcrossOrAllVertical brackets ->
+            [ { key = "type", value = Json.string "AllAcrossOrAllVertical" }
+            , { key = "brackets", value = Json.string (bracketsToString brackets) }
+            ]
+                ++ recordKindField brackets
+
+        AlwaysVertical brackets ->
+            [ { key = "type", value = Json.string "AlwaysVertical" }
+            , { key = "brackets", value = Json.string (bracketsToString brackets) }
+            ]
+                ++ recordKindField brackets
+
+        RecordUpdate { name, forceVertical } ->
+            [ { key = "type", value = Json.string "RecordUpdate" }
+            , { key = "baseName", value = Json.string name }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
+        EmptyBracketed brackets ->
+            [ { key = "type", value = Json.string "EmptyBracketed" }
+            , { key = "brackets", value = Json.string (bracketsToString brackets) }
+            ]
+                ++ recordKindField brackets
+
+        IndentedBlock ->
+            [ { key = "type", value = Json.string "IndentedBlock" } ]
+
+        PipelineStep { forceVertical } ->
+            [ { key = "type", value = Json.string "PipelineStep" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
+        Pipeline { forceVertical, op } ->
+            [ { key = "type", value = Json.string "Pipeline" }
+            , { key = "op", value = Json.string op }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
+        BodyBlock ->
+            [ { key = "type", value = Json.string "BodyBlock" } ]
+
+        WhenBranch ->
+            [ { key = "type", value = Json.string "WhenBranch" } ]
+
+        WhenBranchPattern ->
+            [ { key = "type", value = Json.string "WhenBranchPattern" } ]
+
+        ParenBlock { forceVertical, checkContentVertical, contentAlwaysBreaks } ->
+            [ { key = "type", value = Json.string "ParenBlock" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            , { key = "checkContentVertical", value = Json.bool checkContentVertical }
+            , { key = "contentAlwaysBreaks", value = Json.bool contentAlwaysBreaks }
+            ]
+
+        OpAndRhs ->
+            [ { key = "type", value = Json.string "OpAndRhs" } ]
+
+        Binop { forceVertical } ->
+            [ { key = "type", value = Json.string "Binop" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
+        WhenFlow { forceVertical } ->
+            [ { key = "type", value = Json.string "WhenFlow" }
+            , { key = "forceVertical", value = Json.bool forceVertical }
+            ]
+
+        PrefixGlue prefix ->
+            [ { key = "type", value = Json.string "PrefixGlue" }
+            , { key = "prefix", value = Json.string (prefixGlyph prefix) }
+            ]
+
+        Glue ->
+            [ { key = "type", value = Json.string "Glue" } ]
+
+        SoftIndentedBlock ->
+            [ { key = "type", value = Json.string "SoftIndentedBlock" } ]
+
+        MultilineString lines ->
+            [ { key = "type", value = Json.string "MultilineString" }
+            , { key = "lines", value = Json.array Json.string lines }
+            ]
+
+
+-- A curly bracket list's record kind (`type` / `value`); nothing for a bracket
+-- that has no kind. Reported apart from `brackets`, which names the glyph.
+recordKindField : ListBrackets -> Array { key : String, value : Json.Value }
+recordKindField brackets =
+    when recordKindToString brackets is
+        Just kind ->
+            [ { key = "recordKind", value = Json.string kind } ]
+
+        Nothing ->
+            []

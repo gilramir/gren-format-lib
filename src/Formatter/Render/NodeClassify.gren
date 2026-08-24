@@ -427,8 +427,8 @@ type-vs-value by scanning a record's fields for a `SynthesizedText ":"`, and
 that fact is now carried on the box (`ListCurly RecordKind`) because it is known
 at construction and nothing about the separator's spelling should be load-bearing
 for it. Comment PLACEMENT is the third case, and the strictest: it is decided
-once in `Comments.gren` and stored as a `CommentRole`, and
-`check-render-invariant.py` fails the build if anything here re-derives it. -}
+once in `Comments.gren` and stored as a `CommentRole`, and nothing here *can*
+re-derive it: `RenderNode`/`RenderShape` carry no source position to read. -}
 leafValue : RenderNode -> Maybe String
 leafValue node =
     when rnShape node is

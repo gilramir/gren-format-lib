@@ -47,13 +47,18 @@ finding holes in, and it had one: `lpnBracketStart` was not in the enumeration
 and *was* called in `Render/NodeClassify.gren`. Nothing unreviewed slipped
 through only because that call happened to sit inside an allowlisted function.
 
-`LPShape` is carried across unchanged. Render only ever reads `.value` off its
-`Located` payloads, never `.start` / `.end`, so the shapes are already
-position-free in practice. That one spelling is all `check-render-invariant.py`
-has left to gate; making it a type error too -- an `LPShape` mirrored without its
-`Located`s -- is the second half of this refactor. `docs/commentAlgorithm.md`
-§2.2 states the barrier, and `docs/testing.md` covers what the script still
-does.
+`RenderShape` mirrors `LPShape` with the `Located` payloads stripped, because
+carrying `LPShape` across unchanged left `loc.start.row` a legal spelling under
+`Render/` even after the node lost its position cache. The mirror is total over
+`LPShape`, so a constructor added there is a compile error here until
+`lowerShape` maps it -- which is the point of mirroring the type rather than
+reusing it, and it immediately found a leak the checker's regex could not have
+matched: `OriginalRows` carried two literal source rows, and the renderer only
+ever wanted the `SyntaxType`.
+
+`check-render-invariant.py` is deleted; nothing greps for this any more.
+`docs/commentAlgorithm.md` §2.2 states the barrier and `docs/testing.md`
+records how the enforcement moved.
 
 
 ## The five facts that were rows
@@ -77,10 +82,12 @@ That finishes the doctrine rather than inventing a mechanism: these were
 author-intent flags all along, computed lazily at render time instead of eagerly
 at build time like `AcrossOrVertical`'s `forceVertical`.
 
-@docs RenderNode, lower
+@docs RenderNode, RenderShape, lower
 @docs rnShape, rnChildren, rnHasComment, rnReplaceChildren, rnWithShape
-@docs roleIs, commentTrailsHead, commentLeadsLine, commentLeadsNext
+@docs commentFacts, commentRole, roleIs
+@docs commentTrailsHead, commentLeadsLine, commentLeadsNext
 @docs commentRidesInline, commentGluesToPrevious
+@docs shapeIsComment, shapeRoleIs, shapeGluesToPrevious
 @docs rnSharesRowWithPrevItem, rnHasSourceContent, rnVariantsSpanRows, rnTypeSegmentsBroken
 
 -}
@@ -521,6 +528,7 @@ segLastRow seg =
 -- ═══ ACCESSORS ═══
 
 
+{-| The node's shape -- what the renderer dispatches on. -}
 rnShape : RenderNode -> RenderShape
 rnShape node =
     when node is
@@ -528,6 +536,7 @@ rnShape node =
             r.shape
 
 
+{-| The node's children, in source order. -}
 rnChildren : RenderNode -> Array RenderNode
 rnChildren node =
     when node is
@@ -623,6 +632,8 @@ commentFacts shape =
             Nothing
 
 
+{-| Is this shape a comment in the given role? `False` for a non-comment, and
+for a `DocComment`, which carries no role. -}
 shapeRoleIs : CommentRole -> RenderShape -> Bool
 shapeRoleIs role shape =
     commentRole shape == Just role
@@ -640,26 +651,34 @@ shapeGluesToPrevious shape =
             False
 
 
+{-| Is this node a comment in the given role? The hub the whole role vocabulary
+goes through: `commentTrailsHead` and the three below it are this with one role
+each, and asking `commentRole (rnShape n) == Just X` open-coded is the spelling
+they exist to replace. -}
 roleIs : CommentRole -> RenderNode -> Bool
 roleIs role node =
     shapeRoleIs role (rnShape node)
 
 
+{-| A comment trailing the head of the construct it was written into. -}
 commentTrailsHead : RenderNode -> Bool
 commentTrailsHead =
     roleIs TrailsHead
 
 
+{-| A comment on a line of its own, leading what follows it. -}
 commentLeadsLine : RenderNode -> Bool
 commentLeadsLine =
     roleIs LeadsLine
 
 
+{-| A comment glued in front of the next token, on that token's row. -}
 commentLeadsNext : RenderNode -> Bool
 commentLeadsNext =
     roleIs LeadsNext
 
 
+{-| A comment riding along inside a line, between two tokens of it. -}
 commentRidesInline : RenderNode -> Bool
 commentRidesInline =
     roleIs RidesInline

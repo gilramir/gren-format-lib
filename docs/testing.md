@@ -22,9 +22,9 @@ everything": passing the self-consistency gates is necessary, not sufficient.
 
 ### Two things that apply to every gate below
 
-**Rebuild the `gren-format` app first.** Every gate except `run-tests.sh` and
-`check-render-invariant.py` shells out to the built CLI as a subprocess, so it
-exercises whatever formatter source was last compiled — not your working tree.
+**Rebuild the `gren-format` app first.** Every gate except `run-tests.sh`
+shells out to the built CLI as a subprocess, so it exercises whatever formatter
+source was last compiled — not your working tree.
 Never rebuild while a fuzzer is running.
 
 ```bash
@@ -71,7 +71,7 @@ cd gren-format-lib/tests
 ./run-tests.sh   # builds tests/app via devbox, then runs it
 ```
 
-`run-tests.sh` runs `check-render-invariant.py` first (see below), then
+`run-tests.sh` runs `check-divergence-index.py` first, then
 recompiles the test harness against the formatter source in `src/` directly —
 the `tests/` app depends on the package locally — so editing formatter source
 and re-running `run-tests.sh` is enough; there's no separate library build

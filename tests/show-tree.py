@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Render the Logical Printing Tree or Box tree for a Gren file as ASCII art.
+"""Render the Logical Printing Tree, render tree or Box tree for a Gren file as ASCII art.
 
-Calls `gren-format.sh --lpt` or `--box` to get the JSON dump, then prints
-it as a `├──`/`└──` tree, in one of two styles:
+Calls `gren-format.sh --lpt`, `--rt` or `--box` to get the JSON dump, then
+prints it as a `├──`/`└──` tree, in one of two styles:
 
 - regular (default): every node in the JSON, one line each, no collapsing.
   Works generically off the JSON shape — a dict field that is itself a
@@ -25,9 +25,16 @@ it as a `├──`/`└──` tree, in one of two styles:
       The result collapses onto one line if it fits in --width columns.
   Either way, whatever doesn't collapse expands into a normal indented tree.
 
+--rt is the LPT as the renderer receives it: the same shape with the source
+positions stripped, plus the `flags` string naming the author-intent booleans
+`RenderTree.lower` computed. It has no --condensed style, and cannot: condensing
+the LPT keys on "does this subtree sit on one source row", and a source row is
+precisely what the render tree does not have.
+
 Usage:
     ./show-tree.py File.gren                    # LPT, verbose
     ./show-tree.py --condensed File.gren         # LPT, condensed
+    ./show-tree.py --rt File.gren                # render tree, verbose
     ./show-tree.py --box File.gren               # Box, verbose
     ./show-tree.py --box --condensed File.gren
     ./show-tree.py --condensed --width 100 File.gren
@@ -293,12 +300,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("file", help="path to a .gren source file")
     parser.add_argument("--box", action="store_true", help="show the Box tree instead of the LPT")
+    parser.add_argument("--rt", action="store_true", help="show the render tree (the LPT with source positions stripped) instead of the LPT")
     parser.add_argument("--condensed", action="store_true", help="collapse subtrees onto one line (README style)")
     parser.add_argument("--width", type=int, default=80, help="line-width cap for --condensed (default: 80)")
     parser.add_argument("--gren-format-sh", default=GREN_FORMAT, help="path to gren-format.sh (default: ../../gren-format/gren-format.sh)")
     args = parser.parse_args()
 
-    flag = "--box" if args.box else "--lpt"
+    if args.box and args.rt:
+        sys.exit("--box and --rt are different trees; pick one.")
+    if args.rt and args.condensed:
+        # Not an unimplemented style: the LPT condenser asks whether a subtree
+        # sits on a single SOURCE ROW, and the render tree has no source rows.
+        sys.exit("--rt has no --condensed style: condensing keys on source rows, which the render tree does not carry. Use --lpt --condensed for that view.")
+
+    flag = "--box" if args.box else ("--rt" if args.rt else "--lpt")
     data = fetch_json(args.gren_format_sh, flag, args.file)
 
     if args.box:
@@ -306,6 +321,8 @@ def main():
         expand = box_expand if args.condensed else verbose_expand
         for i, root in enumerate(data):
             print_tree(root, "", f"[{i}] ", one_line, expand)
+    elif args.rt:
+        print_tree(data, "", "", verbose_one_line, verbose_expand)
     else:
         one_line = make_lpt_one_line(args.width) if args.condensed else verbose_one_line
         expand = lpt_expand if args.condensed else verbose_expand

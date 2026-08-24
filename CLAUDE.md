@@ -20,7 +20,7 @@ devbox run -- gren make Formatter          # module NAME, not a file path
 ## Tests
 
 The main gate — fixtures, AST equivalence, idempotency, plus the
-render-invariant and divergence-index checks:
+divergence-index check:
 
 ```bash
 cd gren-format-lib/tests && ./run-tests.sh
@@ -100,16 +100,22 @@ the upstream ones for weeks.
 node ../gren-format/app --show       MyFile.gren   # formatted output (+ all checks) to stdout
 node ../gren-format/app --show-first MyFile.gren   # first pass only — for non-idempotent cases
 node ../gren-format/app --lpt        MyFile.gren   # Logical Printing Tree as JSON
+node ../gren-format/app --rt         MyFile.gren   # the render tree: the same tree, positions stripped
 node ../gren-format/app --box        MyFile.gren   # the Box tree per declaration
 node ../gren-format/app --pre-ast / --pre-context / --post-ast / --post-context
 node ../gren-format/app --decisions  MyFile.gren   # which decisions differed between two formats
 ```
 
-`--lpt` is the most useful flag for comment-placement and layout bugs.
+`--lpt` is the most useful flag for comment-placement and layout bugs. Reach
+for `--rt` when the suspect is one of the four author-intent booleans
+`RenderTree.lower` computes — `sharesRowWithPrevItem`, `hasSourceContent`,
+`variantsSpanRows`, `typeSegmentsBroken`, reported per node in a `flags` string.
+They exist in no other dump: not in the LPT, and consumed by the time there is a
+`Box`.
 
 ## Architecture
 
-Pipeline: `Src.Module + Ctx.Context → LPT → Box → String`
+Pipeline: `Src.Module + Ctx.Context → LPT → RenderTree → Box → String`
 
 ```
 Formatter                          entry point: prettyPrint
@@ -119,8 +125,10 @@ Formatter                          entry point: prettyPrint
         …Comments                  re-attaches comments from the parse context
         …SortSymbols               sorts exposing lists + import groups
         …VerticalSpace             blank lines between top-level items
+    Formatter.RenderTree           the stage barrier: `lower` copies the LPT with the
+                                   source positions taken off (RenderNode/RenderShape)
     Formatter.Render               maps each RootBox child through the Box renderer
-        …MakeRenderBox             LPT → Box: recursive dispatch + per-construct renderers
+        …MakeRenderBox             RenderTree → Box: recursive dispatch + per-construct renderers
                                    (+ BinopLayout / CommentBox / FlowAssembly /
                                     NodeClassify / BoxOps — knot-free helpers only,
                                     since Gren forbids circular imports)

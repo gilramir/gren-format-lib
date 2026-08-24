@@ -142,9 +142,9 @@ agreement.
 
 Adding a predicate here is the cheap half of adding one to `NodeClassify`. The
 expensive half is that a new shape predicate read from source rows is a step
-back toward the mirror layer this codebase spent a long refactor deleting -- the
-one `tests/check-render-invariant.py` now enforces the absence of. Prefer
-rendering the child and observing its box.
+back toward the mirror layer this codebase spent a long refactor deleting -- and
+under `Render/` it will not compile, since `RenderNode`/`RenderShape` have no
+position to read. Prefer rendering the child and observing its box.
 -}
 auditedPredicates : Array { name : String, test : RenderNode -> Bool }
 auditedPredicates =
