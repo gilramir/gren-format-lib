@@ -753,71 +753,37 @@ discharges only one:
 
 (ii) is not free. It holds exactly insofar as formatting does not rewrite
 concrete syntax — and ours does, in three ways that delete, insert or reorder a
-token: it **sorts** exposing lists and import groups; it strips redundant
-parentheses **from patterns** (expressions are exempt by an explicit design
-decision; patterns were never considered); and it adds or drops the `port`
-keyword on a module header. Two further rewrites — uppercasing hex digits,
-normalizing string escapes — change bytes only *inside* a token, so they cannot
-move an anchor.
+token: it **sorts** exposing lists and import groups, it strips redundant
+parentheses from patterns, and it adds or drops the `port` keyword on a module
+header. (Two further rewrites — uppercasing hex digits, normalizing string
+escapes — change bytes only *inside* a token, so they cannot move an anchor.)
 
 **Any formatter that rewrites tokens at all — sorts imports, removes redundant
 syntax, normalizes a keyword — carries obligation (ii), and an idempotency gate
 does not discharge it.** Ours does all three. Here is how we found that out.
 
-### 7.2 The gate that could not have seen it
-
-We did not find this by reasoning. We found it because the gate that was most
-sensitive to it had never been shown an input where it could fire.
-
-Every comment-gap sweep in this project ran against the corpus of
-**already-formatted** fixtures. On those, by construction, no rewrite occurs: the
-imports are already sorted, the parentheses already stripped. **The rewrite that
-can move an anchor cannot happen on a fixed point.** So the instrument was
-correct, exhaustive, and pointed at an input class that excluded the bug. Running
-it unchanged over the 391 *unformatted* halves of the same fixture pairs — 66,252
-probe sites — produced **24 findings in 10 fixtures** on the first sweep, 22 of
-them one class. That axis is now a standing default (`--corpus both`, in
-[testing.md](testing.md#idempotency-fuzzer-fuzz-idempotencypy)).
-
-### 7.3 What actually moves
+### 7.2 What actually moves
 
 A comment's **anchor** is the code its placement was decided against — the
 declaration it trails, the import it leads. Obligation (ii) fails when the
-formatter moves that code out from under the decision. But "the anchor moved"
-describes a much wider class than the one we hit, and the narrow shape is what
-made it hard to test for.
-
-Start with an input a person would have to write deliberately — comments *inside*
-an import statement, between the `import` keyword and the module name:
+formatter moves that code out from under the decision, and the narrow shape we
+hit is what made it hard to test for. Start with an input a person would have to
+write deliberately — comments *inside* an import statement:
 
 ```gren
-module A exposing (..)
-
 import {- k0
     tango -} Qux0 exposing (..) {- k1
             tango -}
 import Bar3
 ```
 
-The parse `Context` and the AST give these ranges, and the point is that they
-**overlap**:
-
-| node | rows |
-|---|---|
-| `{- k0 … -}` | 3–4 |
-| the `Qux0` import | 4 |
-| `{- k1 … -}` | 4–5 |
-| the `Bar3` import | 6 |
-
-Each comment starts before the import's row or ends after it; a comment written
-*inside* a statement cannot do anything else. Now attachment runs. There is
-nowhere inside an import node for a comment to live, so each one is promoted to a
-**sibling** of the import: a node beside it in the tree rather than within it.
-The first pass then prints them on rows of their own, and sorts:
+Each comment's range **overlaps** the import's: written inside a statement, it is
+physically within the span of the thing it interrupts. There is nowhere inside an
+import node for a comment to live, so attachment promotes each one to a
+**sibling** of the import — a node beside it in the tree rather than within it —
+and the first pass prints them on rows of their own, then sorts:
 
 ```gren
-module A exposing (..)
-
 import Bar3
 {- k0
    tango -} {- k1
@@ -825,59 +791,52 @@ import Bar3
 import Qux0 exposing (..)
 ```
 
-Read that output back with fresh eyes, which is what the second run does. The
-comments are no longer inside anything: they sit on their own rows immediately
-above `import Qux0`, and to a parser that makes them **leading** comments of
-`Qux0` — a different attachment from the one the first pass chose. Leading
-comments count as part of an import unit for grouping, so the group boundary
-moves, and the boundary is what the sorter keys on. Nothing here re-read a
-position at render time. The classifier simply answered a different question,
-because the code it was asked about had changed shape.
+Read that back with fresh eyes, which is what the second run does. The comments
+are no longer inside anything: to a parser they are now **leading** comments of
+`Qux0`, a different attachment from the one the first pass chose — and leading
+comments count as part of an import unit, so the group boundary moves, and the
+boundary is what the sorter keys on. Nothing re-read a position at render time.
+The classifier answered a different question because the code had changed shape.
+Underneath, the sorting and blank-line passes had been written against an
+invariant nobody had written down — **siblings are disjoint and in row order** —
+which promotion is exactly what breaks.
 
-Underneath, every row-based test in the sorting and blank-line passes had been
-written against an invariant nobody had written down:
+**And no gate here could have seen it.** Every comment-gap sweep in this project
+ran against the corpus of **already-formatted** fixtures — and the rewrite that
+moves an anchor cannot happen on a fixed point. Promotion is sharper still: it
+happens only to a comment written *inside* a statement, and the formatter's own
+output never contains one, because the first pass is what lifts them out. The
+input class was not merely absent from that corpus, it was *excluded from it* by
+construction. Running the same instrument over the 391 *unformatted* halves of
+the same fixture pairs — 66,252 probe sites — produced **24 findings in 10
+fixtures** on the first sweep, 22 of them this class. That axis is now a standing
+default (`--corpus both`, in
+[testing.md](testing.md#idempotency-fuzzer-fuzz-idempotencypy)).
 
-> **siblings are disjoint and in row order.**
-
-"Does the next import unit begin on the row after this one ends?" and "did the
-author leave a blank line here?" are both correct under that invariant and both
-wrong without it. Promotion breaks it: the promoted comment's range straddles the
-sibling it now sits beside.
-
-And here is why the gate could not see it. Promotion only happens to a comment
-written *inside* a statement — and the formatter's own output never contains one,
-because the first pass is what lifts them out. So the invariant holds on every
-fixed point **by construction**. That is sharper than §7.2's "no rewrite occurs
-on a fixed point": the input class is not merely absent from that corpus, it is
-*excluded from it*.
-
-### 7.4 The part that no idempotency gate can see
+### 7.3 The part that no idempotency gate can see
 
 We first read this defect as a format¹-vs-format² disagreement and fixed it that
-way. It is not only that.
-
-When the same misreading also causes the **vertical-space** pass to emit a blank
-line — which it does, since that pass asks the same adjacency question of the
-same overlapping range — the phantom blank becomes a **real run boundary on the
-next parse**, and the wrong grouping is *self-consistent*. Formatting is then a
-fixed point that has silently declined to sort two adjacent imports.
+way. It is not only that. When the same misreading also causes the
+**vertical-space** pass to emit a blank line — which it does, since that pass asks
+the same adjacency question of the same overlapping range — the phantom blank
+becomes a **real run boundary on the next parse**, and the wrong grouping is
+*self-consistent*. Formatting is then a fixed point that has silently declined to
+sort two adjacent imports.
 
 No idempotency gate can see that, and ours did not. The shape survived the first
 fix, survived a second fix to the sorter's row rule, and was finally caught by
 the **author-order invariance** oracle: emit the same module with its import run
 in the other order and require byte-identical output. That is the one gate in the
-portfolio that does not ask about repetition at all. The fix took three attempts
-over two rounds, because the same misread range is consulted by two passes and
-correcting either alone leaves a bug.
+portfolio that does not ask about repetition at all.
 
-### 7.5 The scope, stated exactly
+### 7.4 The scope, stated exactly
 
 > §6 establishes that run length and composition are not inputs to placement. It
 > does **not** establish that placement is a fixed point, because it assumes an
 > anchor the formatter is free to move.
 
 Obligation (ii) is discharged by testing rather than by argument — and, more
-precisely, it **cannot be discharged by idempotency testing at all**, since §7.4
+precisely, it **cannot be discharged by idempotency testing at all**, since §7.3
 exhibits a member of the class that *is* a fixed point. Covering it requires an
 oracle that varies the input's **authoring** rather than repeating the formatter:
 *emit the same program spelled two legal ways and require the same bytes.* We
@@ -889,6 +848,8 @@ the next parse" — in a tool that runs a stability assertion on every format, a
 swift-format's `OrderedImports` rule ships it today: a file header above the
 first import is carried into the middle of the block when that import sorts down,
 and the result is a fixed point (§9.6).
+
+---
 
 ## 8. Invariants and expected bytes divide the bug space
 
@@ -917,7 +878,7 @@ Three of those holes **look** covered:
 - **A wrongly *attached* comment passes even those.** A multiset oracle discards
   positions on purpose, and a wrong-but-stable attachment is a perfectly good
   fixed point. The only gate that sees it is the author-order invariance oracle of
-  §7.4, and that is something only a generator can do.
+  §7.3, and that is something only a generator can do.
 - **A run reassembled backwards is a perfectly good fixed point.** Tear a run
   across a separator with the mover written *first* and the output is stable,
   AST-equivalent and comment-preserving. Only the *ordered* marker oracles see it.
@@ -1313,7 +1274,7 @@ invariant. The point of the barrier being a type is not having to choose.
 three rules that rewrite tokens. `OrderedImports` reconstructs attachment from row
 adjacency and then sorts the row out from under it — a file header above the first
 import is carried into the middle of the block when that import sorts down, and
-the output is **a fixed point**, so it is §7.4's category exactly: invisible to
+the output is **a fixed point**, so it is §7.3's category exactly: invisible to
 every gate in §8.1 and visible only to a reader who knows what the comment was
 about. **This one is not a defect, and that is the better result.** It was
 reported as swift-format #772 (2024-07-18) and closed three weeks later as
