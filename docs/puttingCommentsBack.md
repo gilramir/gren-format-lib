@@ -79,7 +79,7 @@ The rest of this document is those claims with the evidence attached.
 - [5. The position barrier, and how to make it a type](#5-the-position-barrier-and-how-to-make-it-a-type)
 - [6. Why forty comments in a row is not forty cases](#6-why-forty-comments-in-a-row-is-not-forty-cases)
 - [7. The anchor — what that argument does not cover](#7-the-anchor--what-that-argument-does-not-cover)
-- [8. Invariants and expected bytes divide the bug space](#8-invariants-and-expected-bytes-divide-the-bug-space)
+- [8. What the gates cannot see](#8-what-the-gates-cannot-see)
 - [9. What fourteen other formatters do](#9-what-fourteen-other-formatters-do)
 - [10. What generalizes](#10-what-generalizes)
 - [Sources](#sources)
@@ -240,7 +240,7 @@ alternates between them for ever.
 
 **Every comment bug this project has fixed is a variation on that one sentence.**
 Oscillation is the single largest bug class in the project's history that any
-property gate can see — 16 of the 37 replayable bugs in §8.2.
+property gate can see (§8.2).
 
 ### 3.3 Three properties, gated separately
 
@@ -851,45 +851,36 @@ and the result is a fixed point (§9.6).
 
 ---
 
-## 8. Invariants and expected bytes divide the bug space
+## 8. What the gates cannot see
 
-Two claims in this section. The first is that a portfolio of property gates has
-*shaped* holes, which can be enumerated in advance. The second is measured rather
-than argued, and it is the sharpest thing we know: **the property gates and the
-hand-written expected-bytes fixtures are complementary, not redundant, and the
-boundary between them is a bug-class boundary.**
+A portfolio of property gates has *shaped* holes, and they can be enumerated in
+advance. What each gate varies is in [testing.md](testing.md) and
+[commentAlgorithm.md §10](commentAlgorithm.md#10-coverage-what-each-gate-actually-varies);
+two results are worth carrying out of them.
 
-### 8.1 What each gate cannot see
-
-Each gate varies one thing and is blind to the rest; the blind column is what the
-next gate exists for. The full gate-by-gate table, with flags, is
-[testing.md](testing.md); the code-level version is
-[commentAlgorithm.md §10](commentAlgorithm.md#10-coverage-what-each-gate-actually-varies).
-Three of those holes **look** covered:
+### 8.1 Three holes that look covered
 
 - **A dropped comment passes almost everything.** Deleting a comment is
   AST-equivalent and the output is its own fixed point, so the end-to-end check
-  passes and every stability check passes. Only a marker count and a multiset
+  passes and so does every stability check; only a marker count and a multiset
   oracle can see it. Caught twice here, both times a renderer indexing a node's
   children positionally — in a formatter where **a comment is a child**. Not ours
-  alone: as of 2026-08-23, rustfmt carried 89 issue titles reporting a deleted,
-  removed, eaten or lost comment, 29 still open, one of which its reporter titled
-  "*silently* removes comments".
+  alone: rustfmt carries 89 issue titles reporting a lost comment, 29 open.
 - **A wrongly *attached* comment passes even those.** A multiset oracle discards
-  positions on purpose, and a wrong-but-stable attachment is a perfectly good
-  fixed point. The only gate that sees it is the author-order invariance oracle of
-  §7.3, and that is something only a generator can do.
+  positions on purpose, so a wrong-but-stable attachment is a perfectly good
+  fixed point; only §7.3's author-order oracle sees it, and only a generator can
+  run that.
 - **A run reassembled backwards is a perfectly good fixed point.** Tear a run
   across a separator with the mover written *first* and the output is stable,
-  AST-equivalent and comment-preserving. Only the *ordered* marker oracles see it.
-  The residual hole is stated rather than papered over: torn with the mover
-  written *second*, the output comes out in source order and nothing in the
-  portfolio can see it at all. That case is pinned by a fixture, and it was found
-  by enumerating the grid, not by a gate. [prettier #10108](https://github.com/prettier/prettier/issues/10108) — "Comments in array:
-  idempotence violation *and change of order*" — is the same shape, reported
-  externally.
+  AST-equivalent and comment-preserving; only the *ordered* marker oracles see
+  it. Torn with the mover written *second*, the output comes out in source order
+  and nothing in the portfolio can see it at all — that case is pinned by a
+  fixture, found by enumerating the grid rather than by a gate.
+  [prettier #10108](https://github.com/prettier/prettier/issues/10108), "Comments
+  in array: idempotence violation *and change of order*", is the same shape
+  reported externally.
 
-And one methodological finding that generalizes well past formatters:
+One methodological finding generalizes well past formatters:
 
 > **A gate green over the wrong axis is indistinguishable from a correct
 > implementation.**
@@ -898,106 +889,39 @@ Our comment axis ran green for months over two of the three comment kinds. Addin
 the third found 70 non-idempotencies the same afternoon. Check what a gate
 *varies* before trusting what it reports.
 
-### 8.2 Replaying our own history
+### 8.2 The class no property gate sees at all
 
-The portfolio above is a design. This is it measured against the project's own
-git history: extract every fix commit (135 candidates over 1,032 commits,
-2026-03-01 → 2026-08-22), hand-classify each for *what was wrong* — deliberately
-never from the firing oracle, which would make the cross-tab a tautology — then
-check out the parent, build there, and run today's oracles against the one
-triggering input. An oracle is a **witness** when it fires at the parent and is
-clean at the fix. The method, the four confounds that forced its shape, and the
-rows that could not be replayed (reported, never dropped) are in
-`gren-format-papers/bugReview.md`.
-
-Of the **61** rows that built at both ends with a usable input: 37 (61%) were
-witnessed by some property oracle. **21 (34%) were invisible to the entire
-property portfolio** — the output changed, and was *wrong but stable*:
+Replayed against the project's own history — 135 fix commits, each parent built
+and today's oracles run against the one triggering input, an oracle counting as a
+**witness** only when it fired at the parent and was clean at the fix — 61 rows
+built at both ends with a usable input. 37 were witnessed. **21 were invisible to
+the entire portfolio**: the output changed, and was *wrong but stable* —
 AST-equivalent, its own fixed point, every comment preserved, the end-to-end
-check exiting 0 at the parent.
+check exiting 0 at the parent. (Method, confounds and data:
+`gren-format-papers/bugReview.md`.)
 
-**Class × visibility to the property portfolio:**
-
-| class | `measured` | `stable-divergence` | `not-reproduced` | invisible |
-|---|---:|---:|---:|---:|
-| **layout** | 0 | 16 | 1 | **94%** |
-| oscillation | 16 | 0 | 1 | 0% |
-| crash | 8 | 0 | 0 | 0% |
-| wrong-attachment | 5 | 0 | 1 | 0% |
-| performance | 4 | 0 | 0 | 0% |
-| mixed | 1 | 3 | 0 | 75% |
-| dropped-content | 2 | 1 | 0 | 33% |
-| blank-lines | 0 | 1 | 0 | 100% |
-| literal-corruption | 1 | 0 | 0 | 0% |
+| class | witnessed | invisible | not reproduced |
+|---|---:|---:|---:|
+| oscillation · crash · wrong-attachment · performance | 33 | 0 | 2 |
+| **layout** | **0** | **16** | 1 |
+| mixed · dropped-content · blank-lines · literal-corruption | 4 | 5 | 0 |
 
 The separation is almost perfect. The property portfolio caught **every** crash,
 oscillation, wrong-attachment and performance bug it was given — and **none of
-the seventeen layout bugs**, the single largest class in the corpus. Spot-checked
-by hand: at one such parent, a `when` used as a call argument has its branch
-bodies indented by 2 instead of 4 — 22 lines different from the fix's output, and
-invisible to every property oracle at both ends.
+the seventeen layout bugs**, the single largest class in the corpus.
 
 > A property oracle asks "did the output violate an invariant?" A layout bug
 > violates none. The output is complete, stable, AST-equivalent and
 > comment-preserving, and merely **wrong**. Only an expected answer, or a second
 > implementation to compare against, can say so.
 
-That is a *stronger* claim than this project's own documentation made. The blind
+That is a *stronger* claim than this project's own documentation made: the blind
 spot our docs emphasize is the dropped comment; the largest measured one is
-wrong-but-stable layout, at a third of the replayable corpus.
-
-One more distinction the oracle names hide: the four performance bugs are caught
-by **the clock**, not by any property, and the wall-clock bound rides on
-whichever oracle happens to run the formatter — so crediting a predicate auditor
-with catching a hang would be wrong. Performance is a **distinct detection
-channel**: a hang produces no wrong output, it produces no output, so no
-correctness oracle subsumes the gates that time things.
-
-### 8.3 The one gate whose inputs nobody here chose
-
-Everything above is synthetic. The matrix builds cells from a vocabulary this
-project authored, the fuzzers perturb a corpus it wrote, and the generator emits
-from a grammar it specified — so all of them reach shapes somebody here thought
-of.
-
-A sweep over ten published packages found **nine bugs in five classes**, every
-one a *feature conjunction* no single-axis gate could produce: multi-line string
-× trailing whitespace × nesting; author-broken record × arrow position; pipe ×
-record argument × `else if`; binop × comment × bracket operand; call × three-or-
-more multi-line block arguments.
-
-So we keep one gate whose inputs came from outside the project. It is the only
-defense we have against a portfolio that is exhaustive over its own authors'
-imagination.
-
-### 8.4 Differential comparison, and what it costs
-
-Gren is a fork of Elm, so for shared constructs `gren-format` and `elm-format`
-should agree — and where they do not, the disagreement should be a decision on
-record. The matrix translates each generated cell to Elm, runs elm-format, and
-diffs. elm-format is **not an oracle**: the two tools diverge on purpose in 34
-cataloged places, each with a rationale and a fixture. So parity is gated against
-a **reviewed baseline** — an unregistered divergence fails, a registered one that
-*disappears* also fails, and `UNREVIEWED` is a debt counter printed on every run.
-Over 68,922 comment cells: 0 failing, 0 UNREVIEWED. Getting there meant reading
-16,141 unreviewed cells down to none, and doing so **found two formatter bugs on
-the way** — which is the argument for reading the debt rather than widening a
-classifier until the counter reaches zero.
-
-**The comparison runs both ways.** One divergence, triaged, turned out to be the
-*reference* implementation's bug: for a pipeline whose last step forces a
-multi-line block, elm-format produces two different outputs for semantically
-identical code, depending only on how the author happened to break the source
-lines. We reported it as
-[elm-format#842](https://github.com/avh4/elm-format/issues/842), where the
-discussion established something the divergence itself had not shown — running
-elm-format again on the first output yields the second, so the first output is
-**not a fixed point**.
-
-That is the whole case for a *reviewed baseline* rather than an oracle — either
-side can be the wrong one, and once it was — and it is §3.2's formula appearing
-in a mature, **trivia-preserving** implementation: an output whose layout was
-decided from incidental input line breaks that the formatting then changed.
+wrong-but-stable layout, at a third of the replayable corpus. It is also why one
+gate's inputs are chosen by nobody here — every other one is synthetic, built
+from a vocabulary this project authored, and a sweep over ten published packages
+found nine bugs, each a *feature conjunction* no single-axis gate could
+generate.
 
 ---
 
@@ -1198,6 +1122,21 @@ and no coverage argument, all four still ship the bug, and three compensate with
 a runtime check. Black's case is additionally the shape §6 does not cover — the
 classifier answering differently because its *anchor* moved, not its rows — which
 is §7.
+
+**And elm-format, from the other direction.** It sits on rung A1 — named comment
+slots, no source positions anywhere for a layout rule to misread — and ships
+§3.2's mechanism anyway: for a pipeline whose last step forces a multi-line
+block, it produces two different outputs for semantically identical code,
+differing only in how the author happened to break the source lines. We found it
+because every generated cell is diffed against elm-format, gated against a
+**reviewed baseline** rather than treated as an oracle — the two tools diverge on
+purpose in 34 cataloged places, an unregistered divergence fails, and a
+registered one that *disappears* fails too. We reported it as
+[elm-format#842](https://github.com/avh4/elm-format/issues/842), where the
+discussion established what the divergence itself had not shown: running
+elm-format again on the first output yields the second, so the first output is
+**not a fixed point**. Either side of a differential comparison can be the wrong
+one, and once it was.
 
 ### 9.6 swift-format is the control condition
 
