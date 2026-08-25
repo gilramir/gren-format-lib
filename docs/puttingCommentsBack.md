@@ -1405,16 +1405,19 @@ demand), and the ban on re-deriving it must be mechanically checked rather than
 documented. The second is what turns "we were careful" into "the mistake is
 unrepresentable".
 
-Two limits, both visible in §9. The guarantee **stops at the seam** — chain two
-barriered passes and the join between them belongs to neither barrier, which is
-exactly where biome's only idempotency bugs live: an embedded-language
-formatter's output becomes the outer formatter's input, and reading that input is
-a positional read again. And the barrier **relocates** the obligation rather than
-removing it — topiary's engine cannot have the bug, so it lives in the
-per-language query files instead, for four years and counting. So where the
-obligation lands is the whole question. Ours lands on one function that always
-returns one of seven answers — small enough that §6 can be an argument about all
-of it. A growing set of declarative queries admits no such argument.
+Two limits, both visible in §9. **A barrier protects one pass, not a pipeline of
+them.** Where one formatter's output becomes another's input — a snippet of one
+language embedded in a file written in another — the outer pass decides from rows
+the inner pass just wrote rather than from rows the author typed, and the premise
+that made deciding once safe is gone. All four of the idempotency fixes biome has
+shipped are at such a seam.
+
+**And a barrier relocates the obligation rather than removing it.** Topiary's
+engine cannot have the bug, so it lives in the per-language query files instead,
+for four years and counting. So where the obligation lands is the whole question:
+ours lands on one function that always returns one of seven answers — small
+enough that §6 can be an argument about all of it. A growing set of declarative
+queries admits no such argument.
 
 ---
 
