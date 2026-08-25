@@ -81,7 +81,7 @@ The rest of this document is those claims with the evidence attached.
 - [7. The anchor — what that argument does not cover](#7-the-anchor--what-that-argument-does-not-cover)
 - [8. Invariants and expected bytes divide the bug space](#8-invariants-and-expected-bytes-divide-the-bug-space)
 - [9. What fourteen other formatters do](#9-what-fourteen-other-formatters-do)
-- [10. The transferable shape](#10-the-transferable-shape)
+- [10. What generalizes](#10-what-generalizes)
 - [Sources](#sources)
 - [See also](#see-also)
 
@@ -1395,14 +1395,15 @@ Three of those four tools *have* the barrier and check anyway.
 
 ---
 
-## 10. The transferable shape
+## 10. What generalizes
 
-**Stated without formatters.** "Decide once, behind an enforced barrier" is a
-pattern for any pass whose *own output destroys the evidence its input decisions
-were made from*. Two components do the work, and they are separable: the decision
-must be recorded as a value (not recomputed on demand), and the ban on
-re-deriving it must be mechanically checked rather than documented. The second is
-what turns "we were careful" into "the mistake is unrepresentable".
+**Decide once, behind an enforced barrier** is a pattern for any pass whose *own
+output destroys the evidence its input decisions were made from* — nothing in it
+is specific to formatters, or to comments. Two components do the work, and they
+are separable: the decision must be recorded as a value (not recomputed on
+demand), and the ban on re-deriving it must be mechanically checked rather than
+documented. The second is what turns "we were careful" into "the mistake is
+unrepresentable".
 
 Two limits, both visible in §9. The pattern **composes only if the composition is
 inside the barrier** — biome's only idempotency bugs are at embedded-language
