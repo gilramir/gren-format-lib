@@ -1411,10 +1411,10 @@ exactly where biome's only idempotency bugs live: an embedded-language
 formatter's output becomes the outer formatter's input, and reading that input is
 a positional read again. And the barrier **relocates** the obligation rather than
 removing it — topiary's engine cannot have the bug, so it lives in the
-per-language query files instead, for four years and counting. Relocating an
-obligation onto a small, total, finite-codomain function is progress precisely
-because something can then be argued about it. Relocating it onto a declarative
-rule language is not.
+per-language query files instead, for four years and counting. So where the
+obligation lands is the whole question. Ours lands on one function that always
+returns one of seven answers — small enough that §6 can be an argument about all
+of it. A growing set of declarative queries admits no such argument.
 
 ---
 
