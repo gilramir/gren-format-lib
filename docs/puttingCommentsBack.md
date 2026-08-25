@@ -1240,49 +1240,31 @@ is §7.
 
 ### 9.6 swift-format is the control condition
 
-This is the survey's single most useful external datapoint, and it deserves the
-whole arc rather than the commit message, because each stage of it is a stage of
-this document's argument.
+This is the survey's single most useful external datapoint, because each stage of
+it is a stage of this document's argument.
 
 **The rule.** `BlankLineBetweenMembers` shipped in swift-format's initial
 implementation (2019-07-10): at least one blank line between each member of a
 type. It is a phase-1 rule — it rewrites the syntax tree before the Oppen printer
-runs — and it decides whether to insert the blank line from
-`isSingleLine(includingLeadingComment:sourceLocationConverter:)`, whose body ends:
-
-```swift
-let startLocation = sourceLocationConverter.location(for: startPosition)
-let endLocation = sourceLocationConverter.location(
-  for: lastToken.endPositionBeforeTrailingTrivia)
-return startLocation.line == endLocation.line
-```
-
-That is "did the author span rows", read off the input, consumed by a layout
-decision — §3.2's mechanism exactly, in a tool that otherwise holds the barrier
-cleanly (every line-number read in `PrettyPrint.swift` is
-`outputBuffer.lineNumber`, the line being *written*). The rule is the one place
-the barrier was broken, and swift-format broke it in the same place we did (§5.3):
-not in the printer, but in a pass that runs before it and reasons about what the
-printer will do.
+runs — and it decides whether to insert the blank line from an
+`isSingleLine(includingLeadingComment:sourceLocationConverter:)` helper whose body
+ends by comparing the start and end **line numbers of the input**. That is "did
+the author span rows", read off the source, consumed by a layout decision — §3.2's
+mechanism exactly, in a tool that otherwise holds the barrier cleanly (every
+line-number read in `PrettyPrint.swift` is `outputBuffer.lineNumber`, the line
+being *written*). The rule is the one place the barrier was broken, and
+swift-format broke it where we did (§5.3): not in the printer, but in a pass that
+runs before it and reasons about what the printer will do.
 
 **Two attempts to patch it, both about comments.** The failures did not present
-as "non-idempotent". They presented as comment bugs, which is why they were
-patched locally twice before the class was recognized:
-
-> "The rule was overly eager in adding blank lines around members that have
-> **comments in their leading trivia**, because it didn't always correctly
-> determine whether a given comment should trigger blank lines around the
-> member." — 2019-11-12
+as "non-idempotent" but as comment bugs, which is why they were patched locally
+twice — 2019-11-12 and 2019-11-20, eight days apart — before the class was
+recognized. The second commit message is this document's §3 in another language:
 
 > "When we were doing the is-single-line check, we weren't considering that the
 > first comment in the trivia might precede any newlines in that trivia,
 > **meaning it's an end-of-line comment for a previous line, not a line comment
-> that we should consider part of the current decl.**" — 2019-11-20
-
-The second is this document's §3 in another language: deciding, from row
-adjacency in the trivia, whether a comment belongs to the declaration that
-follows it or to the line above. Eight days separate the two patches. Both are
-local fixes to instances of a class, and both hold.
+> that we should consider part of the current decl.**"
 
 **Then the class is named, and the rule is deleted.** 2020-01-30 removes 149
 lines of rule and 365 lines of tests:
@@ -1298,137 +1280,63 @@ lines of rule and 365 lines of tests:
 > implemented using breaks in the pretty printer.**"
 
 The first paragraph is §5.1's sentence, reached independently, six years earlier.
-
-**The capability was withdrawn too, two days later.** 2020-02-01, "Delete some
-dead code", removes the `isSingleLine(includingLeadingComment:…)` accessor.
-Deleting the rule left it unused; deleting the accessor is a separate and
-stronger decision — it makes the question *unaskable* rather than merely unasked.
-That is the same remedy as §5.2's, arrived at independently and enforced by
-review rather than by a type.
+Two days later, "Delete some dead code" removes the `isSingleLine` accessor as
+well — a separate and stronger decision, because it makes the question
+*unaskable* rather than merely unasked, which is §5.2's remedy arrived at by
+review instead of by a type.
 
 **And the correct fix was never performed.** At the survey tip (2026-08-21, six
 years and seven months later) there is no `BlankLineBetweenMembers` rule, no
 configuration key, and nothing in `PrettyPrint.swift` that inserts a blank line
 between members. The break-based reimplementation the commit proposed does not
-exist. swift-format no longer enforces the "at least one blank line between each
-member of a type" requirement it was built to enforce. What it does instead is
-preserve: `respectsExistingLineBreaks` keeps whatever the author wrote, clamped by
-`maximumBlankLines`. The feature was traded for the invariant and the trade was
-never revisited.
-
-**The principle held, though**, and that is checkable: of swift-format's 44 rules,
-exactly three mention `sourceLocationConverter` today, and all three use it to
-build a diagnostic's `Finding.Location`. Not one phase-1 rule reads an input row
-to decide layout. Six years, no regression, no allowlist, no exemption file.
+exist; what swift-format does instead is preserve whatever the author wrote,
+clamped by `maximumBlankLines`. The feature was traded for the invariant and the
+trade was never revisited. **The principle held, though**, and that is checkable:
+of swift-format's 44 rules, exactly three mention `sourceLocationConverter` today
+and all three use it to build a diagnostic's location. Not one phase-1 rule reads
+an input row to decide layout. Six years, no regression, no allowlist, no
+exemption file.
 
 **How to read this.** swift-format is not a counterexample and not a precedent
-that dissolves anything here. It is the *control condition*. It shows that the
-principle is discoverable without the architecture (they found it), that finding
-it does not by itself yield the feature (they lost it), and that holding it by
-review is possible but expensive (six years of not re-adding a rule the style
-guide asks for).
+that dissolves anything here. It is the *control condition*: the principle is
+discoverable without the architecture (they found it), finding it does not by
+itself yield the feature (they lost it), and holding it by review is possible but
+expensive (six years of not re-adding a rule the style guide asks for). The claim
+worth making is not that the rule is novel but that **enforcement makes it
+affordable**: `Formatter.RenderTree` deletes the *field* rather than the
+*feature*, so our analogue of `BlankLineBetweenMembers` — the vertical-space pass
+— can exist, because the fact it needs is computed once at the barrier as author
+intent and does not go stale. swift-format had to choose between the rule and the
+invariant. The point of the barrier being a type is not having to choose.
 
-The claim worth making is not that the rule is novel. It is that **enforcement
-makes the rule affordable**: `Formatter.RenderTree` deletes the *field* rather
-than the *feature*, so our analogue of `BlankLineBetweenMembers` — the
-vertical-space pass — can exist, because the fact it needs is computed once at
-the barrier as author intent and does not go stale. swift-format had to choose
-between the rule and the invariant. The point of the barrier being a type is not
-having to choose.
+**§7's anchor, in someone else's tracker.** We ran swift-format 6.3.3 on the
+three rules that rewrite tokens. `OrderedImports` reconstructs attachment from row
+adjacency and then sorts the row out from under it — a file header above the first
+import is carried into the middle of the block when that import sorts down, and
+the output is **a fixed point**, so it is §7.4's category exactly: invisible to
+every gate in §8.1 and visible only to a reader who knows what the comment was
+about. **This one is not a defect, and that is the better result.** It was
+reported as swift-format #772 (2024-07-18) and closed three weeks later as
+working-as-intended: attaching a leading comment is *required*, because a comment
+about the import below it is indistinguishable from a licence header, so "it
+seems like just requiring a blank line is the cleanest way forward." The reporter
+accepted the blank line. A second project reached the anchor, recognised that the
+missing input is *what the comment is about*, and resolved it by making the author
+encode the answer in whitespace — the same move we make, since a blank line is the
+only run boundary our import handling has either. That is stronger evidence for §7
+than a bug would have been.
 
-*The lead, now closed — and it was worse than the lead claimed.* We flagged
-`OrderedImports` as a lead rather than a finding because we had read the source
-but had no Swift toolchain to run it. We have since run swift-format 6.3.3 on
-all three sites. Every prediction about *mechanism* holds; the *severity* was
-under-stated.
-
-`OrderedImports` does reconstruct attachment from row adjacency, and the sort
-then moves the row. A file header is the case that shows it:
-
-```swift
-// Copyright 2026 Someone.
-// This is a file header, not a comment about Zebra.
-import Zebra
-import Alpha
-```
-
-formats to
-
-```swift
-import Alpha
-// Copyright 2026 Someone.
-// This is a file header, not a comment about Zebra.
-import Zebra
-```
-
-The header is attached to `import Zebra` because it is *adjacent* to it, and a
-blank line after the header is the only thing that detaches it — the same single
-boundary our own import runs have. That is §7's anchor move exactly: the
-attachment is right when it is decided and wrong after the move. The output is
-also **a fixed point** — reformatting it changes nothing — so this is §7.4's
-category, invisible to every gate in §8.1 and visible only to a reader who knows
-what the comment was about.
-
-**This one is not a defect, and that is the better result.** It was reported as
-swift-format #772 (2024-07-18, "`OrderedImports` sometimes moves import before
-file header") and closed three weeks later as working-as-intended. The
-maintainer's reasoning is §7's boundary stated by someone who is not us:
-attaching a leading comment is *required*, because `// This import does
-something import-ant.` above `import Foo` is indistinguishable from a licence
-header, and "it being unlikely that we could distinguish a file header from a
-comment that just happens to be on the first line, it seems like just requiring
-a blank line is the cleanest way forward." The reporter accepted the blank line.
-
-So a second project reached the anchor, recognised that the missing input is
-*what the comment is about*, and resolved it by making the author encode the
-answer in whitespace — the same move we make, since a blank line is the only run
-boundary our import handling has either. That is stronger evidence for §7 than a
-bug would have been: the limit is real, and independently arrived at.
-
-`FullyIndirectEnum` is clean. It hoists `indirect` onto the enum and leaves both
-leading and trailing comments on the cases where the author put them.
-
-`NoCasesWithOnlyFallthrough` **deletes a comment.** Merging
-
-```swift
-case 1:  // trail on 1
-  fallthrough
-case 2:
-  print("hi")
-```
-
-into `case 1, 2:` drops `// trail on 1` from the output entirely. The rule *is*
-guarded against comments, but on the wrong slots: a *leading* comment on the
-absorbed case suppresses the merge outright, and a leading comment on the second
-case is re-anchored above the merged case — so a note about `case 2` comes to
-read as a note about `case 1` — while the trailing comment, the one slot the
-guard does not consult, is dropped on the floor. This is §4's failure mode in a
-single rule: attachment decided per-slot at each point of use rather than once
-for every comment, so a slot nobody enumerated has no answer at all, and "no
-answer" renders as nothing.
-
-The `NoCasesWithOnlyFallthrough` hole is in the current source, not only in the
-build we ran. `NoCasesWithOnlyFallthrough.swift`:143-159 guards three slots —
-own-line comments before the case, own-line comments before the `fallthrough`,
-and a comment inline *on* the `fallthrough` — and both own-line guards open with
-`.drop(while: { !$0.isNewline })`, which discards exactly the same-line fragment
-the lost comment lives in. There was no tracker entry; we filed
+`FullyIndirectEnum` is clean. `NoCasesWithOnlyFallthrough` **deletes a comment**:
+merging `case 1: fallthrough` into `case 1, 2:` drops a trailing `// trail on 1`
+entirely. The rule *is* guarded against comments, but on the wrong slots — the two
+own-line guards both open with `.drop(while: { !$0.isNewline })`, which discards
+exactly the same-line fragment the lost comment lives in. That is §4's failure
+mode in a single rule: attachment decided per-slot at each point of use rather
+than once for every comment, so a slot nobody enumerated has no answer at all, and
+"no answer" renders as nothing. There was no tracker entry; we filed
 [swift-format #1274](https://github.com/swiftlang/swift-format/issues/1274)
-(2026-08-25), open as of writing.
-
-So the family is one acknowledged, declined, by-design relocation; one clean
-site; and one live comment loss — recorded because it is exactly where our own
-equivalent defects have been.
-
-Two caveats. We ran the toolchain-bundled 6.3.3, not the survey tip `9c9a9fa`,
-so these are results about a release build rather than about the exact lines
-cited — and that build is behind main on comment handling: swift-format #1080
-(a detached comment between two imports deleted outright) was fixed on main in
-May 2026 and still reproduces on it, which is why the fallthrough hole was
-re-checked against main's source rather than left resting on the binary. The
-build also reports 43 configurable rules where the source reading counted 44,
-a discrepancy not yet chased. Neither bears on the mechanism.
-Fixtures and a runner: `gren-format-papers/related/swift-format-repro/`.
+(2026-08-25), open as of writing. Fixtures and a runner, and the caveats about
+which build we ran, are in `gren-format-papers/related/swift-format-repro/`.
 
 ### 9.7 Runs, independently corroborated
 
@@ -1618,9 +1526,9 @@ and [prettier `area:idempotency`](https://github.com/prettier/prettier/labels/ar
 **Outside it** (the sibling `gren-format-papers/` working repository, not
 published with this package)
 
-- `gren-format-papers/related/formatter-survey.md` — the full survey behind §9,
-  with repository commits and per-claim `file:line` citations.
-- `gren-format-papers/related/tracker-mining.md` and the three `.tsv` pulls beside
-  it — the frozen tracker exports behind §8.1 and §9.8.
-- `gren-format-papers/bugReview.md`, `bugs.jsonl`, `results.jsonl` — the method
-  and data behind §8.2; the tables regenerate from the repositories.
+- `related/formatter-survey.md` — the full survey behind §9, with repository
+  commits and per-claim `file:line` citations; `related/tracker-mining.md` and
+  three `.tsv` pulls — the frozen tracker exports behind §8.1 and §9.8;
+  `related/swift-format-repro/` — the §9.6 fixtures.
+- `bugReview.md`, `bugs.jsonl`, `results.jsonl` — the method and data behind
+  §8.2; the tables regenerate from the repositories.
