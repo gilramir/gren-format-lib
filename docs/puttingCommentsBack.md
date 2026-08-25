@@ -455,6 +455,13 @@ renderer which row a box would begin on, so that a comment could be compared
 against it. Both are exactly what §6.1's second table forbids, written out at
 length.
 
+Alongside it ran a second family of the same mistake. The renderer also had to
+know whether a subtree would come out multi-line, and it answered that with
+hand-written predicates that *predicted* the renderer's own output from those
+same rows. Nothing forced a predicate to agree with the code it mirrored, and
+one of this project's gates (`audit-predicates.py`) exists for no other reason
+than that the disagreement is otherwise invisible.
+
 Every one of those sites was individually defensible, and most were usually
 right. What they could not be is *consistent with one another*, and nothing in
 the program required it. The same comment in a binop and in a bracket list was
@@ -469,17 +476,35 @@ that week opens by naming what they had in common:
 > "Each fix was small, correct, and local — and each was the same fix, re-proven
 > for one more code path. The root cause is architectural."
 
-It then states the invariant, and the sentence is §6.1's, four weeks earlier and
-in this project's own words:
+It then states the invariant, and the sentence is §6.1's, five weeks before it
+became a type and in this project's own words:
 
 > "After `Formatter.Logical.Comments` runs, no code in `Render/*` reads source
 > rows or positions to make a layout or comment-placement decision."
+
+**What changed was where two questions get answered, not how they are answered.**
+The first is §5.1's: each comment gained a **role** — a value stored on the
+comment leaf, assigned once while the rows are still the author's, recording
+what those eight sites had each been working out for themselves. Every render
+site was cut over to read that value instead of comparing rows. The second
+question is shape — *will this subtree render multi-line?* — which had been
+answered by hand-written predicates mirroring the renderer over the same rows,
+and became a question asked of the **already-rendered `Box`** (`isSingleLine`,
+§6.1's second table). Both are the same move: stop predicting from the author's
+rows, either by deciding early and storing the answer, or by observing the
+finished thing instead of guessing at it.
 
 What makes that document worth quoting is not the rule but the *evidence
 standard* attached to it. It required the whole rewrite to be **byte-identical**
 on every fixture, fuzzer and parity baseline: the point was explicitly not to
 change any output, only to change where the decision lived. About nineteen
 commits, each verified that way.
+
+That constraint did more work than it looks like. To keep the bytes, the
+classifier had to reproduce — from rows that were still the author's — exactly
+what the renderer's per-box-kind tables had been computing from rows that were
+not. Where the two disagreed, the disagreement *was* the bug the eight fixes had
+been chasing one arm at a time.
 
 The row machinery never had to be argued away. Once every site read the stored
 role, it was write-only, and it was deleted — the state machine, the ninety-line
