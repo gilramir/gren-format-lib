@@ -4,28 +4,6 @@
 what the problem is, what we built, what it cost, and what we measured
 afterwards.*
 
-This is an essay, not a reference. `gren-format` reuses the Gren compiler's own
-parser, and that parser — like most compiler parsers — discards comments. The
-formatter is handed a comment-free syntax tree and, beside it, a flat list of
-comments with nothing but source positions to say where they belong. Putting
-them back is the hardest thing this formatter does, and what follows is the
-account of it: the architecture we settled on, the argument we make for it, the
-bugs that argument did not cover, and the fourteen other formatters we read to
-work out which parts of the difficulty were ours and which belonged to the
-problem.
-
-It is deliberately not normative. The rules that decide where a comment actually
-lands are stated in **[How gren-format places your comments](commentHandling.md)**
-(C1–C7, with a worked example for each). The implementation is stated in
-**[The comment algorithm](commentAlgorithm.md)** (attachment fold, roles, state
-machines, the gates). This document restates just enough of both to make an
-argument, and links down whenever the detail matters. Where the two disagree with
-this one, they are right.
-
-Every code example here was produced by running the formatter.
-
----
-
 ## TL;DR
 
 `gren-format` reuses the Gren compiler's parser, and that parser discards
@@ -66,6 +44,17 @@ a decision that was right when it was made (§7), and knowing which bug classes
 a property gate cannot see at all (§8).
 
 The rest of this document is those claims with the evidence attached.
+
+---
+
+This is an essay, not a reference, and deliberately not normative. The rules that
+decide where a comment actually lands are stated in **[How gren-format places
+your comments](commentHandling.md)** (C1–C7, with a worked example for each), and
+the implementation in **[The comment algorithm](commentAlgorithm.md)** (attachment
+fold, roles, state machines, the gates). This document restates just enough of
+both to make an argument and links down whenever the detail matters; where either
+disagrees with this one, it is right. Every code example here was produced by
+running the formatter.
 
 ---
 
@@ -120,10 +109,7 @@ foo(1);  // why
 `// set it up` is stored as leading trivia of the `foo` token and `// why` as
 trailing trivia of the `;`. Both comments are fields of a token in the tree from
 the moment the lexer finishes, and no later stage has to work out where they
-belong. (The exact shape varies — [Roslyn](https://github.com/dotnet/roslyn) and
-[rowan](https://github.com/rust-analyzer/rowan) use typed trivia nodes, while
-Black carries the same information as a raw `prefix` string on a leaf — but the
-guarantee is the same one.)
+belong.
 
 On **A0–A2** the comment is already attached to something before the formatter
 starts: the front end answered "which code is this comment beside?" while it was
@@ -299,6 +285,46 @@ What author-driven layout really does is make the authorial rows *more tempting
 to read*. They are right there, and they are usually correct. That is precisely
 why the ban in §5 has to be mechanical rather than advisory.
 
+### 3.5 The shape of the answer
+
+Seven steps, and the rest of this document is about three of them.
+
+```
+  the compiler's parser hands over two things:
+      Src.Module   an AST with source ranges, and no comment nodes
+      Context      a flat, source-ordered list of located comments
+          │
+  ────────┼─── the logical stage: every row is still the author's, ──────
+          │    and reading one here is legal
+          │
+     1 build     walk the AST into one node per declaration — no comments yet
+     2 attach    place each comment; record the answer as a role      §4
+     3 repair    two passes over the finished tree: build the tree that
+                 a reparse of our own output would build
+     4 sort      exposing lists, import groups                        ┐ row-keyed
+     5 space     blank lines between top-level items                  ┘ too  §5.3
+          │
+  ════════╪═══ THE POSITION BARRIER ═════════════════════════════════════
+          │
+     6 lower     copy the tree into a type with no (row, col) field on it
+                 anywhere — so a row read below is a compile error    §5.2
+          │
+  ────────┼─── the rendering stage: no position exists to be read ───────
+          │
+     7 render    choose the line breaks, emit the bytes
+```
+
+**Step 2** is where every placement decision is made, and §4 is the argument for
+making all of them there, once, rather than at each point of use. **Step 6** is
+the barrier, and §5 is what it costs to have the type checker hold it.
+
+**Steps 4 and 5 are the ones to notice now**, because nothing in the picture
+marks them out. They read the author's rows exactly as step 2 does, they sit on
+the legal side of the line, and they run *afterwards* — so they can move a row
+that step 2 has already been decided from. Both of this document's hard-won
+sections are about that: §5.3, where the barrier turns out not to cover them,
+and §7, where sorting moves the code a comment was attached to.
+
 ---
 
 ## 4. Decide once
@@ -377,13 +403,10 @@ out on that item's last row. The second run asks the same question of the same
 row, gets the same answer, and nothing moves.
 
 **When a role cannot satisfy that, the rule is not the thing to change.** §3.2's
-oscillating example is the case in point. A multi-line `{- … -}` written on a
-declaration's last row is decided from that row — but it cannot *render* there,
-because it brings its own newlines with it, so it lands below the declaration,
-and the next run reads a comment written below a declaration, which is a
-different question with a different answer. No rewording of the rule helps here.
-The rule is already right about where the author put it; the trouble is that the
-output puts it somewhere else.
+oscillating example is the case in point: the comment is decided from the row the
+author wrote it on, and cannot render there. No rewording helps. The rule is
+already right about where the author put it; the trouble is that the output puts
+it somewhere else.
 
 What fixes it is **making format¹ build the tree format² would build**. The
 comment is going to end up below the declaration, so the first pass puts it
@@ -452,17 +475,15 @@ author's:
 | is there a line here to glue onto? | what the renderer has emitted so far (§5.3) |
 
 The second list is the whole of what the renderer is allowed to ask, and nothing
-on it is a source position — including the first row, which sounds like one.
+on it is a source position — including the first row, which sounds like one. A
+role names a *relationship*, not a place: `TrailsPrevious` says *glue onto the
+previous sibling's last rendered line*, `TrailsHead` says *onto the container's
+head*, `LeadsNext` says *the sibling after an unrecorded separator*.
 
-**"Where does this comment go?" is answered without coordinates.** A role names a
-*relationship*, not a place. `TrailsPrevious` says *glue onto the previous
-sibling's last rendered line*; `TrailsHead` says *onto the container's head*;
-`LeadsNext` says *the sibling after an unrecorded separator*.
-
-The fourth row is the one that makes all this affordable rather than merely
-strict: the questions that genuinely do need the author's rows still get
-answered — the renderer is simply handed the answer instead of the evidence, and
-cannot re-derive it later against different rows.
+The fourth row is what makes this affordable rather than merely strict: the
+questions that genuinely do need the author's rows still get answered — the
+renderer is handed the answer instead of the evidence, and cannot re-derive it
+later against different rows.
 
 ### 5.2 Making it a type error
 
@@ -514,21 +535,20 @@ simply be got wrong.
 **On the other side of the line: a row that this pipeline is itself going to
 move.** Above the barrier, reading source rows is legal and necessary — that is
 what the logical stage is *for*. The gap is that the rows stop being the
-author's part-way through. The logical stage is several passes, and a later one
-can move a row an earlier one read; the renderer then moves nearly all of them.
-A decision keyed to such a row is stale for exactly the reason a render-side read
-is stale — and the barrier does not touch it, because all of it happens on the
-permitted side.
+author's part-way through it. Steps 4 and 5 of §3.5 can each move a row step 2
+was decided from, and the renderer at step 7 then moves nearly all of them. A
+decision keyed to such a row is stale for exactly the reason a render-side read
+is stale — and the barrier does not touch it, because every step involved sits
+above the line.
 
 This is the one that catches people, and it caught swift-format in exactly the
 same place (§9). Our criterion in §4 is stated *for roles*, and that scoping was
-itself the defect. The sorting pass and the vertical-space pass are row-keyed
-decisions too; neither produces a role, so neither was ever held to the
-sentence. Both were later found violating it. The vertical-space pass decided
-whether a comment was free-floating from the gap *below* it — and then closed
-that very gap two steps later when it pulled a definition up under its
-signature. First format saw a gap and emitted two blank lines; second saw none
-and emitted one.
+itself the defect. Steps 4 and 5 are row-keyed decisions too; neither produces a
+role, so neither was ever held to the sentence. Both were later found violating
+it. The vertical-space pass (step 5) decided whether a comment was free-floating
+from the gap *below* it — and then closed that very gap itself, when it pulled a
+definition up under its signature. First format saw a gap and emitted two blank
+lines; second saw none and emitted one.
 
 Read correctly, the sentence was never about roles:
 
@@ -590,10 +610,8 @@ the number of times `f` is applied.
 
 That is why "does it handle a run of 40?" is not a question about runs. It is the
 same question as "does it handle the 40th comment in the file", and the fold does
-not distinguish the two. Combine it with the classifier's totality (§4) — seven
-roles, no fallback arm — and the tree after *n* comments carries the same *kind*
-of state it carried after one: *n* leaves, each with one of seven labels on it,
-and never the configuration space of §4 whose case count grows with *n*.
+not distinguish the two. With the classifier's totality (§4) alongside it, the
+tree after *n* comments carries the same *kind* of state it carried after one.
 
 ### 6.2 The formatter tracks three kinds of comment
 
@@ -779,9 +797,9 @@ import Bar3
 
 Each comment's range **overlaps** the import's: written inside a statement, it is
 physically within the span of the thing it interrupts. There is nowhere inside an
-import node for a comment to live, so attachment promotes each one to a
+import node for a comment to live, so attachment (step 2) promotes each one to a
 **sibling** of the import — a node beside it in the tree rather than within it —
-and the first pass prints them on rows of their own, then sorts:
+and the first pass prints them on rows of their own, then sorts (step 4):
 
 ```gren
 import Bar3
@@ -842,12 +860,10 @@ oracle that varies the input's **authoring** rather than repeating the formatter
 *emit the same program spelled two legal ways and require the same bytes.* We
 have exactly one, we built it late, and building a second is the open work.
 
-This is not a parochial worry. Black shipped the same shape in July 2026 —
-omitting optional parentheses "re-parents the comment onto a different leaf after
-the next parse" — in a tool that runs a stability assertion on every format, and
-swift-format's `OrderedImports` rule ships it today: a file header above the
-first import is carried into the middle of the block when that import sorts down,
-and the result is a fixed point (§9.6).
+This is not a parochial worry. Two other projects ship the same shape today, one
+of them deliberately: Black, in a tool that runs a stability assertion on every
+format (§9.5), and swift-format's `OrderedImports`, where it is a fixed point and
+was closed as working-as-intended (§9.6).
 
 ---
 
@@ -865,7 +881,10 @@ two results are worth carrying out of them.
   passes and so does every stability check; only a marker count and a multiset
   oracle can see it. Caught twice here, both times a renderer indexing a node's
   children positionally — in a formatter where **a comment is a child**. Not ours
-  alone: rustfmt carries 89 issue titles reporting a lost comment, 29 open.
+  alone: rustfmt carries 89 issue titles reporting a lost comment, 29 open, and
+  swift-format loses one today in a rule that is *guarded* against comments but
+  on two of its three slots (§9.6) — which is how the class survives a portfolio
+  that cannot see it.
 - **A wrongly *attached* comment passes even those.** A multiset oracle discards
   positions on purpose, so a wrong-but-stable attachment is a perfectly good
   fixed point; only §7.3's author-order oracle sees it, and only a generator can
@@ -931,9 +950,8 @@ date of the pull.
 
 We read the sources of fourteen production formatters. Beyond §1's input rung,
 three axes separate them: *when* placement is decided; whether layout is
-width-aware or author-driven; and — the axis that is almost never named —
-whether the stage that decides breaks and verticality may read a source position
-at all. That last one is §3.4's **position barrier**, and §5 is ours in detail.
+width-aware or author-driven; and — the axis that is almost never named — the
+**position barrier** of §3.4, which §5 builds in detail.
 
 The barrier is not implied by deciding once. A tool can decide attachment
 exactly once and still let every layout rule re-derive verticality from the
@@ -972,12 +990,9 @@ so nothing had to be forbidden. **Every tool that must reconstruct attachment
 lacks it, except ours.** That column is also where every instability in this
 survey lives.
 
-The point of stating it that way is not to claim a trophy. It is to be precise
-about what is actually ours: the barrier is not an idea (swift-format wrote it
-down in 2020) and not a rarity (eight of fifteen have it). What is ours is
-having it in the **position where it has to be built rather than inherited**,
-and enforcing it with the type checker so that keeping it did not cost us a
-feature.
+Stated that way it is a claim about the substrate, not a trophy: the barrier is
+neither an idea of ours (swift-format wrote it down in 2020) nor a rarity (eight
+of fifteen have it). Only the cell it sits in is unusual.
 
 ### 9.1 Deciding once is the norm, not the contribution
 
@@ -1221,14 +1236,44 @@ encode the answer in whitespace — the same move we make, since a blank line is
 only run boundary our import handling has either. That is stronger evidence for §7
 than a bug would have been.
 
-`FullyIndirectEnum` is clean. `NoCasesWithOnlyFallthrough` **deletes a comment**:
-merging `case 1: fallthrough` into `case 1, 2:` drops a trailing `// trail on 1`
-entirely. The rule *is* guarded against comments, but on the wrong slots — the two
-own-line guards both open with `.drop(while: { !$0.isNewline })`, which discards
-exactly the same-line fragment the lost comment lives in. That is §4's failure
-mode in a single rule: attachment decided per-slot at each point of use rather
-than once for every comment, so a slot nobody enumerated has no answer at all, and
-"no answer" renders as nothing. There was no tracker entry; we filed
+`FullyIndirectEnum` is clean. `NoCasesWithOnlyFallthrough` **deletes a comment**.
+The rule merges a case whose only statement is `fallthrough` into the case below
+it, and there are three slots a comment can occupy across that merge. Run
+6.3.3 on each (`swift-format format`, no configuration):
+
+```swift
+1. own-line, above the absorbed case      the merge is suppressed
+
+   // lead on 1                            // lead on 1
+   case 1:                        ──►      case 1:
+     fallthrough                             fallthrough
+   case 2:                                 case 2:
+     print("hi")                             print("hi")
+
+2. own-line, above the surviving case     kept, but re-anchored: it now
+                                          reads as a note about `case 1`
+   case 1:
+     fallthrough                  ──►      // lead on 2
+   // lead on 2                            case 1, 2:
+   case 2:                                   print("hi")
+     print("hi")
+
+3. same-line, trailing the absorbed case  gone
+
+   case 1:  // trail on 1         ──►      case 1, 2:
+     fallthrough                             print("hi")
+   case 2:
+     print("hi")
+```
+
+The rule *is* guarded against comments — the first slot suppresses the merge —
+but on two slots of three, and each unguarded one fails differently: the second
+keeps the comment and moves what it is about, the third does not keep it at all.
+Both guards open with `.drop(while: { !$0.isNewline })`, which discards exactly
+the same-line fragment the lost comment lives in. That is §4's failure mode in a
+single rule: attachment decided per-slot at each point of use rather than once
+for every comment, so a slot nobody enumerated has no answer, and "no answer"
+renders as nothing. There was no tracker entry; we filed
 [swift-format #1274](https://github.com/swiftlang/swift-format/issues/1274)
 (2026-08-25), open as of writing.
 
