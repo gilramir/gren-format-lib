@@ -938,7 +938,9 @@ cheaper had it carried one from the start.
 This is not a parochial worry. Black shipped the same shape in July 2026 —
 omitting optional parentheses "re-parents the comment onto a different leaf after
 the next parse" — in a tool that runs a stability assertion on every format, and
-swift-format's `OrderedImports` rule has the ingredients today (§9).
+swift-format's `OrderedImports` rule ships it today: a file header above
+the first import is carried into the middle of the block when that import sorts
+down, and the result is a fixed point (§9.6).
 
 ---
 
@@ -1503,18 +1505,99 @@ the barrier as author intent and does not go stale. swift-format had to choose
 between the rule and the invariant. The point of the barrier being a type is not
 having to choose.
 
-*One open lead we could not close.* swift-format's `OrderedImports` still
-reconstructs comment attachment from row adjacency — `generateLines` walks the
-leading trivia and emits a `Line` per newline, so a standalone comment becomes its
-own `Line` and a trailing comment rides with its code — and it is also the only
-one of the 44 rules that **sorts**. That is §7's anchor-move shape exactly. Two
-further rules relocate syntax that can carry comments without sorting it
-(`FullyIndirectEnum` hoists a modifier, `NoCasesWithOnlyFallthrough` merges
-cases), so it is a small family rather than a single site. We flag it as a lead,
-not a finding: we read the source but did not run the tool, which needs a Swift
-toolchain we did not have. It is recorded because it is exactly where our own
-equivalent defects have been, and because it is cheap for someone with a Swift
-toolchain to check.
+*The lead, now closed — and it was worse than the lead claimed.* We flagged
+`OrderedImports` as a lead rather than a finding because we had read the source
+but had no Swift toolchain to run it. We have since run swift-format 6.3.3 on
+all three sites. Every prediction about *mechanism* holds; the *severity* was
+under-stated.
+
+`OrderedImports` does reconstruct attachment from row adjacency, and the sort
+then moves the row. A file header is the case that shows it:
+
+```swift
+// Copyright 2026 Someone.
+// This is a file header, not a comment about Zebra.
+import Zebra
+import Alpha
+```
+
+formats to
+
+```swift
+import Alpha
+// Copyright 2026 Someone.
+// This is a file header, not a comment about Zebra.
+import Zebra
+```
+
+The header is attached to `import Zebra` because it is *adjacent* to it, and a
+blank line after the header is the only thing that detaches it — the same single
+boundary our own import runs have. That is §7's anchor move exactly: the
+attachment is right when it is decided and wrong after the move. The output is
+also **a fixed point** — reformatting it changes nothing — so this is §7.4's
+category, invisible to every gate in §8.2 and visible only to a reader who knows
+what the comment was about.
+
+**This one is not a defect, and that is the better result.** It was reported as
+swift-format #772 (2024-07-18, "`OrderedImports` sometimes moves import before
+file header") and closed three weeks later as working-as-intended. The
+maintainer's reasoning is §7's boundary stated by someone who is not us:
+attaching a leading comment is *required*, because `// This import does
+something import-ant.` above `import Foo` is indistinguishable from a licence
+header, and "it being unlikely that we could distinguish a file header from a
+comment that just happens to be on the first line, it seems like just requiring
+a blank line is the cleanest way forward." The reporter accepted the blank line.
+
+So a second project reached the anchor, recognised that the missing input is
+*what the comment is about*, and resolved it by making the author encode the
+answer in whitespace — the same move we make, since a blank line is the only run
+boundary our import handling has either. That is stronger evidence for §7 than a
+bug would have been: the limit is real, and independently arrived at.
+
+`FullyIndirectEnum` is clean. It hoists `indirect` onto the enum and leaves both
+leading and trailing comments on the cases where the author put them.
+
+`NoCasesWithOnlyFallthrough` **deletes a comment.** Merging
+
+```swift
+case 1:  // trail on 1
+  fallthrough
+case 2:
+  print("hi")
+```
+
+into `case 1, 2:` drops `// trail on 1` from the output entirely. The rule *is*
+guarded against comments, but on the wrong slots: a *leading* comment on the
+absorbed case suppresses the merge outright, and a leading comment on the second
+case is re-anchored above the merged case — so a note about `case 2` comes to
+read as a note about `case 1` — while the trailing comment, the one slot the
+guard does not consult, is dropped on the floor. This is §4's failure mode in a
+single rule: attachment decided per-slot at each point of use rather than once
+for every comment, so a slot nobody enumerated has no answer at all, and "no
+answer" renders as nothing.
+
+The `NoCasesWithOnlyFallthrough` hole is in the current source, not only in the
+build we ran. `NoCasesWithOnlyFallthrough.swift`:143-159 guards three slots —
+own-line comments before the case, own-line comments before the `fallthrough`,
+and a comment inline *on* the `fallthrough` — and both own-line guards open with
+`.drop(while: { !$0.isNewline })`, which discards exactly the same-line fragment
+the lost comment lives in. There was no tracker entry; we filed
+[swift-format #1274](https://github.com/swiftlang/swift-format/issues/1274)
+(2026-08-25), open as of writing.
+
+So the family is one acknowledged, declined, by-design relocation; one clean
+site; and one live comment loss — recorded because it is exactly where our own
+equivalent defects have been.
+
+Two caveats. We ran the toolchain-bundled 6.3.3, not the survey tip `9c9a9fa`,
+so these are results about a release build rather than about the exact lines
+cited — and that build is behind main on comment handling: swift-format #1080
+(a detached comment between two imports deleted outright) was fixed on main in
+May 2026 and still reproduces on it, which is why the fallthrough hole was
+re-checked against main's source rather than left resting on the binary. The
+build also reports 43 configurable rules where the source reading counted 44,
+a discrepancy not yet chased. Neither bears on the mechanism.
+Fixtures and a runner: `gren-format-papers/related/swift-format-repro/`.
 
 ### 9.7 Runs, independently corroborated
 
@@ -1711,7 +1794,7 @@ tip rather than trusting a line number here.
 | [topiary](https://github.com/tweag/topiary) | generic, over tree-sitter | `tweag/topiary` | `a307aee` | the engine's atom resolution; the per-language `.scm` query files where the obligation ended up (§9.5) |
 | [elm-format](https://github.com/avh4/elm-format) | Elm | `avh4/elm-format` | `e7e5da37` | `AST/V0_16.hs` — named comment slots, no positions anywhere (§1, §9) |
 | [dart_style](https://github.com/dart-lang/dart_style) | Dart | `dart-lang/dart_style` | `39edc2d9` | the positionless `Piece` IR; `CommentSequence`, *n* comments and *n+1* newline counts (§9.7) |
-| [swift-format](https://github.com/swiftlang/swift-format) | Swift | `swiftlang/swift-format` | `9c9a9fa` | `SyntaxProtocol+Convenience.swift`, `PrettyPrint.swift`, the removed `BlankLineBetweenMembers` rule, `OrderedImports.swift` (§9.6) |
+| [swift-format](https://github.com/swiftlang/swift-format) | Swift | `swiftlang/swift-format` | `9c9a9fa` | `SyntaxProtocol+Convenience.swift`, `PrettyPrint.swift`, the removed `BlankLineBetweenMembers` rule, `OrderedImports.swift` (§9.6). Also **run**, 6.3.3, 2026-08-24 — the only surveyed tool we executed as well as read |
 | [google-java-format](https://github.com/google/google-java-format) | Java | `google/google-java-format` | `b291d95` | the `Doc` fitter and the two positional reads in the op-builder (§9) |
 | [CSharpier](https://github.com/belav/csharpier) | C# | `belav/csharpier` | `c8ac0cb` | the [Roslyn](https://github.com/dotnet/roslyn)-trivia walk; half of the controlled experiment (§9.2) |
 | [biome](https://github.com/biomejs/biome) | JS/TS/CSS | `biomejs/biome` | `7a111ba7` | `piece.is_newline()` over [rowan](https://github.com/rust-analyzer/rowan) trivia, where prettier reads `originalText` (§9.2) |
