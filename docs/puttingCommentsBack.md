@@ -897,8 +897,7 @@ and today's oracles run against the one triggering input, an oracle counting as 
 built at both ends with a usable input. 37 were witnessed. **21 were invisible to
 the entire portfolio**: the output changed, and was *wrong but stable* —
 AST-equivalent, its own fixed point, every comment preserved, the end-to-end
-check exiting 0 at the parent. (Method, confounds and data:
-`gren-format-papers/bugReview.md`.)
+check exiting 0 at the parent.
 
 | class | witnessed | invisible | not reproduced |
 |---|---:|---:|---:|
@@ -928,11 +927,7 @@ generate.
 ## 9. What fourteen other formatters do
 
 **All counts and repository states in this section are as of 2026-08-23**, the
-date of the pull. Trackers are live and the figures move; the frozen pulls and
-the per-claim `file:line` citations are in
-`gren-format-papers/related/` — `formatter-survey.md`, `tracker-mining.md`, and
-three `.tsv` exports. That is a sibling working repository, not part of this
-package, so the references below are paths rather than links.
+date of the pull.
 
 We read the sources of fourteen production formatters. Beyond §1's input rung,
 three axes separate them: *when* placement is decided; whether layout is
@@ -1235,8 +1230,7 @@ mode in a single rule: attachment decided per-slot at each point of use rather
 than once for every comment, so a slot nobody enumerated has no answer at all, and
 "no answer" renders as nothing. There was no tracker entry; we filed
 [swift-format #1274](https://github.com/swiftlang/swift-format/issues/1274)
-(2026-08-25), open as of writing. Fixtures and a runner, and the caveats about
-which build we ran, are in `gren-format-papers/related/swift-format-repro/`.
+(2026-08-25), open as of writing.
 
 ### 9.7 Runs, independently corroborated
 
@@ -1399,9 +1393,7 @@ parser bugs that make up our entire residual non-idempotency are filed there and
 listed in [knownLimitations.md](knownLimitations.md).
 
 **Issue trackers.** The counts in §8.1 and §9.8 are frozen pulls dated
-2026-08-23, filed under `gren-format-papers/related/` as
-`rustfmt-comments.tsv`, `prettier-area-comments.tsv` and
-`prettier-area-idempotency.tsv`. The labels they were pulled from are
+2026-08-23. The labels they were pulled from are
 [rustfmt `A-comments`](https://github.com/rust-lang/rustfmt/labels/A-comments),
 [prettier `area:comments`](https://github.com/prettier/prettier/labels/area%3Acomments)
 and [prettier `area:idempotency`](https://github.com/prettier/prettier/labels/area%3Aidempotency).
@@ -1427,13 +1419,3 @@ and [prettier `area:idempotency`](https://github.com/prettier/prettier/labels/ar
   divergences, each with a reason and a fixture.
 - [Known limitations](knownLimitations.md) — including the upstream parser bugs
   that make up the entire residual non-idempotency.
-
-**Outside it** (the sibling `gren-format-papers/` working repository, not
-published with this package)
-
-- `related/formatter-survey.md` — the full survey behind §9, with repository
-  commits and per-claim `file:line` citations; `related/tracker-mining.md` and
-  three `.tsv` pulls — the frozen tracker exports behind §8.1 and §9.8;
-  `related/swift-format-repro/` — the §9.6 fixtures.
-- `bugReview.md`, `bugs.jsonl`, `results.jsonl` — the method and data behind
-  §8.2; the tables regenerate from the repositories.

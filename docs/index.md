@@ -362,13 +362,8 @@ Everything above is the short version. The full documents are in this same
 **Working on some other formatter**
 
 - **[Putting the comments back](puttingCommentsBack.md)** — an essay for people
-  who build formatters for other languages. Why a formatter built on a
-  comment-discarding parser has a comment-placement problem at all, the
-  decide-once/enforced-barrier architecture that removes it, why a run of any
-  length reduces to a run of two, the obligation that argument does *not* cover,
-  what our test gates measurably cannot see, and how fourteen other production
-  formatters handle the same problem. Nothing in it is normative for
-  `gren-format`; it restates the two documents above and links back to them.
+  who are interested in writing formatters for other languages, or knowing how
+  we did it for Gren.
 
 [`llm/`](llm/) is a third group, written to be read by a model rather
 than a person: approaches already tried and backed out, the generator's grammar
