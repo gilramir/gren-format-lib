@@ -496,10 +496,12 @@ Each era's answer exposed the limit of the one before it:
 
 1. the question must be asked **once** (era 1);
 2. "once" has to be **enforced**, not intended (era 2);
-3. what is enforced is **narrower than what must be true** (era 3). The barrier
-   forbids one thing: reading a position below the line. The row reads *above*
-   it stay legal, and the renderer still has judgment left *below* it — the two
-   gaps of §6.3.
+3. the enforced rule is a **proxy for the property, not the property** (era 3).
+   The property — §4 for roles, §6.3 for every row-keyed decision — is that a
+   decision must survive being re-asked of the formatter's own output. The
+   barrier does not say that; it forbids the render stage a position, which
+   rules out one way to violate the property and leaves §6.3's two gaps. §6.4
+   is what the trade actually buys.
 
 Two things this history is *not* evidence for. It is not evidence that the
 architecture is quicker to write: it cost about nineteen commits to produce
