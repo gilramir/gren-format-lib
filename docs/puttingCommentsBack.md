@@ -323,6 +323,12 @@ type CommentRole
     | Standalone       -- a detached top-level comment, its own column-1 node
 ```
 
+**The role is what the renderer gets in place of a position.** A `(row, column)`
+pair says where the comment *was*, in a file that is about to be laid out again;
+the role says how it *fits* — which neighbour it belongs to, and how it attaches
+to that neighbour. Every decision that used to compare the comment's row against
+some other row reads one of these seven values instead.
+
 The renderer reads the stored answer. It never recomputes it.
 
 One module exercising all seven — the role column is the formatter's own `--lpt`
@@ -573,10 +579,11 @@ author's:
 | is there a line here to glue onto? | what the renderer has emitted so far (§6.3) |
 
 The second list is the whole of what the renderer is allowed to ask, and nothing
-on it is a source position — including the first row, which sounds like one. A
-role names a *relationship*, not a place: `TrailsPrevious` says *glue onto the
-previous sibling's last rendered line*, `TrailsHead` says *onto the container's
-head*, `LeadsNext` says *the sibling after an unrecorded separator*.
+on it is a source position — including the first row, which sounds like one.
+That row is §4's substitution seen from this side: `TrailsPrevious` says *glue
+onto the previous sibling's last rendered line*, `TrailsHead` says *onto the
+container's head*, `LeadsNext` says *the sibling after an unrecorded separator*
+— directions a renderer can follow without coordinates.
 
 The fourth row is what makes this affordable rather than merely strict: the
 questions that genuinely do need the author's rows still get answered — the
