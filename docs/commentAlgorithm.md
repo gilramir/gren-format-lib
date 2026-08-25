@@ -53,8 +53,8 @@ document has the model behind it.
   - [8.1 Placement is prefix-determined, so *n* is never an input](#81-placement-is-prefix-determined-so-n-is-never-an-input)
   - [8.2 The per-comment answer set is finite, and the classifier is total](#82-the-per-comment-answer-set-is-finite-and-the-classifier-is-total)
   - [8.3 "Any kind" means three kinds, not an open axis](#83-any-kind-means-three-kinds-not-an-open-axis)
-  - [8.4 Every local rule reads at most one neighbour](#84-every-local-rule-reads-at-most-one-neighbour)
-  - [8.5 Where one neighbour is *not* enough](#85-where-one-neighbour-is-not-enough--and-why-that-is-still-bounded)
+  - [8.4 Every local rule reads at most one neighbor](#84-every-local-rule-reads-at-most-one-neighbor)
+  - [8.5 Where one neighbor is *not* enough](#85-where-one-neighbor-is-not-enough--and-why-that-is-still-bounded)
   - [8.6 The fixed point, restated for runs](#86-the-fixed-point-restated-for-runs)
   - [8.7 The anchor — the obligation this argument does *not* discharge](#87-the-anchor--the-obligation-this-argument-does-not-discharge)
 - [9. An example](#9-an-example)
@@ -165,7 +165,7 @@ different answer (detach to column 1), and the file has two spellings.
 
 Every comment bug this project has fixed is a variation on that sentence: **a
 placement decided from a fact the formatting itself invalidates.** Keep it in
-mind; §4 and §5 are largely a catalogue of the places where that can happen and
+mind; §4 and §5 are largely a catalog of the places where that can happen and
 what each does about it.
 
 (That particular shape is fixed — today's format¹ emits the column-1 form
@@ -291,7 +291,7 @@ In words:
    the author wrote.
 2. `Comments.lptAddComments` folds over the comment stream in source order,
    placing each one. Four phases per comment (§4.2–§4.5), plus one re-decision
-   for the neighbour a new comment has just joined in a gap
+   for the neighbor a new comment has just joined in a gap
    (`repairTornGapRun`, §7's R2).
 3. Two repairs run over the finished tree, for placements that only become
    wrong once you can see the whole thing (§4.6).
@@ -337,10 +337,10 @@ makes the whole sweep O(n + m) instead of O(n²) on a file that is mostly
 top-level comments.
 
 `addOneComment` has one special case before the generic path:
-`tryLeadingGluedAttach`, which recognises a **block comment glued to the front**
+`tryLeadingGluedAttach`, which recognizes a **block comment glued to the front**
 of a top-level declaration — `{- c -} import Qux` — and attaches it as a leading
 child with role `LeadsInline`. It keys on the comment's **end** row (so a
-multi-line comment whose last row carries the keyword is recognised too), where
+multi-line comment whose last row carries the keyword is recognized too), where
 everything else keys on the start row. Getting this wrong doesn't just misplace
 the comment: a comment that fails to travel with its import breaks an import run
 in two when the imports sort.
@@ -359,8 +359,8 @@ covers the comment's row.
 spliced in at the sorted position, and the comment's role is preset to
 `Standalone`.
 
-That is a deliberate, load-bearing choice, not a fallback. A comment written on
-its own line below a declaration is **never** attached to that declaration. Why:
+That is a deliberate choice, not a fallback. A comment written on its own line
+below a declaration is **never** attached to that declaration. Why:
 column 1 is trivially a fixed point — it cannot drift — whereas any rule that
 claims such a comment for the construct above has to place it at some indent,
 and then re-derive the same claim from an indent that formatting has moved. An
@@ -632,7 +632,7 @@ follow:
 - `lpnExtendElasticBracket` — placing a comment inside grows the derived close
   *below* it, and `applyCommentToOrigRow` grows the declaration's own row range
   to match. Without that, the **next** comment of a trailing run reads as past
-  the declaration and detaches to column 1 while its neighbour stays put.
+  the declaration and detaches to column 1 while its neighbor stays put.
 
 An effect module's `where { … }` block has a second derived close, recomputed by
 `moduleWhereCloseRow` for the same reason. It is deliberately *not* elastic:
@@ -650,7 +650,7 @@ three adjustments:
 **a. Skip synthesized tokens.** Nodes the parser never gave a position
 (`SynthesizedText`: a generated `->`, the `in` of a `let`, `else`) are invisible
 to ranges, and a comment must never be spliced between a real token and its
-synthesized neighbour. The skip walks forward over them.
+synthesized neighbor. The skip walks forward over them.
 
 This skip is what carries a comment trailing the last `let` binding *past* the
 position-less `in`, down to the body column:
@@ -731,7 +731,7 @@ what the `BodyBlock` row's `isDeclValueContainer` gate exists for.
 
 `classifyCommentKind containerShape commentNode before after row -> CommentRole`
 
-The splice point is known and the neighbours are in hand. This is where the
+The splice point is known and the neighbors are in hand. This is where the
 placement is decided, and the criterion for the decision is stated in the
 function's own docstring:
 
@@ -850,7 +850,7 @@ Four things to read off them:
   branch that defers to the renderer. That totality is what §2.1's "decided
   exactly once" means in practice, and §8.2's half of the completeness argument.
 - **The two C2 diamonds are the only ones that ask about the comment's
-  neighbours rather than about the comment.** `gapRunCrossesTogether` is the
+  neighbors rather than about the comment.** `gapRunCrossesTogether` is the
   conjunct that makes them all-or-nothing over the run (§7's R2); everything else
   on both diagrams reads this comment's own position, kind and text.
 - **Every row test in them is the same question** — *is the comment on the row the
@@ -900,7 +900,7 @@ row, so the ordinary rule reads it as own-line while the format that produced
 that row had glued it.
 
 The fix widens the fallback from one row to the header's whole position-less
-tail, under three conditions each of which is load-bearing (the container is the
+tail, under three conditions, each of which is necessary (the container is the
 module line; nothing recorded follows except the exposing list; the row is at or
 past the last recorded content and inside the declaration). It is scoped to
 single-line comments, since only those can ride a header row at all.
@@ -1330,7 +1330,7 @@ named:
   sibling the moment a comment lands next to it, by calling
   `classifyCommentKind` again over the children array that now holds the whole
   run. Only a role that is not yet final is re-asked, and re-running the
-  classifier on an unchanged neighbourhood returns what it returned before, so
+  classifier on an unchanged neighborhood returns what it returned before, so
   this is idempotent by construction.
 - **Repair the finished tree.** `detachOwnLineTrailer` and
   `rehomePipelineStepTrailers` (§4.6) run once, at the end, over everything.
@@ -1419,7 +1419,7 @@ state: still-on-the-declaration's-row  ──┐
        cut found (everything from here down detaches)
 ```
 
-Two states, and the transition reads exactly **one** neighbour: the member in
+Two states, and the transition reads exactly **one** neighbor: the member in
 front of the one being examined. `endsItsRow` is that read, and it is true of a
 `--` and of nothing else.
 
@@ -1591,10 +1591,10 @@ information genuinely is not there. It is not "always a fixed point" either:
 there are known non-idempotent inputs, all of them a parser bug upstream of here
 (§10). What it *is* is the statement that **length and mix are not a source of
 new cases** — so the correctness of a run reduces to the correctness of one
-comment and of its boundary with one neighbour, which is a finite thing to check.
+comment and of its boundary with one neighbor, which is a finite thing to check.
 
 It rests on four properties of the code, plus **two** honest boundaries: §8.5,
-where a rule is about the whole run rather than about a neighbour, and §8.7,
+where a rule is about the whole run rather than about a neighbor, and §8.7,
 where the *code* the roles hang off moves underneath them.
 
 ### 8.1 Placement is prefix-determined, so *n* is never an input
@@ -1653,15 +1653,15 @@ that no site re-derives the table. Confusing either with `commentRidesInline` �
 which asks the stored *role* — is a real and recurring mistake, and §5.2 says so
 at length.)
 
-### 8.4 Every local rule reads at most one neighbour
+### 8.4 Every local rule reads at most one neighbor
 
-This is the load-bearing one. Here is every place a run's members interact —
-every *local* one; §8.5 is the three that are deliberately not local:
+This is the most important of the four. Here is every place a run's members
+interact — every *local* one; §8.5 is the three that are deliberately not local:
 
 | rule | what it reads |
 |---|---|
 | R1 reference rows (`prevLineGlueRow` / `prevBlockGlueRow` / `bracketItemRow` / `chainedRefRow`) | the **previous** member's last row |
-| the render fold (§6.2) | a 6-value state summarising the row in front |
+| the render fold (§6.2) | a 6-value state summarizing the row in front |
 | the peel scanner (§6.3) | the **previous** member's kind (`endsItsRow`) |
 | `commentTextCanRide` | the member's own text |
 
@@ -1700,28 +1700,27 @@ That is a falsifiable claim about what a test varying run size will turn up. Rea
 
 | probe | what it newly reaches | predicted | measured |
 |---|---|---|---|
-| one comment | nothing — every neighbour is *code* | (the baseline) | the baseline every gate started from |
+| one comment | nothing — every neighbor is *code* | (the baseline) | the baseline every gate started from |
 | `--run 2` | the first comment→comment boundary ever tested | **finds bugs** | **20 findings** in 19,081 gaps; one real family, fixed the same day |
 | `--run 3` | nothing — `block│block` was already there at n=2 | **nothing new** | 17 findings in 57,885 gaps, **all 17 a known upstream parser bug** |
 | `--mix-pairs` | the other eight boundaries — a *different* kind on each side | **finds bugs** | **1,752 findings** in 115,770 gaps, **1,718 formatter-side**, in three bugs — one of them R2 above |
 | `--mix-triples` | nothing — every ordered pair already appeared | **nothing new** | 154 findings in 475,824 gaps, **all 154 known upstream** |
 
-Two axes, swept independently, each finding real bugs at exactly the size where a
-new boundary first becomes expressible and nothing beyond it. The two
-"nothing new" rows are the load-bearing ones: if any rule *had* been reading
-both sides of a member,
-`--mix-triples` was 475,824 chances to catch it, and it caught nothing
+Two axes, swept independently, each finding real bugs at exactly the size where
+a new boundary first becomes expressible and nothing beyond it. The two "nothing
+new" rows carry the weight: if any rule *had* been reading both sides of a
+member, `--mix-triples` was 475,824 chances to catch it, and it caught nothing
 formatter-side.
 
 That is the argument being **confirmed** rather than merely untested — it said in
 advance which sweeps would pay for themselves and which would not, and it was
 right both times. It is still corroboration and not proof: these sweeps vary runs
 over the positions the corpus happens to contain, so a rule that reads two
-neighbours *in a shape nothing here writes* would go unseen (§10's first caveat).
+neighbors *in a shape nothing here writes* would go unseen (§10's first caveat).
 
-### 8.5 Where one neighbour is *not* enough — and why that is still bounded
+### 8.5 Where one neighbor is *not* enough — and why that is still bounded
 
-Three rules genuinely cannot be decided from a neighbour, because they are about
+Three rules genuinely cannot be decided from a neighbor, because they are about
 the run as a whole. Each is stated as a **quantifier over the run**, not as a case
 analysis over its length:
 
@@ -1749,7 +1748,7 @@ it.
 
 So the honest form of the completeness claim is:
 
-> Given that no rule reads more than one neighbour except the three that quantify
+> Given that no rule reads more than one neighbor except the three that quantify
 > over the whole run, length and composition add nothing past two members.
 
 The premise is a property that has to be **maintained**, not one anything
@@ -1802,7 +1801,7 @@ role(k) = f(code, comments 1 … k−1)
 
 §8.1–8.6 show that `f` is length-independent in its **second** argument. But
 `code` is an argument too, and nothing above says a word about it. So the
-fixed-point obligation §2.2 localises onto `f` is really *two* obligations, and
+fixed-point obligation §2.2 localizes onto `f` is really *two* obligations, and
 §8 discharges only one:
 
 > **(i)** given the same `code`, `f` returns the same roles when re-asked over the
@@ -1823,7 +1822,7 @@ a token:
   the module declares ports
   ([rule](formatterRules.md#the-port-in-port-module-follows-the-ports)).
 
-Two further rewrites — uppercasing hex digits, normalising string escapes — change
+Two further rewrites — uppercasing hex digits, normalizing string escapes — change
 bytes only *inside* a token, so they cannot move an anchor and are not in scope
 here.
 
@@ -2010,7 +2009,7 @@ exists for.
 |---|---|---|---|
 | **Fixture suite** (`run-tests.sh`, 368 `.formatted.gren` across 12 suites) | hand-written cases | exact bytes, AST equivalence, idempotency, per fixture | anything nobody thought to write |
 | **`fuzz-idempotency.py`** | inserts a comment into **every** inter-token gap of every fixture (and, in a second pass, past every declaration's end), formats twice — over **both** halves of the corpus (`--corpus both`, the default since 2026-08-23) | the fixed point, and — via a marker count — that the comment survives exactly once | only says *whether* something moved; and nothing at all about a wrong answer that is **stable** (§8.7) |
-| ⤷ `--run N` | the same, with a **run of N** in each gap | the rules whose neighbour is another comment (§8.4) | a run whose members are all one kind has one neighbour shape |
+| ⤷ `--run N` | the same, with a **run of N** in each gap | the rules whose neighbor is another comment (§8.4) | a run whose members are all one kind has one neighbor shape |
 | ⤷ `--mix-pairs` / `--mix-triples` | run **composition** — every ordered pair, then all 24 non-uniform triples | the boundaries between *different* kinds | — (triples found nothing pairs had not; §8.4) |
 | **`check-decision-stability.py`** | the same gaps and the same run axes, but diffs the *decisions* | **which** decision was unstable, as named branches with no positions in them | a decision nobody traced |
 | **`fuzz-whitespace.py`** | inter-token whitespace | `format(perturbed) == format(original)` — placement must not depend on your spacing | comments |
@@ -2069,7 +2068,7 @@ the *shape* of the result, which has been stable:
   finding at n=1 classifies to a known parser bug — chiefly
   [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
   a binary `-` whose right operand starts at the operator's own column parsing
-  as a negation — and is labelled, counted and **not subtracted**. The
+  as a negation — and is labeled, counted and **not subtracted**. The
   formatter-side residual is zero.
 - The run axes agree with it and add nothing formatter-side: `--run 2`,
   `--run 3`, `--mix-pairs` and `--mix-triples` each report the same findings,
@@ -2078,7 +2077,7 @@ the *shape* of the result, which has been stable:
   one number over 100k+ probes, which is what "imports the other's probe
   definitions by path rather than copying them" is supposed to buy.
 - `matrix-syntax.py --comments`: **0 failing, 0 UNREVIEWED** — every divergence
-  from elm-format names a catalogue entry. A minority of cells have **no Elm
+  from elm-format names a catalog entry. A minority of cells have **no Elm
   twin at all** (Elm requires a declaration to start in column 1, and so does the
   real Gren compiler — but `compiler-common` does not, so `elm-format` rejects
   the *program*, not the translation — [#31](elmFormatComparison.md#divergence-31),
@@ -2088,7 +2087,7 @@ the *shape* of the result, which has been stable:
 - `matrix-syntax.py --comments --comment-runs` sweeps all nine two-member
   compositions against oracles 1–3 only.
 
-That parity zero is the line to quote to a sceptic: every place `gren-format` and
+That parity zero is the line to quote to a skeptic: every place `gren-format` and
 `elm-format` put a comment differently is a *decision on record with a reason*,
 not an unexamined difference. Getting there meant reading 16,141 unreviewed cells
 down to none over several `--interview` sittings, which **found two formatter
@@ -2125,7 +2124,7 @@ The honest caveats, stated so nobody has to discover them:
 
 ## 11. The functions to be careful about
 
-If you are changing comment behaviour, these are the places where a small change
+If you are changing comment behavior, these are the places where a small change
 has a large blast radius. The right-hand column is what breaks when it is wrong
 — all of them observed, none hypothetical.
 
@@ -2306,7 +2305,7 @@ and there are several such places, each with a reason on record — the list is
 ## See also
 
 - [How gren-format places your comments](commentHandling.md) — the model and
-  rules C1–C7, the normative statement of *behaviour*
+  rules C1–C7, the normative statement of *behavior*
 - [How the formatter works](howItWorks.md) — the pipeline, conceptually
 - [addingSyntax.md](addingSyntax.md) — adding a construct; the position rules
 - [Testing gates](testing.md), and [the LLM attic](llm/attic.md) for approaches
