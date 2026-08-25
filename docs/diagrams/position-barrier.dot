@@ -1,4 +1,4 @@
-// The seven pipeline steps and where the position barrier falls.
+// The eight pipeline steps and where the position barrier falls.
 // Used by docs/puttingCommentsBack.md §3.5.
 digraph PositionBarrier {
     rankdir=TB;
@@ -40,7 +40,7 @@ digraph PositionBarrier {
         s5 [group="flow", label="5 · space\nblank lines between top-level items"];
 
         node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
-        rowNote [label="These three steps read the author's rows.\lSteps 4 and 5 run after step 2 — so they can move a row\lthat step 2 has already been decided from.        § 6.3, § 8\l"];
+        rowNote [label="These three steps read the author's rows.\lSteps 4 and 5 run after step 2 — so they can move a row\lthat step 2 has already been decided from.        § 5.3, § 7\l"];
 
         s1 -> s2 -> s3 -> s4 -> s5;
         { rank=same; s4; rowNote }
@@ -48,7 +48,7 @@ digraph PositionBarrier {
 
     // ── The barrier itself ───────────────────────────────────────
     node [shape=box, style="filled", fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=10, penwidth=2];
-    barrier [group="flow", label="THE POSITION BARRIER\n6 · lower — copy the tree into a type with no (row, col) field on it anywhere,\nso a row read below this line is a compile error rather than a review comment.        § 6.2"];
+    barrier [group="flow", label="THE POSITION BARRIER\n6 · lower — copy the tree into a type with no (row, col) field on it anywhere,\nso a row read below this line is a compile error rather than a review comment.        § 5.2"];
 
     // ── The rendering stage ──────────────────────────────────────
     subgraph cluster_render {
