@@ -492,12 +492,14 @@ script held for five weeks; §6.2 is what became of it. Two of this document's
 harder findings — §6.3's row-keyed passes sitting above the line, and §8's
 anchor — were still ahead of us at the start of era 3.
 
-The three lessons are the same lesson at widening scope:
+Each era's answer exposed the limit of the one before it:
 
 1. the question must be asked **once** (era 1);
 2. "once" has to be **enforced**, not intended (era 2);
-3. enforcement covers the stage it is built across, and **not the passes on
-   either side of it** (era 3).
+3. what is enforced is **narrower than what must be true** (era 3). The barrier
+   forbids one thing: reading a position below the line. The row reads *above*
+   it stay legal, and the renderer still has judgment left *below* it — the two
+   gaps of §6.3.
 
 Two things this history is *not* evidence for. It is not evidence that the
 architecture is quicker to write: it cost about nineteen commits to produce
