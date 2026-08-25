@@ -40,7 +40,7 @@ digraph PositionBarrier {
         s5 [group="flow", label="5 · space\nblank lines between top-level items"];
 
         node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
-        rowNote [label="The three shaded steps read the author's rows.\lSteps 4 and 5 run after step 2 — so they can move a row\lthat step 2 has already been decided from.        § 5.3, § 7\l"];
+        rowNote [label="These three steps read the author's rows.\lSteps 4 and 5 run after step 2 — so they can move a row\lthat step 2 has already been decided from.        § 5.3, § 7\l"];
 
         s1 -> s2 -> s3 -> s4 -> s5;
         { rank=same; s4; rowNote }
@@ -61,7 +61,10 @@ digraph PositionBarrier {
         margin=12;
 
         node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
-        s7 [group="flow", label="7 · render\nchoose the line breaks, emit the bytes"];
+        s7 [group="flow", label="7 · plan\nchoose the line breaks —\nbuild the render plan (Box tree)"];
+        s8 [group="flow", label="8 · emit\nwrite out the bytes\n(cannot fail)"];
+
+        s7 -> s8;
     }
 
     // ── Flow ─────────────────────────────────────────────────────
@@ -69,9 +72,10 @@ digraph PositionBarrier {
     ctx -> s2 [label="  one comment at a time"];
     s5  -> barrier [ltail=cluster_logical, style=bold, color="#c9a227", arrowhead=none];
     barrier -> s7  [lhead=cluster_render, style=bold, color="#c9a227"];
-    s7 -> out;
+    s8 -> out;
 
     s2 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    s4 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
     s5 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
 
     { rank=same; ast; ctx }

@@ -287,7 +287,7 @@ why the ban in §5 has to be mechanical rather than advisory.
 
 ### 3.5 The shape of the answer
 
-Seven steps, and the rest of this document is about three of them.
+Eight steps; the rest of this document is about four of them.
 
 ![The seven pipeline steps, and where the position barrier falls](diagrams/position-barrier.png)
 
@@ -513,7 +513,7 @@ simply be got wrong.
 move.** Above the barrier, reading source rows is legal and necessary — that is
 what the logical stage is *for*. The gap is that the rows stop being the
 author's part-way through it. Steps 4 and 5 of §3.5 can each move a row step 2
-was decided from, and the renderer at step 7 then moves nearly all of them. A
+was decided from, and the renderer at steps 7–8 then moves nearly all of them. A
 decision keyed to such a row is stale for exactly the reason a render-side read
 is stale — and the barrier does not touch it, because every step involved sits
 above the line.
