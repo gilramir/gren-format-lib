@@ -1,13 +1,18 @@
 # Putting the comments back
 
-*How `gren-format` places comments when the parser it uses throws them away —
-and which parts of that transfer to a formatter for some other language.*
+*How `gren-format` places comments when the parser it uses throws them away:
+what the problem is, what we built, what it cost, and what we measured
+afterwards.*
 
-This is an essay, not a reference. It is written for people who build or
-maintain code formatters, especially anyone whose formatter is built on a parser
-that does not keep comments. If that is you, the problem below is yours too, and
-the useful part of this document is what it cost us to solve it and what we
-measured afterwards.
+This is an essay, not a reference. `gren-format` reuses the Gren compiler's own
+parser, and that parser — like most compiler parsers — discards comments. The
+formatter is handed a comment-free syntax tree and, beside it, a flat list of
+comments with nothing but source positions to say where they belong. Putting
+them back is the hardest thing this formatter does, and what follows is the
+account of it: the architecture we settled on, the argument we make for it, the
+bugs that argument did not cover, and the fourteen other formatters we read to
+work out which parts of the difficulty were ours and which belonged to the
+problem.
 
 It is deliberately not normative. The rules that decide where a comment actually
 lands are stated in **[How gren-format places your comments](commentHandling.md)**
@@ -21,30 +26,95 @@ Every code example here was produced by running the formatter.
 
 ---
 
+## TL;DR
+
+`gren-format` reuses the Gren compiler's parser, and that parser discards
+comments. The formatter is handed a comment-free syntax tree plus a flat list of
+comments carrying nothing but `(row, column)` positions, and has to work out
+where each one belongs. The whole difficulty fits in a sentence: **placement is
+decided from source positions, and formatting invalidates the positions the
+placement was decided from.** Get that wrong and the formatter is
+non-idempotent: formatting an already-formatted file changes it again.
+
+**The position barrier** is a line drawn across the pipeline that source
+positions do not cross. Above it, in the logical stage, code may read the
+author's rows and columns freely — that is where every comment's placement is
+decided, once, and recorded on the comment as one of seven roles. Below it, in
+the stage that chooses line breaks and writes bytes, positions are not merely
+off-limits; they are *absent*. The renderer consumes a different type, produced
+by a lowering function that drops every position field, so a row read down there
+is a compile error rather than a review comment. The grep-based version of the
+same rule is deleted — it had a hole.
+
+**We name it because almost nobody does.** Of the fifteen production formatters
+surveyed (§9), the eight whose front ends hand them already-attached comments
+have the barrier for free: there is no positional question left for their layout
+stage to ask. Of the seven that must reconstruct attachment, as we do, ours is
+the only one that has it — and that column is where every instability in the
+survey lives. The idea is not novel (swift-format wrote it down in 2020). What is
+unusual is holding it in the one position where it has to be *built* rather than
+inherited, and making it a type is what keeps holding it from costing a feature.
+swift-format, enforcing the same rule by review instead, could only keep it by
+deleting the rule that broke it — and six years later the feature is still gone.
+
+**And the barrier is necessary but demonstrably not sufficient.** Four of the
+five barrier-holding tools whose full histories we mined shipped idempotency
+fixes anyway. What it buys is not the fixed point — it is *localization*. With
+nothing downstream reading a position, the only thing that can differ between two
+runs is one function's answer, which is small enough to argue about. Discharging
+the obligation takes four more things:
+
+1. **Hold every row-keyed decision to the criterion, not just the ones that place
+   a comment** (§5.3). Our sorting and blank-line passes escaped it for months
+   because they emit no role, and both were later found violating it. The rule is
+   to decide from a row this pipeline does not itself move.
+2. **The renderer's own residual decisions still have to be right** (§5.3).
+   *Is there a line here to glue onto?* is legitimately answered below the
+   barrier, from render state rather than from positions — and can simply be got
+   wrong.
+3. **If the formatter rewrites tokens, idempotency testing cannot see the whole
+   bug class** (§7). Sorting imports or stripping a parenthesis can move the
+   *anchor* a comment was placed against, and that class has members which are
+   perfectly stable fixed points. Only an oracle that varies the input's
+   *authoring* — the same program spelled two legal ways, required to produce the
+   same bytes — can see those.
+4. **Property gates are blind to wrong-but-stable output** (§8.4). Replayed
+   against this project's own history, the portfolio witnessed every crash,
+   oscillation, wrong-attachment and performance bug — and none of the seventeen
+   layout bugs, the largest class in the corpus. Expected-bytes fixtures and a
+   second implementation to diff against are the only things that see those.
+
+The rest of this document is those claims with the evidence attached.
+
+---
+
 ## Table of contents
 
-- [1. Find your formatter on this ladder](#1-find-your-formatter-on-this-ladder)
+- [TL;DR](#tldr)
+- [1. Five kinds of front end](#1-five-kinds-of-front-end)
 - [2. The trade: no parser of our own](#2-the-trade-no-parser-of-our-own)
 - [3. The archetype](#3-the-archetype)
 - [4. Decide once](#4-decide-once)
-- [5. The barrier, and how to make it a type](#5-the-barrier-and-how-to-make-it-a-type)
+- [5. The position barrier, and how to make it a type](#5-the-position-barrier-and-how-to-make-it-a-type)
 - [6. Why forty comments in a row is not forty cases](#6-why-forty-comments-in-a-row-is-not-forty-cases)
 - [7. The anchor — what that argument does not cover](#7-the-anchor--what-that-argument-does-not-cover)
 - [8. Invariants and expected bytes divide the bug space](#8-invariants-and-expected-bytes-divide-the-bug-space)
 - [9. What fourteen other formatters do](#9-what-fourteen-other-formatters-do)
-- [10. If you are building one](#10-if-you-are-building-one)
+- [10. What we did, in the order we would do it again](#10-what-we-did-in-the-order-we-would-do-it-again)
 - [Sources](#sources)
 - [See also](#see-also)
 
 ---
 
-## 1. Find your formatter on this ladder
+## 1. Five kinds of front end
 
-Before anything else, work out whether this document is about you. The single
-variable that decides is **what your front end hands your formatter**. We read
-the sources of fourteen production formatters besides our own (§9); they sort
-into five rungs, in decreasing order of how much work the parser has already
-done for you.
+Formatters are usually told apart by their layout algorithm — whether they fit
+lines to a page width, how they choose where to break. For comments, none of
+that is the variable that matters. The variable that matters is **what the front
+end hands the formatter**, because that is what decides whether the formatter
+has to work out where a comment goes at all. We read the sources of fourteen
+production formatters besides our own (§9); they sort into five rungs, in
+decreasing order of how much work the parser has already done.
 
 | rung | what arrives | who |
 |---|---|---|
@@ -54,19 +124,42 @@ done for you.
 | **A3** | a **comment-free AST**, beside a flat source-ordered list of located comments | **gren-format**, [ormolu](https://github.com/tweag/ormolu), [ocamlformat](https://github.com/ocaml-ppx/ocamlformat), [gofmt](https://github.com/golang/go/tree/master/src/go/printer), [prettier](https://github.com/prettier/prettier) |
 | **A4** | nothing; comments are recovered by re-reading the raw source between two nodes' byte offsets | [rustfmt](https://github.com/rust-lang/rustfmt), [zig fmt](https://github.com/ziglang/zig/blob/master/lib/std/zig/Ast/Render.zig) |
 
-If you are on **A0–A2**, your comment is already attached to something before
-your formatter starts. Placement is a question about a tree the comment is
-already in, and most of this document is background reading. You may still want
-§8 (which kinds of bug your test gates cannot see) and §9 (four of the eight
-tools on those rungs have shipped idempotency fixes anyway).
+**One word in that table does a lot of the work, so it is worth spelling out.**
+*Trivia* is what compiler front ends call the bytes between two tokens that the
+grammar does not care about: whitespace, newlines and comments. A
+trivia-carrying front end does not discard them. It hangs them off the token
+they sit beside, split into *leading* trivia (before the token) and *trailing*
+trivia (after it). For a fragment like
 
-If you are on **A3 or A4**, attachment does not exist yet and you have to
-reconstruct it — from source positions, which is the one piece of evidence
-formatting destroys. This document is about you. So is every instability story
-in §9.
+```csharp
+// set it up
+foo(1);  // why
+```
 
-A3 is not an exotic place to be. It is simply **what a production compiler's
-parser hands you**, and five of the fifteen tools surveyed are there.
+`// set it up` is stored as leading trivia of the `foo` token and `// why` as
+trailing trivia of the `;`. Both comments are fields of a token in the tree from
+the moment the lexer finishes, and no later stage has to work out where they
+belong. (The exact shape varies — [Roslyn](https://github.com/dotnet/roslyn) and
+[rowan](https://github.com/rust-analyzer/rowan) use typed trivia nodes, while
+Black carries the same information as a raw `prefix` string on a leaf — but the
+guarantee is the same one.)
+
+On **A0–A2** the comment is already attached to something before the formatter
+starts: the front end answered "which code is this comment beside?" while it was
+still looking at the input, and the answer travels with the tree. Placement is
+then a question about a tree the comment is already in, and the problem this
+document is about does not arise — though it is worth noting that four of those
+eight tools have shipped idempotency fixes anyway (§9.5), and that the gate
+blindness of §8 is not rung-specific.
+
+On **A3 and A4** that question was never asked, so attachment does not exist yet
+and has to be reconstructed — from source positions, which are the one piece of
+evidence formatting destroys. Every instability story in §9 lives on those two
+rungs.
+
+`gren-format` is on A3, deliberately (§2). That is not an exotic place to be: A3
+is simply **what a production compiler's parser hands a formatter**, and five of
+the fifteen tools surveyed are there.
 
 ---
 
@@ -85,14 +178,14 @@ outrun a second grammar.
 The price is exact and unavoidable. A compiler's parser discards comments,
 because a compiler does not need them.
 
-**Who should take this trade.** Anyone whose language has a moving front end and
-a formatter that must never disagree with it, and anyone who would otherwise be
-committing to maintain a second parser for the rest of the project's life.
-
-**Who should not.** A project whose compiler already carries trivia — take it,
-it is free. A project that can afford the second grammar and would rather have
-comment placement be a non-problem. The rest of this document is the size of the
-bill; read §7 and §8 before deciding you want it.
+**Why we took it anyway.** Gren's front end is still moving, and a formatter
+that can never disagree with it is worth more to us than easy comment placement.
+The alternative was committing to maintain a second grammar for the rest of the
+project's life — a larger cost than the one below, and a quieter one. Had the
+compiler already carried trivia we would have taken that instead, because it is
+free; a project that can afford the second grammar can buy its way out of this
+document entirely. The rest of it is the size of the bill we chose to pay, and
+§7 and §8 are the two largest line items on it.
 
 ---
 
@@ -194,9 +287,9 @@ second run   = place(code, positions')    where positions' = rows-of(output) ≠
 Nothing makes those two agree by construction. Something has to.
 
 It is worth separating 1 from 2 explicitly, because keeping the comment does not
-give you attachment. Black keeps every comment — they ride in a leaf's
-whitespace prefix — and still says so in the docstring of the function that has
-to place them:
+give attachment. Black keeps every comment — they ride in a leaf's whitespace
+prefix — and still says so in the docstring of the function that has to place
+them:
 
 > "The sad consequence for us though is that comments don't 'belong' anywhere.
 > … We simply don't know what the correct parent should be."
@@ -208,15 +301,26 @@ a construct goes vertical only if the author wrote it across rows, or if
 something inside it is multi-line and forces the rest open. There is no search
 for a best arrangement and no reflow.
 
-State that early, because it invites a reading we have to refute: that
-author-driven layout is *why* the instability class exists, since an optimiser
-that recomputes layout from scratch has no stale authorial rows to be wrong
-about. That reading is intuitive and the evidence in §9 refutes it in both
-directions. prettier *is* that optimiser and has the class anyway, at a
-nine-year scale; gofmt has no fitter at all and is also not stable. Five
-width-aware formatters sit behind a barrier and are stable. The responsible
-variable is whether **placement** reads positions, not whether **layout** is
-author-driven.
+That fact sits close enough to §3.2's problem to look like its cause. The
+tempting inference is that author-driven layout is *why* the instability class
+exists — an optimizer that recomputes layout from scratch has no stale authorial
+rows to be wrong about. The survey in §9 contradicts that inference in both
+directions: prettier *is* that optimizer and has the class anyway, at a nine-year
+scale, while gofmt has no fitter at all and is not stable either.
+
+What actually sorts the stable formatters from the unstable ones is a different
+property — the **position barrier** of the summary above, now in full: a line
+drawn across the pipeline that source positions do not cross. Upstream of it,
+code may read the author's rows and columns freely — that is where a comment's
+placement gets decided, while the positions are still the ones the author typed.
+Downstream of it, in the stage that chooses line breaks and writes bytes, those
+positions are not available at all, so every question that stage asks has to be
+answered from decisions already taken rather than from where something
+originally sat. Five of the width-aware formatters surveyed in §9 sit behind
+such a barrier, fitter and all, and are stable. The variable is whether
+**placement** reads positions, not whether **layout** is author-driven. §5 is
+where ours is built, and why the type checker enforces it instead of a
+convention.
 
 What author-driven layout really does is make the authorial rows *more tempting
 to read*. They are right there, and they are usually correct. That is precisely
@@ -288,48 +392,112 @@ at that gap. All four are answered while the rows are still authorial, and none
 is revisited. The full decision procedure, with the two decision diagrams, is
 [commentAlgorithm.md §4](commentAlgorithm.md#4-stage-1--attachment).
 
-**The criterion the classifier is written to** is the thing to steal, if you
-steal one sentence from this document:
+**Every role has to survive being re-derived from the formatter's own output.**
+That is the rule the classifier is written to satisfy, and it fits in a sentence:
 
-> A role is a reparse fixed point: **the row it is decided from equals the row it
-> renders on.**
+> A role is a reparse fixed point: **the row a comment's placement is decided
+> from is the row that comment renders on.**
 
-Where a role could not be made to satisfy that in place, the fix is never a
-cleverer rule — it is to make **format¹ build the tree format² would build**.
-That is what the two whole-tree repairs are for; they are repairs precisely
-because they need the finished tree, which a fold by construction cannot have.
+Concretely: if the classifier says "this comment trails the item before it"
+because the author wrote it on that item's last row, then the comment must come
+out on that item's last row. The second run asks the same question of the same
+row, gets the same answer, and nothing moves.
 
-**Totality matters more than it looks.** `classifyCommentKind` returns a
-`CommentRole` — not a `Maybe`, not a `Result`. Every path through both decision
-diagrams ends in a role. There is no fallback arm, no "unknown", and no branch
-that defers the question to the renderer. The renderer's own layout policy is
-total in the same way.
+**When a role cannot satisfy that, the rule is not the thing to change.** §3.2's
+oscillating example is the case in point. A multi-line `{- … -}` written on a
+declaration's last row is decided from that row — but it cannot *render* there,
+because it brings its own newlines with it, so it lands below the declaration,
+and the next run reads a comment written below a declaration, which is a
+different question with a different answer. No rewording of the rule helps here.
+The rule is already right about where the author put it; the trouble is that the
+output puts it somewhere else.
 
-The consequence is what §6 needs: after *n* comments the tree carries *n*
-**independent** annotations drawn from a 7-element set. That is what rules out
-the failure mode people expect from a comment placer — a combinatorial case
-analysis over configurations, with the uncovered corner. There are no
-configurations. There are *n* leaves.
+What fixes it is **making format¹ build the tree format² would build**. The
+comment is going to end up below the declaration, so the first pass puts it
+there itself — at column 1, as its own node, which is precisely what a reparse
+would produce — and the second pass finds nothing left to change.
+
+Two passes do that, and they run over the **finished** tree rather than inside
+the walk that places comments one at a time. What they read is the whole tree,
+code included — the peel descends through a declaration's last *code* child and
+dispatches on that node's shape, because whether a trailing comment renders
+below the declaration depends on what sort of container it is trailing. What
+forces them to the end is the comments: the code half of the tree is complete
+before any comment is placed, but a comment's neighbors are not known until the
+last one is in, and "where is this going to render?" depends on both.
+`detachOwnLineTrailer` lifts a trailing comment that will render below its
+declaration, as above. `rehomePipelineStepTrailers` moves a pipeline step's
+trailing comment onto the step that follows it, because a comment left sitting
+above a `|>` is, to any reparse, that next step's *leading* comment. Both are
+worked through in
+[commentAlgorithm.md §4.6](commentAlgorithm.md#46-repairs-that-need-the-finished-tree).
+
+**Every comment gets a role; there is no "don't know".** `classifyCommentKind`
+returns a `CommentRole` — not a `Maybe CommentRole`, not a `Result`. There is no
+fallback arm, no `Unknown` constructor, and no branch that leaves the question
+for the renderer to settle later. The renderer's own layout policy is total in
+the same way.
+
+That buys more than it appears to, and §6 is where it gets spent. Because the
+answer is always exactly one of seven values, a file with *n* comments ends up
+carrying *n* independent labels — not a combined state that depends on how those
+comments sit relative to one another. The alternative is what people expect a
+comment placer to look like inside: a case analysis over *configurations* — a
+line comment followed by a block comment, inside a list, after a separator — and
+a space of configurations grows with the number of comments in one place and
+always has a corner nobody enumerated. There is no such space here to enumerate.
+There are *n* leaves, each holding one of seven answers, which is what lets §6
+argue about runs of any length at all.
 
 Deciding once is, incidentally, *not* the unusual part: ten of the fifteen tools
 surveyed in §9 do it, into role sets of two to nine members. What differs is what
-the classifier may read, and what happens downstream.
+the classifier is allowed to read, and what the stages downstream are allowed to
+do with its answer.
 
 ---
 
-## 5. The barrier, and how to make it a type
+## 5. The position barrier, and how to make it a type
 
 ### 5.1 The rule
 
 > **No code in the rendering stage may read a source row or position to make a
 > layout or comment-placement decision.**
 
-Placement is the stored role. *Verticality* — the other thing a renderer is
-tempted to ask the source about — is read off the **rendered box shape**
-(`isSingleLine` applied to a box that has already been built), never off "did the
-author span rows". The renderer's remaining questions about a comment are about
-its **text** ("can this text share a line?"), which is a property of the string
-and not of where it sat.
+What that means in practice is a split between two lists of questions. **Above
+the barrier**, in the logical stage, where every row in the tree is still the
+author's:
+
+| question | what it reads |
+|---|---|
+| which declaration owns this comment, how deep in its subtree, in which gap between siblings, and with which role (§4) | the comment's `(row, col)` against each node's cached range |
+| did the author write this construct across rows? — the `forceVertical` flag on a call, an `if` condition, a record literal | the node's own first and last row |
+| did the author write this node on the same row as the item before it? | both nodes' rows |
+| did the author break this signature at a `->`, or spread this union's variants over several lines? | the children's rows |
+| does this node cover any source row at all, or was it synthesized? | whether the node has a range |
+| how many blank lines go between two top-level items, and where one import group ends and the next begins | the last row of one subtree against the first row of the next |
+
+**Below the barrier**, in the rendering stage, where no position exists to read:
+
+| question | what it reads |
+|---|---|
+| where does this comment go? | the `CommentRole` stored on the comment leaf |
+| is this construct vertical? | `isSingleLine`, applied to a `Box` that has already been built |
+| can code follow this comment on the same line? | the comment's own **text** — the three kinds of §6.3 |
+| any of the author-intent questions above | the boolean `lower` computed at the barrier — the answer, never the evidence behind it |
+| is there a line here to glue onto? | what the renderer has emitted so far (§5.3) |
+
+The second list is the whole of what the renderer is allowed to ask, and nothing
+on it is a source position — including the first row, which sounds like one.
+
+**"Where does this comment go?" is answered without coordinates.** A role names a
+*relationship*, not a place. `TrailsPrevious` says *glue onto the previous
+sibling's last rendered line*; `TrailsHead` says *onto the container's head*;
+`LeadsNext` says *the sibling after an unrecorded separator*.
+
+The fourth row is the one that makes all this affordable rather than merely
+strict: the questions that genuinely do need the author's rows still get
+answered — the renderer is simply handed the answer instead of the evidence, and
+cannot re-derive it later against different rows.
 
 ### 5.2 Making it a type error
 
@@ -344,10 +512,10 @@ there is no position anywhere in the renderer's view of the tree.
 A render-side row read is therefore not a lint failure. It is a type error, and
 there is no allowlist to grow.
 
-Five render-side decisions genuinely needed the author's rows. `lower` computes
-those once, at the barrier, as booleans — `rnSharesRowWithPrevItem`,
-`rnHasSourceContent`, `rnVariantsSpanRows`, `rnTypeSegmentsBroken` — and the
-renderer reads the answer rather than the evidence. `RenderShape` is total over
+Five render-side decisions genuinely needed the author's rows — the fourth row
+of §5.1's second table. `lower` computes them once, at the barrier, as four
+booleans: `rnSharesRowWithPrevItem`, `rnHasSourceContent`, `rnVariantsSpanRows`
+and `rnTypeSegmentsBroken`. `RenderShape` is total over
 the logical shape type, so adding a new shape does not compile until the lowering
 maps it.
 
@@ -367,8 +535,8 @@ the wrong instrument for measuring it.
 
 ### 5.3 What the barrier does not cover
 
-Two gaps, both of which have produced real bugs here. Neither is a reason not to
-build the barrier; both are reasons not to think you are finished.
+Two gaps, both of which have produced real bugs here. Neither was a reason not to
+build the barrier; both were reasons to stop believing we had finished.
 
 **On the renderer's own side of the line: a role is not a row.** Turning a role
 into output still requires a fact no role can carry — *is there a line here to
@@ -376,23 +544,26 @@ glue onto?* A `TrailsPrevious` comment glues onto the previous item's last line,
 but whether the previous sibling ended on a line this comment may join is a fact
 about what the renderer has just emitted. That question is legitimately below the
 barrier, it is answered from render state rather than from positions, and it can
-simply be got wrong. A container fold that admitted gluing onto a *field* but not
-onto a comment that had itself just glued onto that field split a two-comment run
-written on one row, dropping its second member eight columns left. No position
-was read; the placement was wrong anyway. The barrier removes *positional
-re-derivation* from the renderer. It does not make the renderer's residual
-decisions trivial.
+simply be got wrong.
 
-**On the other side: a pass that runs before the renderer and reasons about what
-the renderer will do.** This is the one that catches people, and it caught
-swift-format in exactly the same place (§9). Our criterion in §4 is stated *for
-roles*, and that scoping was itself the defect. The sorting pass and the
-vertical-space pass are row-keyed decisions too; neither produces a role, so
-neither was ever held to the sentence. Both were later found violating it. The
-vertical-space pass decided whether a comment was free-floating from the gap
-*below* it — and then closed that very gap two steps later when it pulled a
-definition up under its signature. First format saw a gap and emitted two blank
-lines; second saw none and emitted one.
+**On the other side of the line: a row that this pipeline is itself going to
+move.** Above the barrier, reading source rows is legal and necessary — that is
+what the logical stage is *for*. The gap is that the rows stop being the
+author's part-way through. The logical stage is several passes, and a later one
+can move a row an earlier one read; the renderer then moves nearly all of them.
+A decision keyed to such a row is stale for exactly the reason a render-side read
+is stale — and the barrier does not touch it, because all of it happens on the
+permitted side.
+
+This is the one that catches people, and it caught swift-format in exactly the
+same place (§9). Our criterion in §4 is stated *for roles*, and that scoping was
+itself the defect. The sorting pass and the vertical-space pass are row-keyed
+decisions too; neither produces a role, so neither was ever held to the
+sentence. Both were later found violating it. The vertical-space pass decided
+whether a comment was free-floating from the gap *below* it — and then closed
+that very gap two steps later when it pulled a definition up under its
+signature. First format saw a gap and emitted two blank lines; second saw none
+and emitted one.
 
 Read correctly, the sentence was never about roles:
 
@@ -403,20 +574,22 @@ Roles are simply the case where we noticed first.
 
 ### 5.4 What the barrier is actually for
 
-It does not *prove* the fixed point. It **localises the obligation**.
+It does not *prove* the fixed point. It **localizes the obligation**.
 
 With no positional read downstream, the only thing that can differ between run 1
-and run 2 is the classifier's answer — so the whole fixed-point obligation
-collapses onto one total function with a finite codomain. That is what makes the
-coverage argument in §6 possible at all. Without it, the obligation is spread
-over every layout rule that reads a row: 19 of prettier's 73 print modules, 14
-source reads in ocamlformat's printer. There is no corresponding argument to be
-made about those, and §9 shows what gets shipped instead.
+and run 2 is the classifier's answer. So "is formatting a fixed point?" stops
+being a question about the whole pipeline and becomes a question about a single
+function — one that always returns an answer, and always one of seven. That is
+what makes the coverage argument in §6 possible at all. Without it, the
+obligation is spread over every layout rule that reads a row: 19 of prettier's
+73 print modules, 14 source reads in ocamlformat's printer. There is no
+corresponding argument to be made about those, and §9 shows what gets shipped
+instead.
 
 §9's fifth finding is the necessary counterweight: **the barrier is necessary and
 demonstrably not sufficient.** Four of the five barrier-holding tools whose full
-histories we mined have shipped idempotency fixes anyway. The barrier hands you a
-small enough obligation to argue about. Something then has to discharge it.
+histories we mined have shipped idempotency fixes anyway. The barrier leaves an
+obligation small enough to argue about. Something then has to discharge it.
 
 ---
 
@@ -457,11 +630,21 @@ not distinguish the two.
 
 ### 6.2 The answer set is finite and the classifier is total
 
-From §4: seven roles, no fallback arm, every path ends in a role. The state the
-tree carries after *n* comments is *n* independent draws from a 7-element set —
-not a configuration space.
+From §4: seven roles — the seven `CommentRole` constructors, `TrailsPrevious`
+through `Standalone` — with no fallback arm, and every path through the
+classifier ending in one of them. So after *n* comments the tree holds *n*
+leaves, each carrying one label drawn from those same seven.
 
-### 6.3 "Any kind" is a three-letter alphabet
+What it is *not* is a **configuration space**: a state that describes the
+comments *as a group*, in which "a `--` followed by a one-row `{- -}`, inside a
+list, after a separator" is one case and the same two in the other order is a
+different one, so that *n* comments in a gap form an arrangement that has to be
+reasoned about as a whole. That is the shape whose number of cases grows with
+*n*, and which always has a corner nobody enumerated. Here the tree after *n*
+comments carries the same *kind* of state it carried after one: more leaves, each
+with one of seven labels on it.
+
+### 6.3 The formatter tracks three kinds of comment
 
 The language has two comment syntaxes, but every layout question about a
 comment's kind routes through **one** predicate, which reads the comment's own
@@ -474,45 +657,49 @@ comment's kind routes through **one** predicate, which reads the comment's own
 | `{- like this` ⏎ `and this -}` | no |
 
 Nothing else about a comment — its length, its content, its original indentation
-— is read by any decision. "Any variety of comments" is not an unbounded axis. It
-is three letters.
+— is read by any decision. "Any variety of comments" is not an unbounded axis:
+it is three kinds.
 
-If you take one design idea from this section, take this one: **route every
-kind-sensitive question through a single predicate**, so that the size of your
-alphabet is a fact you can state rather than a property of scattered `case`
-arms. Ours is three because that predicate says so.
+The design decision underneath that is the one we would defend hardest here:
+**every kind-sensitive question routes through a single predicate**, so the
+number of kinds is a fact we can state rather than an emergent property of
+scattered `case` arms. Ours is three because that predicate says so.
 
-### 6.4 Every local rule reads at most one neighbour
+### 6.4 Every local rule reads at most one neighbor
 
-This is the load-bearing property. Every place a run's members interact locally:
+This is the most important of the four properties. Every place a run's members
+interact locally:
 
 | rule | what it reads |
 |---|---|
 | the reference row (four sites) | the **previous** member's last row |
-| the render fold | a 6-value state summarising the row in front |
+| the render fold | a 6-value state summarizing the row in front |
 | the peel scanner | the **previous** member's kind |
 | "can this text ride?" | the member's **own** text |
 
-Not one looks two members back, or forward. So a run is a chain of boundaries,
-and every rule is a function of exactly one of them:
+Not one looks two members back, or forward. So a run of comments is a chain of
+**boundaries** — the junctions between one thing and the next — and every rule in
+the table is a function of exactly one boundary. A run of three comments, A, B
+and C, written between two pieces of code has four of them:
 
 ```
-code │ A │ B │ C │ code
-     ↑   ↑   ↑   ↑
-     each rule above is a function of ONE of these
+   code │ comment A │ comment B │ comment C │ code
+        ↑           ↑           ↑           ↑
+     code→A        A→B         B→C       C→code
 ```
 
-With a three-letter alphabet there are exactly **nine** possible
-comment→comment boundaries, and a run of any size is built from those nine.
+Three of those four are comment→comment boundaries, and with three kinds of
+comment there are exactly **nine** of those possible. A run of any size is built
+from the same nine.
 
 A longer run can therefore reach something new in only two ways: by containing a
 boundary a shorter one could not — impossible once all nine have appeared — or by
 putting a member at **two** boundaries at once, which is observable only if some
 rule reads both sides. By the table above, none does.
 
-### 6.5 Where one neighbour is not enough
+### 6.5 Where one neighbor is not enough
 
-Three rules genuinely cannot be decided from one neighbour, because they are
+Three rules genuinely cannot be decided from one neighbor, because they are
 about the run as a whole. Each is stated as a **quantifier over the run**, never
 as a case analysis over its length:
 
@@ -554,7 +741,7 @@ thing is a fixed point. Nothing in producing it consulted the number six.
 
 ### 6.7 The honest form
 
-> Given that no rule reads more than one neighbour except the three that quantify
+> Given that no rule reads more than one neighbor except the three that quantify
 > over the whole run, length and composition add nothing past two members.
 
 The premise is a property that must be **maintained**, not one that anything
@@ -572,12 +759,12 @@ property directly.
 
 ## 7. The anchor — what that argument does not cover
 
-This is the most useful section of this document for anyone on rungs A3–A4, and
-it is the one whose lesson we learned last and most expensively. The
+This is the section whose lesson we learned last and most expensively, and the
+one that changed our test portfolio most. The
 implementation-facing version, naming the passes involved, is
 [commentAlgorithm.md §8.7](commentAlgorithm.md#87-the-anchor--the-obligation-this-argument-does-not-discharge).
 
-### 7.1 Two obligations, one discharged
+### 7.1 Code is an input for deciding the role
 
 Everything in §6 quantifies over *the run*, holding the tree fixed. It says
 nothing about the tree. Look again:
@@ -603,12 +790,12 @@ token:
   explicit design decision; patterns were never considered);
 - it adds or drops the `port` keyword on a module header.
 
-Two further rewrites — uppercasing hex digits, normalising string escapes —
+Two further rewrites — uppercasing hex digits, normalizing string escapes —
 change bytes only *inside* a token, so they cannot move an anchor.
 
-**If your formatter rewrites tokens at all — sorts imports, removes redundant
-syntax, normalises a keyword — you have obligation (ii) and an idempotency gate
-will not discharge it.** Read on for why.
+**Any formatter that rewrites tokens at all — sorts imports, removes redundant
+syntax, normalizes a keyword — carries obligation (ii), and an idempotency gate
+does not discharge it.** Ours does all three. Here is how we found that out.
 
 ### 7.2 The gate that could not have seen it
 
@@ -629,43 +816,85 @@ That axis is now a standing default: `fuzz-idempotency.py --corpus both`, and th
 same flag on `check-decision-stability.py` and `audit-predicates.py`. See
 [testing.md](testing.md#idempotency-fuzzer-fuzz-idempotencypy).
 
-### 7.3 The mechanism is narrower than "the anchor moved"
+### 7.3 What actually moves
 
-Worth stating exactly, because the precise shape is what makes the class hard to
-test for.
+Those 22 findings were one mechanism, and it is worth walking through, because
+its narrowness is exactly what made it hard to test for.
 
-Attachment promotes a comment written *inside* a statement to a **sibling** of
-that statement. The sibling's row range then **straddles** the node it was
-written in — the comment spans rows 3–5 while the import it sits inside is
-recorded at row 4. Nine lines reproduce it:
+First, the word. A comment's **anchor** is the code its placement was decided
+against — the declaration it trails, the import it leads. Obligation (ii) fails
+when the formatter moves that code out from under the decision. But "the anchor
+moved" describes a much wider class than the one we actually hit, and the
+narrower shape is the part that matters.
+
+Start with an input a person would have to write deliberately — comments *inside*
+an import statement, between the `import` keyword and the module name:
 
 ```gren
+module A exposing (..)
+
 import {- k0
     tango -} Qux0 exposing (..) {- k1
             tango -}
 import Bar3
 ```
 
-A block comment written between `import` and the module name is hoisted onto its
-own rows by the first pass. That makes it a **leading** comment of that import on
-the next parse, which moves the import-group boundary, which changes the sort
-order.
+The parse `Context` and the AST give these ranges, and the point is that they
+**overlap**:
 
-Every downstream row test was written under an invariant nobody had stated:
+| node | rows |
+|---|---|
+| `{- k0 … -}` | 3–4 |
+| the `Qux0` import | 4 |
+| `{- k1 … -}` | 4–5 |
+| the `Bar3` import | 6 |
+
+Each comment starts before the import's row or ends after it. A comment written
+*inside* a statement cannot do anything else — it is physically within the span
+of the thing it interrupts.
+
+Now attachment runs. There is nowhere inside an import node for a comment to
+live, so each one is promoted to a **sibling** of the import: a node beside it in
+the tree rather than within it. The first pass then prints them on rows of their
+own, and sorts:
+
+```gren
+module A exposing (..)
+
+import Bar3
+{- k0
+   tango -} {- k1
+               tango -}
+import Qux0 exposing (..)
+```
+
+Read that output back with fresh eyes, which is what the second run does. The
+comments are no longer inside anything. They sit on their own rows immediately
+above `import Qux0`, and to a parser that makes them **leading** comments of
+`Qux0` — a different attachment from the one the first pass chose. Leading
+comments count as part of an import unit for grouping, so the group boundary
+moves; the boundary is what the sorter keys on, so the sort order can change with
+it. Nothing here re-read a position at render time. The classifier simply
+answered a different question, because the code it was asked about had changed
+shape.
+
+Underneath, every row-based test in the sorting and blank-line passes had been
+written against an invariant nobody had written down:
 
 > **siblings are disjoint and in row order.**
 
 "Does the next import unit begin on the row after this one ends?" and "did the
 author leave a blank line here?" are both correct under that invariant and both
-wrong without it. Attachment is what breaks it — and it breaks it only for a
-comment written *inside* a statement, which is precisely a shape the formatter's
-own output never contains, because the first pass hoists such comments to column
-1 where the ranges are disjoint again.
+wrong without it. Promotion is what breaks it: the promoted comment's range
+straddles the sibling it now sits beside.
 
-So the invariant holds on every fixed point **by construction**, and the
-already-formatted corpus could not have contained a single counterexample. That
-is sharper than "no rewrite occurs on a fixed point": the input class is not
-merely absent from that corpus, it is *excluded from it*.
+And here is why the gate could not see it. Promotion only happens to a comment
+written *inside* a statement — and the formatter's own output never contains one,
+because the first pass is what lifts them out. So the invariant holds on every
+fixed point **by construction**, and the already-formatted corpus could not have
+held a single counterexample. That is sharper than §7.2's "no rewrite occurs on a
+fixed point": the input class is not merely absent from that corpus, it is
+*excluded from it*.
 
 ### 7.4 The part that no idempotency gate can see
 
@@ -700,11 +929,11 @@ precisely, it **cannot be discharged by idempotency testing at all**, since §7.
 exhibits a member of the class that *is* a fixed point.
 
 Covering (ii) requires an oracle that varies the input's **authoring** rather
-than repeating the formatter. We have exactly one, and building a second is the
-open work. If you are designing a test portfolio for an A3/A4 formatter, put one
-in from the start: *emit the same program spelled two legal ways and require the
-same bytes.* It is the only kind of oracle that can see a stable wrong answer
-about an anchor.
+than repeating the formatter: *emit the same program spelled two legal ways and
+require the same bytes.* It is the only kind of oracle that can see a stable
+wrong answer about an anchor. We have exactly one, we built it late, and
+building a second is the open work — the portfolio would have been considerably
+cheaper had it carried one from the start.
 
 This is not a parochial worry. Black shipped the same shape in July 2026 —
 omitting optional parentheses "re-parents the comment onto a different leaf after
@@ -716,7 +945,7 @@ swift-format's `OrderedImports` rule has the ingredients today (§9).
 ## 8. Invariants and expected bytes divide the bug space
 
 Two claims in this section. The first is that a portfolio of property gates has
-*shaped* holes you can enumerate in advance. The second is measured rather than
+*shaped* holes, which can be enumerated in advance. The second is measured rather than
 argued, and it is the sharpest thing we know: **the property gates and the
 hand-written expected-bytes fixtures are complementary, not redundant, and the
 boundary between them is a bug-class boundary.**
@@ -729,7 +958,7 @@ probe did", and "**nothing new**" as "everything it reported was already known".
 
 | probe | what it newly reaches | predicted | measured |
 |---|---|---|---|
-| one comment | nothing — every neighbour is *code* | (the baseline) | the baseline every gate started from |
+| one comment | nothing — every neighbor is *code* | (the baseline) | the baseline every gate started from |
 | a run of 2 | the first comment→comment boundary ever tested | **finds bugs** | **20 findings** in 19,081 gaps; one real family, fixed the same day |
 | a run of 3 | nothing — `block│block` already appeared at *n*=2 | **nothing new** | 17 findings in 57,885 gaps, **all 17** a known upstream parser bug |
 | mixed pairs | the other eight boundaries — a *different* kind on each side | **finds bugs** | **1,752 findings** in 115,770 gaps, **1,718 formatter-side**, in three bugs |
@@ -792,7 +1021,7 @@ Three holes that **look** covered:
   idempotence violation *and change of order*" — is the same shape, reported
   externally.
 
-And one methodological finding that generalises well past formatters:
+And one methodological finding that generalizes well past formatters:
 
 > **A gate green over the wrong axis is indistinguishable from a correct
 > implementation.**
@@ -816,8 +1045,7 @@ commit (bug present), build there, run today's oracle portfolio against the one
 triggering input, record fires / does not. Build the fix commit and re-run. An
 oracle is a **witness** when it fires at the parent and is clean at the fix.
 
-Four aspects of that method were forced by confounds the first runs exposed, and
-each is worth copying:
+Four aspects of that method were forced by confounds the first runs exposed:
 
 - **The candidate count is an upper bound on bugs, not a bug count.** It includes
   chores whose subject begins `Fix` — "Fix up test scripts", "Fix stale module
@@ -836,13 +1064,12 @@ each is worth copying:
   attributed to the end-to-end check alone. Formally, the oracles are conditionally
   independent only *given that the formatter produced output*.
 - **The unavailable-oracle confound.** Under a contemporaneous build, flags added
-  later do not exist, and "I don't recognise this flag" is not the same as an
+  later do not exist, and "I don't recognize this flag" is not the same as an
   oracle running clean. Such oracles are recorded unavailable and excluded from
   both the witness and persistent sets, with the exclusion visible on every row.
 
-One further finding qualifies every number below, and it is the one most likely
-to bite anyone attempting this: **a pinned fixture is not necessarily the
-trigger.** One oscillation fix has a commit message spelling out the input
+One further finding qualifies every number below, and it is the one that cost us
+the most rework: **a pinned fixture is not necessarily the trigger.** One oscillation fix has a commit message spelling out the input
 exactly; the fixture it pinned writes the same case with the body on the row
 *below*. Replayed at the parent, the fixture's spelling is stable and clean at
 both ends, while the message's spelling reproduces the oscillation. The reason is
@@ -900,7 +1127,7 @@ invisible to every property oracle at both ends.
 > implementation to compare against, can say so.
 
 That is a *stronger* claim than this project's own documentation made. The blind
-spot our docs emphasise is the dropped comment; the largest measured one is
+spot our docs emphasize is the dropped comment; the largest measured one is
 wrong-but-stable layout, at a third of the replayable corpus.
 
 **Two details that the oracle name alone misreports.** Over the 37 measured rows
@@ -935,8 +1162,9 @@ one a *feature conjunction* no single-axis gate could produce: multi-line string
 record argument × `else if`; binop × comment × bracket operand; call × three-or-
 more multi-line block arguments.
 
-Keep one gate whose inputs came from outside the project. It is the only defence
-against a portfolio that is exhaustive over your own imagination.
+So we keep one gate whose inputs came from outside the project. It is the only
+defense we have against a portfolio that is exhaustive over its own authors'
+imagination.
 
 ### 8.6 Differential comparison, and what it costs
 
@@ -946,15 +1174,15 @@ record. The matrix translates each generated cell to Elm, runs elm-format, and
 diffs.
 
 elm-format is **not an oracle**: the two tools diverge on purpose in 34
-catalogued places, each with a rationale and a fixture. So parity is gated
+cataloged places, each with a rationale and a fixture. So parity is gated
 against a **reviewed baseline**. An unregistered divergence fails; a registered
-divergence that *disappears* also fails; every reviewed cell names a catalogue
+divergence that *disappears* also fails; every reviewed cell names a catalog
 entry; and `UNREVIEWED` is a debt counter printed on every run.
 
 Over 68,922 comment cells: **0 failing, 0 UNREVIEWED**.
 
-The cost is the part worth knowing before adopting the technique. Getting to that
-zero meant reading 16,141 unreviewed cells down to none over several sittings —
+The cost is the part worth recording. Getting to that zero meant reading 16,141
+unreviewed cells down to none over several sittings —
 and doing so **found two formatter bugs on the way**. That is the argument for
 reading the debt rather than widening a classifier until the counter reaches
 zero.
@@ -992,7 +1220,7 @@ We read the sources of fourteen production formatters. Beyond §1's input rung,
 three axes separate them: *when* placement is decided; whether layout is
 width-aware or author-driven; and — the axis that is almost never named —
 whether the stage that decides breaks and verticality may read a source position
-at all. We call that last one **the barrier** (§5).
+at all. That last one is §3.4's **position barrier**, and §5 is ours in detail.
 
 The barrier is not implied by deciding once. A tool can decide attachment
 exactly once and still let every layout rule re-derive verticality from the
@@ -1000,7 +1228,7 @@ author's rows. It is also a stronger bar than "the fitter is positionless" —
 several tools reach their fitter through a tree walk that is itself full of
 layout choices, and it is that walk the barrier has to cover.
 
-| formatter | comments arrive as | placement decided | layout | barrier? |
+| formatter | comments arrive as | placement decided | layout | position barrier? |
 |---|---|---|---|---|
 | topiary | A0 CST nodes | *never asked* — author-row facts resolved to atoms once | author-driven | yes |
 | elm-format | A1 named slots | at parse time | author-driven | yes (no positions exist) |
@@ -1020,7 +1248,7 @@ layout choices, and it is that walk the barrier has to cover.
 
 Read as a partition, it stops being a list:
 
-| | **barrier** | **no barrier** |
+| | **position barrier** | **none** |
 |---|---|---|
 | **A0–A2** — comment arrives attached | all eight (google-java-format: partial) | — |
 | **A3–A4** — attachment must be reconstructed | **gren-format, alone** | prettier, ocamlformat, ormolu, gofmt, rustfmt, zig |
@@ -1032,10 +1260,10 @@ lacks it, except ours.** That column is also where every instability in this
 survey lives.
 
 The point of stating it that way is not to claim a trophy. It is to be precise
-about what is worth copying: the barrier is not an idea (swift-format wrote it
-down in 2020) and not a rarity (eight of fifteen have it). What is worth copying
-is having it in the **position where it has to be built rather than inherited**,
-and enforcing it with the type checker so that keeping it does not cost you a
+about what is actually ours: the barrier is not an idea (swift-format wrote it
+down in 2020) and not a rarity (eight of fifteen have it). What is ours is
+having it in the **position where it has to be built rather than inherited**,
+and enforcing it with the type checker so that keeping it did not cost us a
 feature.
 
 ### 9.1 Deciding once is the norm, not the contribution
@@ -1121,7 +1349,7 @@ if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
 }
 ```
 
-[golang/go#24472](https://github.com/golang/go/issues/24472) is open, labelled `NeedsInvestigation`, seven and a half years
+[golang/go#24472](https://github.com/golang/go/issues/24472) is open, labeled `NeedsInvestigation`, seven and a half years
 old, and the exempted file still fails when replayed on go1.25.1 — as does
 [golang/go#73958](https://github.com/golang/go/issues/73958) (2025), whose second pass *invents* a bare `//` line. Separately,
 `go/printer`'s own fixture suite opts out per file, because idempotency "is very
@@ -1206,7 +1434,7 @@ printer will do.
 
 **Two attempts to patch it, both about comments.** The failures did not present
 as "non-idempotent". They presented as comment bugs, which is why they were
-patched locally twice before the class was recognised:
+patched locally twice before the class was recognized:
 
 > "The rule was overly eager in adding blank lines around members that have
 > **comments in their leading trivia**, because it didn't always correctly
@@ -1297,7 +1525,7 @@ dart_style's `CommentSequence` is documented as *n* comments and *n+1* newline
 counts — §6.4's boundary counting, arrived at independently. ocamlformat groups
 adjacent comments before deciding and decides the group as a unit. gofmt passes
 `prev *ast.Comment`, "the previous comment in a group" — **exactly one
-neighbour**, which is §6.4's rule. Black's `list_comments` is itself a run scanner
+neighbor**, which is §6.4's rule. Black's `list_comments` is itself a run scanner
 in which only the *first* line of a prefix can be a trailing comment and every
 later one is standalone — §6.4 in its most reduced possible form.
 
@@ -1368,10 +1596,10 @@ mechanically forbidden to look again.
 Beside gofmt's filename exemption: Black keeps an expected-*failure* fixture set
 "with the unstable formattings" and ships `--unstable` as a release channel;
 swift-format deletes the rule; ocamlformat iterates ten times; topiary reserves an
-exit code. Five projects, five ways of declining a fix, each an implicit judgement
+exit code. Five projects, five ways of declining a fix, each an implicit judgment
 that the class is architectural rather than local.
 
-Runtime fixed-point checking is itself a recognised pattern — four of the fourteen
+Runtime fixed-point checking is itself a recognized pattern — four of the fourteen
 ship one. ormolu offers `--check-idempotence`; ocamlformat iterates; topiary
 checks by default (`--skip-idempotence` is the opt-out, with its own exit code);
 Black checks by default in `--safe` mode, alongside an AST equivalence check. Its
@@ -1384,75 +1612,78 @@ Three of those four tools *have* the barrier and check anyway.
 
 ---
 
-## 10. If you are building one
+## 10. What we did, in the order we would do it again
 
-Distilled, in the order we would do it again.
+Twelve decisions, distilled. Several of them we arrived at the long way round,
+and the section number beside each is where that story is.
 
-1. **Locate yourself on §1's ladder before anything else.** If your parser can be
-   made to carry trivia, do that instead and stop reading. Everything below is the
-   cost of the other branch.
+1. **We located ourselves on §1's ladder first.** Where a parser can be made to
+   carry trivia, that is the branch to take and none of the rest is needed. Ours
+   could not be, and everything below is the cost of the other branch.
 
-2. **Decide every placement once, while the rows are still the author's, and
-   store the answer as a value in the tree.** Not a cache — the only copy. This is
-   the norm among production formatters, not an innovation (§9.1).
+2. **Every placement is decided once, while the rows are still the author's, and
+   the answer is stored as a value in the tree.** Not a cache — the only copy.
+   This is the norm among production formatters rather than anything we invented
+   (§9.1).
 
-3. **Make the classifier total.** No `Maybe`, no fallback arm, no "the renderer
-   will figure it out". A total classifier turns *n* comments into *n* independent
-   annotations instead of a configuration space, which is what makes §6's argument
-   available at all.
+3. **The classifier is total.** No `Maybe`, no fallback arm, no "the renderer
+   will figure it out". Totality is what turns *n* comments into *n* independent
+   annotations instead of a configuration space, and that is what makes §6's
+   argument available at all.
 
-4. **Write the classifier to a stated criterion**, and make it the one in §4: *the
-   row a placement is decided from must equal the row it renders on.* When a rule
-   cannot satisfy it in place, do not write a cleverer rule — make the first pass
-   build the tree the second pass would build.
+4. **It is written to a stated criterion**, the one in §4: *the row a placement
+   is decided from must equal the row it renders on.* Where a rule could not
+   satisfy that in place, the answer was never a cleverer rule — it was making
+   the first pass build the tree the second pass would build.
 
-5. **Build the barrier, and make it a type rather than a lint.** Give the
-   rendering stage a *different type* with the positions removed, reachable only
-   through a lowering function. Precompute, at that boundary, the handful of facts
-   that genuinely need the author's rows. A grep-based barrier is a reviewed
-   convention wearing a script's clothes; ours was, and we deleted it.
+5. **The barrier is a type, not a lint.** The rendering stage consumes a
+   *different type* with the positions removed, reachable only through a lowering
+   function, and the handful of facts that genuinely need the author's rows are
+   precomputed at that boundary. Our first version of the barrier was a grep — a
+   reviewed convention wearing a script's clothes — and we deleted it.
 
-6. **Apply the criterion to every row-keyed decision, not just the ones that
+6. **The criterion applies to every row-keyed decision, not only the ones that
    produce a placement.** Our sorting and blank-line passes escaped it for months
-   because they do not emit a role. swift-format's deleted rule escaped it in the
-   same way — a pass that runs *before* the printer and reasons about what the
-   printer will do (§5.3, §9.6).
+   because they emit no role. swift-format's deleted rule escaped it the same way
+   — a pass that runs *before* the printer and reasons about what the printer
+   will do (§5.3, §9.6).
 
-7. **Enumerate what each gate cannot see, and write the column down.** The three
-   holes in §8.2 all look covered. A dropped comment passes almost everything; a
-   wrongly-attached comment passes even the multiset oracle; a run reassembled
-   backwards is a perfectly good fixed point.
+7. **We enumerated what each gate cannot see, and wrote the column down.** The
+   three holes in §8.2 all look covered. A dropped comment passes almost
+   everything; a wrongly-attached comment passes even the multiset oracle; a run
+   reassembled backwards is a perfectly good fixed point.
 
-8. **If your formatter rewrites tokens, build an oracle that varies the input's
-   authoring** — emit the same program spelled two legal ways and require the same
-   bytes. Idempotency testing cannot discharge that obligation, because the class
-   has members that *are* fixed points (§7.4). Ours has exactly one such oracle,
-   and it found the two bugs the six idempotency axes read as zero.
+8. **Because the formatter rewrites tokens, it needs an oracle that varies the
+   input's authoring** — the same program spelled two legal ways, required to
+   produce the same bytes. Idempotency testing cannot discharge that obligation,
+   because the class has members that *are* fixed points (§7.4). We have exactly
+   one such oracle, and it found the two bugs the six idempotency axes read as
+   zero.
 
-9. **Keep both kinds of test.** Property gates caught every crash, oscillation,
-   wrong-attachment and performance bug in our history — and none of the seventeen
-   layout bugs (§8.4). Expected-bytes fixtures and a second implementation are the
-   only things that see a wrong-but-stable answer.
+9. **We kept both kinds of test.** The property gates caught every crash,
+   oscillation, wrong-attachment and performance bug in our history — and none of
+   the seventeen layout bugs (§8.4). Expected-bytes fixtures and a second
+   implementation are the only things that see a wrong-but-stable answer.
 
-10. **Keep one gate whose inputs nobody on the project chose.** A real-corpus
+10. **One gate's inputs were chosen by nobody on the project.** That real-corpus
     sweep found nine bugs, every one a feature conjunction no single-axis gate
     could generate (§8.5).
 
-11. **Time things, and treat the clock as its own detection channel.** A hang
+11. **We time things, and treat the clock as its own detection channel.** A hang
     produces no wrong output; it produces no output. No correctness oracle
     subsumes it (§8.4).
 
-12. **Expect the barrier not to be sufficient.** Four of five barriered tools we
-    mined still shipped idempotency fixes (§9.5). What the barrier buys is
-    *localisation*: the whole obligation collapses onto one total function with a
-    finite codomain, which is small enough to argue about. Something still has to
-    discharge it.
+12. **We do not expect the barrier to be sufficient.** Four of the five barriered
+    tools we mined still shipped idempotency fixes (§9.5). What the barrier buys
+    is *localization*: the whole obligation collapses onto one total function with
+    a finite codomain, which is small enough to argue about. Something still has
+    to discharge it.
 
 **The transferable shape, stated without formatters.** "Decide once, behind an
 enforced barrier" is a pattern for any pass whose *own output destroys the
-evidence its input decisions were made from*. Two components are load-bearing and
-separable: the decision must be recorded as a value (not recomputed on demand),
-and the ban on re-deriving it must be mechanically checked rather than
+evidence its input decisions were made from*. Two components do the work, and
+they are separable: the decision must be recorded as a value (not recomputed on
+demand), and the ban on re-deriving it must be mechanically checked rather than
 documented. The second is what turns "we were careful" into "the mistake is
 unrepresentable".
 
@@ -1531,7 +1762,7 @@ and [prettier `area:idempotency`](https://github.com/prettier/prettier/labels/ar
   to run it.
 - [What lowering to a RenderNode costs](renderTreeMemory.md) — the measurement
   behind §5.2's second tree.
-- [Comparison with elm-format](elmFormatComparison.md) — the 34 catalogued
+- [Comparison with elm-format](elmFormatComparison.md) — the 34 cataloged
   divergences, each with a reason and a fixture.
 - [Known limitations](knownLimitations.md) — including the upstream parser bugs
   that make up the entire residual non-idempotency.
