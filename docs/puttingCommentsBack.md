@@ -1405,15 +1405,16 @@ demand), and the ban on re-deriving it must be mechanically checked rather than
 documented. The second is what turns "we were careful" into "the mistake is
 unrepresentable".
 
-Two limits, both visible in §9. The pattern **composes only if the composition is
-inside the barrier** — biome's only idempotency bugs are at embedded-language
-seams, where one barriered formatter's output becomes another barriered
-formatter's input and the outer one re-reads it. And the barrier **relocates** the
-obligation rather than removing it — topiary's engine cannot have the bug, so it
-lives in the per-language query files instead, for four years and counting.
-Relocating an obligation onto a small, total, finite-codomain function is progress
-precisely because something can then be argued about it. Relocating it onto a
-declarative rule language is not.
+Two limits, both visible in §9. The guarantee **stops at the seam** — chain two
+barriered passes and the join between them belongs to neither barrier, which is
+exactly where biome's only idempotency bugs live: an embedded-language
+formatter's output becomes the outer formatter's input, and reading that input is
+a positional read again. And the barrier **relocates** the obligation rather than
+removing it — topiary's engine cannot have the bug, so it lives in the
+per-language query files instead, for four years and counting. Relocating an
+obligation onto a small, total, finite-codomain function is progress precisely
+because something can then be argued about it. Relocating it onto a declarative
+rule language is not.
 
 ---
 
