@@ -1669,13 +1669,15 @@ Not one of them looks two members back, or two forward.
 
 #### What that implies about runs
 
-Think of a run as a chain of **boundaries** — each member and the one thing
-before it:
+Think of a run as a chain of **boundaries** — the junctions between each member
+and the one thing before it. A run of three comments, A, B and C, written between
+two pieces of code has four of them, and every rule in the table above is a
+function of exactly one:
 
 ```
-code │ A │ B │ C │ code
-     ↑   ↑   ↑   ↑
-     each rule above is a function of ONE of these
+   code │ comment A │ comment B │ comment C │ code
+        ↑           ↑           ↑           ↑
+     code→A        A→B         B→C       C→code
 ```
 
 If every rule reads a single boundary, then a run's layout is decided entirely by
