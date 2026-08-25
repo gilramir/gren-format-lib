@@ -52,7 +52,7 @@ document has the model behind it.
 - [8. Why this covers every run — the argument, not the test suite](#8-why-this-covers-every-run--the-argument-not-the-test-suite)
   - [8.1 Placement is prefix-determined, so *n* is never an input](#81-placement-is-prefix-determined-so-n-is-never-an-input)
   - [8.2 The per-comment answer set is finite, and the classifier is total](#82-the-per-comment-answer-set-is-finite-and-the-classifier-is-total)
-  - [8.3 "Any kind" is a three-letter alphabet, not an open axis](#83-any-kind-is-a-three-letter-alphabet-not-an-open-axis)
+  - [8.3 "Any kind" means three kinds, not an open axis](#83-any-kind-means-three-kinds-not-an-open-axis)
   - [8.4 Every local rule reads at most one neighbour](#84-every-local-rule-reads-at-most-one-neighbour)
   - [8.5 Where one neighbour is *not* enough](#85-where-one-neighbour-is-not-enough--and-why-that-is-still-bounded)
   - [8.6 The fixed point, restated for runs](#86-the-fixed-point-restated-for-runs)
@@ -1631,7 +1631,7 @@ The renderer inherits this: `FlowPolicy.decide` is total too, returning a
 `Decision` rather than a `Result`, so no combination of state and item can fail
 to produce a placement.
 
-### 8.3 "Any kind" is a three-letter alphabet, not an open axis
+### 8.3 "Any kind" means three kinds, not an open axis
 
 Gren has two comment syntaxes, but every layout question about a comment's kind
 goes through one function, `commentEndsItsLine`, which reads the comment's own
@@ -1645,7 +1645,7 @@ goes through one function, `commentEndsItsLine`, which reads the comment's own
 
 Everything else about a comment — how long it is, what it says, how it is
 indented — is not read by any decision. So "any variety of comments" is not an
-unbounded space to cover. It is three letters, and the classifier's kind-sensitive
+unbounded space to cover. It is three kinds, and the classifier's kind-sensitive
 branches are a case analysis over those three.
 
 (`commentTextCanRide` asks the same question of the same text; the pair exists so
@@ -1680,9 +1680,9 @@ code │ A │ B │ C │ code
 
 If every rule reads a single boundary, then a run's layout is decided entirely by
 *which boundaries it contains*, and neither its length nor a member's position in
-it is an input at all. Since §8.3's alphabet has three letters, there are exactly
-**nine possible comment→comment boundaries**, and a run of any size is built out
-of those nine.
+it is an input at all. Since §8.3 leaves exactly three kinds of comment, there
+are exactly **nine possible comment→comment boundaries**, and a run of any size
+is built out of those nine.
 
 So a bigger run can only reach something new in one of two ways: by containing a
 boundary that a smaller one could not, or by putting a member at **two**
