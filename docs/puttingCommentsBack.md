@@ -289,41 +289,18 @@ why the ban in §5 has to be mechanical rather than advisory.
 
 Seven steps, and the rest of this document is about three of them.
 
-```
-  the compiler's parser hands over two things:
-      Src.Module   an AST with source ranges, and no comment nodes
-      Context      a flat, source-ordered list of located comments
-          │
-  ────────┼─── the logical stage: every row is still the author's, ──────
-          │    and reading one here is legal
-          │
-     1 build     walk the AST into one node per declaration — no comments yet
-     2 attach    place each comment; record the answer as a role      §4
-     3 repair    two passes over the finished tree: build the tree that
-                 a reparse of our own output would build
-     4 sort      exposing lists, import groups                        ┐ row-keyed
-     5 space     blank lines between top-level items                  ┘ too  §5.3
-          │
-  ════════╪═══ THE POSITION BARRIER ═════════════════════════════════════
-          │
-     6 lower     copy the tree into a type with no (row, col) field on it
-                 anywhere — so a row read below is a compile error    §5.2
-          │
-  ────────┼─── the rendering stage: no position exists to be read ───────
-          │
-     7 render    choose the line breaks, emit the bytes
-```
+![The seven pipeline steps, and where the position barrier falls](diagrams/position-barrier.png)
 
 **Step 2** is where every placement decision is made, and §4 is the argument for
 making all of them there, once, rather than at each point of use. **Step 6** is
 the barrier, and §5 is what it costs to have the type checker hold it.
 
-**Steps 4 and 5 are the ones to notice now**, because nothing in the picture
-marks them out. They read the author's rows exactly as step 2 does, they sit on
-the legal side of the line, and they run *afterwards* — so they can move a row
-that step 2 has already been decided from. Both of this document's hard-won
-sections are about that: §5.3, where the barrier turns out not to cover them,
-and §7, where sorting moves the code a comment was attached to.
+**Steps 4 and 5 are shaded with step 2** because they are the same kind of step:
+all three read the author's rows. The difference is that they run *after* the
+placement decision and still on the legal side of the line, so nothing stops
+them moving a row step 2 was already decided from. Both of this document's
+hard-won sections are about that — §5.3, where the barrier turns out not to
+cover them, and §7, where sorting moves the code a comment was attached to.
 
 ---
 
