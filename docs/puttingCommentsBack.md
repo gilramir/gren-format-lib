@@ -506,11 +506,13 @@ on every fixture, fuzzer and parity baseline: the point was explicitly not to
 change any output, only to change where the decision lived. About nineteen
 commits, each verified that way.
 
-That constraint did more work than it looks like. To keep the bytes, the
-classifier had to reproduce — from rows that were still the author's — exactly
-what the renderer's per-box-kind tables had been computing from rows that were
-not. Where the two disagreed, the disagreement *was* the bug the eight fixes had
-been chasing one arm at a time.
+That constraint did more work than it looks. The old tables worked out each
+box's start row at render time, by which point the logical passes had already
+shifted the rows they were reading; the new classifier works the same thing out
+at attachment time, while those rows are still the author's. Byte-identical
+output meant the two had to give the same answer for every fixture in the
+corpus. Each place they did not was one of the bugs the eight fixes had been
+chasing one arm at a time.
 
 The row machinery never had to be argued away. Once every site read the stored
 role, it was write-only, and it was deleted — the state machine, the ninety-line
