@@ -240,7 +240,7 @@ alternates between them for ever.
 
 **Every comment bug this project has fixed is a variation on that one sentence.**
 Oscillation is the single largest bug class in the project's history that any
-property gate can see — 16 of the 37 replayable bugs in §8.4.
+property gate can see — 16 of the 37 replayable bugs in §8.2.
 
 ### 3.3 Three properties, gated separately
 
@@ -561,7 +561,7 @@ the barrier is small enough to argue about. Something still has to argue.
 
 The question every reader of a comment placer asks is "what happens if I write
 forty comments in a row?". This section argues that it is the wrong shape of
-question, and §8 reports what happened when we tested the argument as a
+question, and §6.6 reports what happened when we tested the argument as a
 prediction.
 
 The claim:
@@ -696,12 +696,34 @@ thing is a fixed point. Nothing in producing it consulted the number six.
 > over the whole run, length and composition add nothing past two members.
 
 The premise is a property that must be **maintained**, not one that anything
-enforces. That is exactly what the run sweep axes in §8 are for: they do not
-prove the argument, they test its premise. A fourth all-or-nothing rule
-discovered tomorrow gets added to §6.4's table, and the reasoning carries on
-unchanged. This is a small-scope-hypothesis result, but with a **mechanism**: we
-name the structural property (boundary locality) that makes the small scope
-sufficient, and then test that property directly.
+enforces. So the run sweep axes do not prove the argument; they test its premise.
+A fourth all-or-nothing rule discovered tomorrow gets added to §6.4's table, and
+the reasoning carries on unchanged. This is a small-scope-hypothesis result, but
+with a **mechanism**: we name the structural property (boundary locality) that
+makes the small scope sufficient, and then test that property directly.
+
+**And the argument is falsifiable, so we ran it as a prediction.** §6.3 says in
+advance which sweeps will pay for themselves and which will not. The probe is
+mechanical, which is what makes the numbers comparable across axes: for every
+fixture in the corpus, insert a marked comment — or a run of *N*, or a run of a
+given composition — into **every** inter-token gap, format twice, and require the
+two outputs to be byte-identical. Read "**finds bugs**" as "this probe reaches
+something no earlier probe did".
+
+| probe | what it newly reaches | predicted | measured |
+|---|---|---|---|
+| one comment | nothing — every neighbor is *code* | (the baseline) | the baseline every gate started from |
+| a run of 2 | the first comment→comment boundary ever tested | **finds bugs** | **20 findings** in 19,081 gaps; one real family, fixed the same day |
+| a run of 3 | nothing — `block│block` already appeared at *n*=2 | **nothing new** | 17 findings in 57,885 gaps, **all 17** a known upstream parser bug |
+| mixed pairs | the other eight boundaries — a *different* kind on each side | **finds bugs** | **1,752 findings** in 115,770 gaps, **1,718 formatter-side**, in three bugs |
+| mixed triples | nothing — every ordered pair already appeared | **nothing new** | 154 findings in 475,824 gaps, **all 154** known upstream |
+
+668,560 probe sites across the four axes; two axes — run *length* and run
+*composition* — swept independently, each finding real bugs at exactly the size
+where a new boundary first becomes expressible and nothing beyond it, twice. The
+two "nothing new" rows carry the weight. If any rule *had* been reading both
+sides of a member, mixed triples was 475,824 chances to catch it, and it caught
+nothing formatter-side.
 
 ---
 
@@ -871,59 +893,18 @@ and the result is a fixed point (§9.6).
 ## 8. Invariants and expected bytes divide the bug space
 
 Two claims in this section. The first is that a portfolio of property gates has
-*shaped* holes, which can be enumerated in advance. The second is measured rather than
-argued, and it is the sharpest thing we know: **the property gates and the
+*shaped* holes, which can be enumerated in advance. The second is measured rather
+than argued, and it is the sharpest thing we know: **the property gates and the
 hand-written expected-bytes fixtures are complementary, not redundant, and the
 boundary between them is a bug-class boundary.**
 
-### 8.1 The argument of §6, tested as a prediction
+### 8.1 What each gate cannot see
 
-§6.3 is falsifiable. It says in advance which sweeps will pay for themselves and
-which will not. Read "**finds bugs**" as "this probe reaches something no earlier
-probe did", and "**nothing new**" as "everything it reported was already known".
-
-| probe | what it newly reaches | predicted | measured |
-|---|---|---|---|
-| one comment | nothing — every neighbor is *code* | (the baseline) | the baseline every gate started from |
-| a run of 2 | the first comment→comment boundary ever tested | **finds bugs** | **20 findings** in 19,081 gaps; one real family, fixed the same day |
-| a run of 3 | nothing — `block│block` already appeared at *n*=2 | **nothing new** | 17 findings in 57,885 gaps, **all 17** a known upstream parser bug |
-| mixed pairs | the other eight boundaries — a *different* kind on each side | **finds bugs** | **1,752 findings** in 115,770 gaps, **1,718 formatter-side**, in three bugs |
-| mixed triples | nothing — every ordered pair already appeared | **nothing new** | 154 findings in 475,824 gaps, **all 154** known upstream |
-
-668,560 probe sites across the four axes. Two axes — run *length* and run
-*composition* — swept independently, each finding real bugs at exactly the size
-where a new boundary first becomes expressible and nothing beyond it, twice.
-
-The two "nothing new" rows carry the weight. If any rule *had* been reading both
-sides of a member, mixed triples was 475,824 chances to catch it, and it caught
-nothing formatter-side.
-
-The probe is mechanical, which is what makes the numbers comparable across axes:
-for every fixture in the corpus, insert a marked comment (or a run of *N*, or a
-run of a given composition) into **every** inter-token gap, format twice, and
-require the two outputs to be byte-identical.
-
-### 8.2 What each gate cannot see
-
-The last column is the important one, because it is what the next gate exists
-for. The runnable version of this table, with flags, is
+Each gate varies one thing and is blind to the rest; the blind column is what the
+next gate exists for. The full gate-by-gate table, with flags, is
 [testing.md](testing.md); the code-level version is
 [commentAlgorithm.md §10](commentAlgorithm.md#10-coverage-what-each-gate-actually-varies).
-
-| gate | what it varies | blind to |
-|---|---|---|
-| fixture suite (368 `.formatted.gren` across 12 suites) | hand-written cases | anything nobody thought to write |
-| gap fuzzer | a comment in **every** inter-token gap of every fixture | only says *whether* something moved |
-| ⤷ run of *N* | the same, with a run per gap | a uniform run has one boundary shape |
-| ⤷ mixed pairs / triples | run **composition** | — |
-| decision-stability checker | the same gaps and axes, but diffs the **decisions** | a decision nobody traced |
-| whitespace fuzzer | inter-token whitespace | comments |
-| syntax matrix vs. elm-format (68,922 comment cells) | 41 expression × 25 contexts + 11 type × 15 contexts, × 3 kinds × 2 positions | shapes outside its vocabulary |
-| ⤷ comment runs (113,796 cells) | the same cells with a two-member run, all nine compositions | elm-format parity (deliberately not baselined) |
-| random module generator | random-but-legal modules, structure **and** comments | shapes outside its grammar |
-| the `RenderNode` type (§5.2) | — | only *positional* re-derivation, not the renderer's residual decisions |
-
-Three holes that **look** covered:
+Three of those holes **look** covered:
 
 - **A dropped comment passes almost everything.** Deleting a comment is
   AST-equivalent and the output is its own fixed point, so the end-to-end check
@@ -956,69 +937,17 @@ Our comment axis ran green for months over two of the three comment kinds. Addin
 the third found 70 non-idempotencies the same afternoon. Check what a gate
 *varies* before trusting what it reports.
 
-### 8.3 Replaying our own history
+### 8.2 Replaying our own history
 
 The portfolio above is a design. This is it measured against the project's own
-git history.
-
-**Method.** Extract every fix commit from the formatter library's history (1,032
-commits, 2026-03-01 → 2026-08-22) under two commit conventions — 113 subjects
-beginning `Fix:` and 22 of the earlier `fix(formatter):` form — giving **135
-candidates**. Hand-classify each for *what was wrong* and *whose bug it was*,
-deliberately **never from the firing oracle**, since deriving the class from the
-detector would make the cross-tab a tautology. Then replay: check out the parent
-commit (bug present), build there, run today's oracle portfolio against the one
-triggering input, record fires / does not. Build the fix commit and re-run. An
-oracle is a **witness** when it fires at the parent and is clean at the fix.
-
-Four aspects of that method were forced by confounds the first runs exposed:
-
-- **The candidate count is an upper bound on bugs, not a bug count.** It includes
-  chores whose subject begins `Fix` — "Fix up test scripts", "Fix stale module
-  names in the docs". Curation reclassified **16 of 135** as non-bugs (docs 8,
-  test-tooling 4, chore 2, build 1, test-fixture 1). The raw extractor count was
-  13% too high.
-- **The fixture-suite column is excluded from the oracle vector**, because the
-  pinned fixture is *added by the fix commit*: "the fixture suite catches it" is
-  vacuously true at the child and vacuously false at the parent. For the same
-  reason the harness checks out the parent's formatter source but takes the
-  *test-side* tooling from HEAD — the measurement wanted is today's oracle against
-  the pre-fix formatter.
-- **The crash confound.** When the formatter dies there is no output to judge, so
-  every oracle that runs it reports failure. The first replayed row came back with
-  five apparent co-witnesses; that is not five independent detections. A crash is
-  attributed to the end-to-end check alone. Formally, the oracles are conditionally
-  independent only *given that the formatter produced output*.
-- **The unavailable-oracle confound.** Under a contemporaneous build, flags added
-  later do not exist, and "I don't recognize this flag" is not the same as an
-  oracle running clean. Such oracles are recorded unavailable and excluded from
-  both the witness and persistent sets, with the exclusion visible on every row.
-
-One further finding qualifies every number below, and it is the one that cost us
-the most rework: **a pinned fixture is not necessarily the trigger.** One oscillation fix has a commit message spelling out the input
-exactly; the fixture it pinned writes the same case with the body on the row
-*below*. Replayed at the parent, the fixture's spelling is stable and clean at
-both ends, while the message's spelling reproduces the oscillation. The reason is
-structural, not accidental: a fixture is authored *after* the fix, to illustrate
-the case for a reader, and it pins the fixed *output*. The unit of measurement is
-a **(bug, input)** pair, not a bug.
-
-**Replay status over the 135 candidates:**
-
-| status | n | share |
-|---|---:|---:|
-| `documentary` (pre-package era; prose provenance only) | 53 | 39% |
-| `measured` (an oracle fired at the parent, clean at the fix) | 37 | 27% |
-| `stable-divergence` (output changed; **nothing** fired at either end) | 21 | 16% |
-| `non-bug` (curated out) | 16 | 12% |
-| `unreplayable` (build failed at both ends) | 5 | 4% |
-| `not-reproduced` (identical output at both ends) | 3 | 2% |
-
-The last two rows are **reported, never dropped**. A harness that quietly
-discards the rows it cannot explain is exactly the vacuous-coverage failure this
-project has documented one level down.
-
-### 8.4 The headline
+git history: extract every fix commit (135 candidates over 1,032 commits,
+2026-03-01 → 2026-08-22), hand-classify each for *what was wrong* — deliberately
+never from the firing oracle, which would make the cross-tab a tautology — then
+check out the parent, build there, and run today's oracles against the one
+triggering input. An oracle is a **witness** when it fires at the parent and is
+clean at the fix. The method, the four confounds that forced its shape, and the
+rows that could not be replayed (reported, never dropped) are in
+`gren-format-papers/bugReview.md`.
 
 Of the **61** rows that built at both ends with a usable input: 37 (61%) were
 witnessed by some property oracle. **21 (34%) were invisible to the entire
@@ -1056,26 +985,14 @@ That is a *stronger* claim than this project's own documentation made. The blind
 spot our docs emphasize is the dropped comment; the largest measured one is
 wrong-but-stable layout, at a third of the replayable corpus.
 
-**Two details that the oracle name alone misreports.** Over the 37 measured rows
-the end-to-end check witnessed 36 and was the *sole* witness for 33; 34 rows have
-a single witness. And detection *mode* matters:
+One more distinction the oracle names hide: the four performance bugs are caught
+by **the clock**, not by any property, and the wall-clock bound rides on
+whichever oracle happens to run the formatter — so crediting a predicate auditor
+with catching a hang would be wrong. Performance is a **distinct detection
+channel**: a hang produces no wrong output, it produces no output, so no
+correctness oracle subsumes the gates that time things.
 
-| mode | n |
-|---|---:|
-| `property` — an oracle detected a violated property | 31 |
-| `timeout` — a wall-clock bound; the bug was a hang | 4 |
-| `crash` — the formatter died; attributed to one oracle | 2 |
-
-The four performance bugs are caught by **the clock**, not by any property, and
-the bound rides on whichever oracle happens to run the formatter. One
-deeply-nested record literal reads as "sole witness: the predicate auditor" only
-because the end-to-end check finished inside the limit and the predicate auditor,
-which renders more, did not. Crediting a predicate auditor with catching a hang
-would be wrong. Performance is a **distinct detection channel**: a hang produces
-no wrong output, it produces no output, so no correctness oracle subsumes the
-gates that time things.
-
-### 8.5 The one gate whose inputs nobody here chose
+### 8.3 The one gate whose inputs nobody here chose
 
 Everything above is synthetic. The matrix builds cells from a vocabulary this
 project authored, the fuzzers perturb a corpus it wrote, and the generator emits
@@ -1092,26 +1009,19 @@ So we keep one gate whose inputs came from outside the project. It is the only
 defense we have against a portfolio that is exhaustive over its own authors'
 imagination.
 
-### 8.6 Differential comparison, and what it costs
+### 8.4 Differential comparison, and what it costs
 
 Gren is a fork of Elm, so for shared constructs `gren-format` and `elm-format`
 should agree — and where they do not, the disagreement should be a decision on
 record. The matrix translates each generated cell to Elm, runs elm-format, and
-diffs.
-
-elm-format is **not an oracle**: the two tools diverge on purpose in 34
-cataloged places, each with a rationale and a fixture. So parity is gated
-against a **reviewed baseline**. An unregistered divergence fails; a registered
-divergence that *disappears* also fails; every reviewed cell names a catalog
-entry; and `UNREVIEWED` is a debt counter printed on every run.
-
-Over 68,922 comment cells: **0 failing, 0 UNREVIEWED**.
-
-The cost is the part worth recording. Getting to that zero meant reading 16,141
-unreviewed cells down to none over several sittings —
-and doing so **found two formatter bugs on the way**. That is the argument for
-reading the debt rather than widening a classifier until the counter reaches
-zero.
+diffs. elm-format is **not an oracle**: the two tools diverge on purpose in 34
+cataloged places, each with a rationale and a fixture. So parity is gated against
+a **reviewed baseline** — an unregistered divergence fails, a registered one that
+*disappears* also fails, and `UNREVIEWED` is a debt counter printed on every run.
+Over 68,922 comment cells: 0 failing, 0 UNREVIEWED. Getting there meant reading
+16,141 unreviewed cells down to none, and doing so **found two formatter bugs on
+the way** — which is the argument for reading the debt rather than widening a
+classifier until the counter reaches zero.
 
 **The comparison runs both ways.** One divergence, triaged, turned out to be the
 *reference* implementation's bug: for a pipeline whose last step forces a
@@ -1121,15 +1031,12 @@ lines. We reported it as
 [elm-format#842](https://github.com/avh4/elm-format/issues/842), where the
 discussion established something the divergence itself had not shown — running
 elm-format again on the first output yields the second, so the first output is
-**not a fixed point**. elm-format converges in two passes on that input.
+**not a fixed point**.
 
-It is worth dwelling on, because it lands on three separate claims here. It is
-the classic differential-testing result reproduced in miniature. It is the
-strongest justification for treating a second implementation as a *reviewed
-baseline* rather than an oracle: either side can be the wrong one, and once it
-was. And it is §3.2's formula appearing in a mature, **trivia-preserving**
-implementation — an output whose layout was decided from incidental input line
-breaks that the formatting then changed.
+That is the whole case for a *reviewed baseline* rather than an oracle — either
+side can be the wrong one, and once it was — and it is §3.2's formula appearing
+in a mature, **trivia-preserving** implementation: an output whose layout was
+decided from incidental input line breaks that the formatting then changed.
 
 ---
 
@@ -1459,7 +1366,7 @@ blank line after the header is the only thing that detaches it — the same sing
 boundary our own import runs have. That is §7's anchor move exactly: the
 attachment is right when it is decided and wrong after the move. The output is
 also **a fixed point** — reformatting it changes nothing — so this is §7.4's
-category, invisible to every gate in §8.2 and visible only to a reader who knows
+category, invisible to every gate in §8.1 and visible only to a reader who knows
 what the comment was about.
 
 **This one is not a defect, and that is the better result.** It was reported as
@@ -1559,7 +1466,7 @@ position and the next node's span. Its `A-comments` label carried **447 issues,
 including [#7019](https://github.com/rust-lang/rustfmt/issues/7019) above and [#6347](https://github.com/rust-lang/rustfmt/issues/6347), "rustfmt forcefully moves trailing comments to
 irrelevant code above (and not idempotent either)" — which is §3.2's picture in
 Rust. Three more report a comment migrating between owners across an import
-reordering ([#5485](https://github.com/rust-lang/rustfmt/issues/5485), [#6241](https://github.com/rust-lang/rustfmt/issues/6241), [#3127](https://github.com/rust-lang/rustfmt/issues/3127)) — §7's class, and the one §8.2 says only an
+reordering ([#5485](https://github.com/rust-lang/rustfmt/issues/5485), [#6241](https://github.com/rust-lang/rustfmt/issues/6241), [#3127](https://github.com/rust-lang/rustfmt/issues/3127)) — §7's class, and the one §8.1 says only an
 author-order oracle can see; [#6241](https://github.com/rust-lang/rustfmt/issues/6241)'s reporter notes it changes the code's
 meaning.
 
@@ -1678,7 +1585,7 @@ repository); `gren-format` is the CLI that wraps it. The parser both are built o
 parser bugs that make up our entire residual non-idempotency are filed there and
 listed in [knownLimitations.md](knownLimitations.md).
 
-**Issue trackers.** The counts in §8.2 and §9.8 are frozen pulls dated
+**Issue trackers.** The counts in §8.1 and §9.8 are frozen pulls dated
 2026-08-23, filed under `gren-format-papers/related/` as
 `rustfmt-comments.tsv`, `prettier-area-comments.tsv` and
 `prettier-area-idempotency.tsv`. The labels they were pulled from are
@@ -1714,6 +1621,6 @@ published with this package)
 - `gren-format-papers/related/formatter-survey.md` — the full survey behind §9,
   with repository commits and per-claim `file:line` citations.
 - `gren-format-papers/related/tracker-mining.md` and the three `.tsv` pulls beside
-  it — the frozen tracker exports behind §8.2 and §9.8.
+  it — the frozen tracker exports behind §8.1 and §9.8.
 - `gren-format-papers/bugReview.md`, `bugs.jsonl`, `results.jsonl` — the method
-  and data behind §8.3–§8.4; the tables regenerate from the repositories.
+  and data behind §8.2; the tables regenerate from the repositories.
