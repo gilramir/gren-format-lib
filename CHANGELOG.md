@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-08-26
 
 ### Added
 
@@ -28,9 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The render-stage architecture invariant is enforced by the Gren compiler
-  rather than by `tests/check-render-invariant.py`, which is deleted. Nothing
-  about the formatter's output changes; see `docs/testing.md`.
+- The render stage must not access (row, col) positions from the Logical
+  Printing Tree. Remove the remaining static-analysis enforcement script
+  `tests/check-render-invariant.py`, and replace with a RenderTree
+  type that does not provide (row, col). Nothing about the formatter's
+  output changes; see `docs/testing.md`.
 
 
 ## [1.0.1] - 2026-08-22
