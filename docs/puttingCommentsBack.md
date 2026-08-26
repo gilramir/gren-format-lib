@@ -884,19 +884,25 @@ we have two groups:
 
 | | **has position barrier** | **no position barrier** |
 |---|---|---|
-| **A0–A2** — comment arrives attached | all eight (google-java-format: partial) | — |
+| **A0–A2** — attachment delivered by the front end | all eight (google-java-format: partial) | — |
 | **A3–A4** — attachment must be reconstructed | **gren-format, alone** | prettier, ocamlformat, ormolu, gofmt, rustfmt, zig |
 
-**Every tool whose front end hands it attached comments has the barrier, and gets
-it for free** — there is no positional question left for the layout stage to ask,
-so nothing had to be forbidden. **Every tool that must reconstruct attachment
-lacks it, except ours.** Those tools are where the survey's *architectural*
-instabilities live — the ones answered with an exemption or an iteration loop
-rather than a fix (§9.3, §9.4, §9.8); however, §9.5 shows that the tools that do
-have the barrier are not immune either, only that their bugs stay local.
+**Every tool that must reconstruct attachment lacks the barrier, except ours** —
+and those six are where the survey's *architectural* instabilities live, the ones
+answered with an exemption or an iteration loop rather than a fix (§9.3, §9.4,
+§9.8). §9.5 is the counterweight: having the barrier does not make a tool immune,
+it keeps its bugs local.
+
+The top row invites an inference that does not hold — that a front end which
+delivers attached comments delivers the barrier along with it. Attachment is a
+fact about the input; the barrier is a prohibition on a stage, and most of
+§5.1's questions are not about comments at all. A trivia CST still carries a
+position on every token. So seven of those eight built the barrier themselves,
+each in an IR that drops positions; only elm-format is handed it, and only
+because rung A1 has no positions to hand.
 
 The position barrier is neither an idea of ours (swift-format wrote it down in 2020)
-nor a rarity (eight of fifteen have it). Only the the fact that `gren-format` has
+nor a rarity (eight of fifteen have it). Only the fact that `gren-format` has
 it while also reattaching comments to the parse tree, is novel.
 
 ### 9.1 Deciding once is the norm, not the contribution
