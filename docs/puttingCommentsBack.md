@@ -12,8 +12,8 @@ of other formatters.*
 - [4. Decide once — the role, not the position](#4-decide-once--the-role-not-the-position)
 - [5. The position barrier, and how to make it a type](#5-the-position-barrier-and-how-to-make-it-a-type)
 - [6. Why forty comments in a row is not forty cases](#6-why-forty-comments-in-a-row-is-not-forty-cases)
-- [7. The anchor — what that argument does not cover](#7-the-anchor--what-that-argument-does-not-cover)
-- [8. What the gates cannot see](#8-what-the-gates-cannot-see)
+- [7. The anchor can move out under you](#7-the-anchor-can-move-out-under-you)
+- [8. The bugs no property gate can see](#8-the-bugs-no-property-gate-can-see)
 - [9. What fourteen other formatters do](#9-what-fourteen-other-formatters-do)
 - [10. Summary](#10-summary)
 
@@ -103,10 +103,10 @@ On **A0–A2** the comment is already attached to something before the formatter
 starts: the front end answered "which code is this comment beside?" while it was
 still looking at the input, and the answer travels with the tree. Placement is
 then a question about a tree the comment is already in, and the problem this
-document is about does not arise — though it is worth noting that four of those
-eight tools have shipped idempotency fixes anyway (§9.5), so just knowing
-where comments should attach is not enough to guarantee idempotency. The test
-problems of §8 apply to all the rungs of formatter front-ends.
+document is about does not arise — though four of those eight tools have shipped
+idempotency fixes anyway (§9.5), so just knowing where comments should attach is
+not enough to guarantee idempotency. And §8's blind spot applies to every rung
+of formatter front-end equally.
 
 On **A3 and A4** the comments are not attached to the parse tree, so it
 has to be reconstructed — from source positions, which are the one piece of
@@ -202,7 +202,7 @@ alternates between them for ever.
 
 **Every comment bug this project has fixed is a variation on this.**
 Oscillation is the single largest bug class in the project's history that any
-property gate can see (§8.2).
+property gate can see (§8).
 
 ### 3.3 Three properties, gated separately
 
@@ -371,8 +371,8 @@ at that gap. All four are answered while the positions are still authorial, and
 none is revisited. The full decision procedure is
 [commentAlgorithm.md §4](commentAlgorithm.md#4-stage-1--attachment).
 
-**Every role has to survive being re-derived from the formatter's own output.**
-That is the rule the classifier is written to satisfy:
+Every role has to survive being re-derived from the formatter's own output.
+That is the one rule the classifier is written to satisfy:
 
 > **A role must re-derive to itself**: the position a comment's placement is
 > decided from is the position that comment renders at.
@@ -474,12 +474,12 @@ booleans: `rnSharesRowWithPrevItem`, `rnHasSourceContent`, `rnVariantsSpanRows`
 and `rnTypeSegmentsBroken`. `RenderShape` is total over the logical shape type,
 so adding a new shape does not compile until the lowering maps it.
 
-**The previous version of this barrier was a script**, and deleting it is the
-part worth reporting. It ran first in the test suite and grepped the rendering
-stage for an enumeration of position-accessor names. It worked, and it was a
-barrier only until someone wrote the accessor a different way — or until the
-enumeration of another module's vocabulary went stale, silently, which it did.
-A grep over an enumeration is a reviewed convention wearing a script's clothes.
+The previous version of this barrier was a script, and we deleted it. It ran
+first in the test suite and grepped the rendering stage for an enumeration of
+position-accessor names. It worked, and it was a barrier only until someone
+wrote the accessor a different way — or until the enumeration of another
+module's vocabulary went stale, silently, which it did. A grep over an
+enumeration is a reviewed convention wearing a script's clothes.
 
 "Be careful not to read positions here" is a comment in a file nobody reads at
 2am. "It does not compile" is a property of the system.
@@ -669,10 +669,10 @@ continuation is re-indented under its own `{-`; member 3 glues after member 2's
 `-}` two rows down, because the reference row grew through the run; and the whole
 thing is a fixed point. Nothing in producing it consulted the number six.
 
-**One caveat, stated plainly.** The premise — that no rule reads more than one
-neighbour, except the three that quantify over the whole run — is a property that
-must be **maintained**, not one that anything enforces. A fourth all-or-nothing
-rule discovered tomorrow gets added to §6.4's table, and the reasoning carries on
+**One caveat.** The premise — that no rule reads more than one neighbour, except
+the three that quantify over the whole run — is a property that must be
+**maintained**, not one that anything enforces. A fourth all-or-nothing rule
+discovered tomorrow gets added to §6.4's table, and the reasoning carries on
 unchanged. So the run sweeps do not prove the argument; they test its premise,
 and they were run as a prediction: probes that insert a run of *two* comments, or
 of two *different* kinds, into every inter-token gap found real bugs — 20 and
@@ -681,10 +681,10 @@ new boundary, found nothing formatter-side in 533,709 gaps.
 
 ---
 
-## 7. The anchor — what that argument does not cover
+## 7. The anchor can move out under you
 
-This is the section whose lesson we learned last and most expensively. The
-implementation-facing version, naming the passes involved, is
+This lesson came last and cost the most. The implementation-facing version,
+naming the passes involved, is
 [commentAlgorithm.md §8.7](commentAlgorithm.md#87-the-anchor--the-obligation-this-argument-does-not-discharge).
 
 ### 7.1 Code is an input too
@@ -711,7 +711,7 @@ and it adds or drops the `port` keyword on a module header.
 > syntax, normalizes a keyword — carries obligation (ii), and an idempotency gate
 > does not discharge it.**
 
-### 7.2 What actually moves
+### 7.2 The bug we hit
 
 A comment's **anchor** is the code its placement was decided against. Obligation
 (ii) fails when the formatter moves that code out from under the decision. Ours
@@ -723,106 +723,63 @@ import {- k0
 import Bar3
 ```
 
-That comment's range **overlaps** the import's, and there is nowhere inside an
-import node for it to live, so attachment promotes it to a **sibling** and the
-first pass prints it on a row of its own — after which sorting moves the import
-out from under it. Read the output back with fresh eyes, which is what the second
-run does, and the comment is no longer inside anything: it is now a **leading**
-comment of the import below it. That is a different attachment, and since leading
-comments count as part of an import unit, the group boundary the sorter keys on
-moves too. Nothing re-read a position at render time; the classifier answered a
-different question because the code had changed shape. Underneath was an
-invariant nobody had written down — **siblings are disjoint and in source order** —
-and promotion is exactly what breaks it.
+That comment's range overlaps the import's, and there is nowhere inside an import
+node for it to live, so attachment promotes it to a sibling and the first pass
+prints it on a row of its own. Then sorting moves the import out from under it.
+The second run reads that output with fresh eyes and sees a *leading* comment of
+the import below — a different attachment, and since leading comments count as
+part of an import unit, the group boundary the sorter keys on moves too. Nothing
+re-read a position at render time. The classifier answered a different question
+because the code had changed shape.
 
-**And no gate here could have seen it.** Every comment-gap sweep ran against the
-corpus of **already-formatted** fixtures, and the rewrite that moves an anchor
-cannot happen on a fixed point. Promotion is sharper still: it happens only to a
-comment written inside a statement, and the formatter's own output never contains
-one. The input class was not merely absent from that corpus, it was *excluded
-from it* by construction. Running the same instrument over the 391 *unformatted*
-halves of the same fixture pairs — 66,252 probe sites — produced **24 findings**
-on the first sweep, 22 of them this class. That axis is now a standing default
-(`--corpus both`, in
-[testing.md](testing.md#idempotency-fuzzer-fuzz-idempotencypy)).
+Two things about it are worth remembering.
 
-### 7.3 The part that no idempotency gate can see
+Our comment-gap sweeps could not have found it. They all ran over the
+**already-formatted** half of the corpus, and a rewrite that moves an anchor
+cannot happen on a fixed point — promotion happens only to a comment written
+inside a statement, and our own output never contains one. Running the same
+instrument over the 391 *unformatted* halves, 66,252 probe sites, found **24
+findings** on the first sweep, 22 of them this class. `--corpus both` is now the
+default ([testing.md](testing.md#idempotency-fuzzer-fuzz-idempotencypy)).
 
-We first read this as a format¹-vs-format² disagreement and fixed it that way. It
-is not only that. When the same misreading also makes the **vertical-space** pass
-emit a blank line, that phantom blank becomes a **real run boundary on the next
-parse** — and the wrong grouping is now *self-consistent*. Formatting is a fixed
-point that has silently declined to sort two adjacent imports.
-
-No idempotency gate can see that, and ours did not. The shape survived two fixes
-and was finally caught by the **author-order invariance** oracle: emit the same
-module with its import run in the other order and require byte-identical output.
-That is the one gate in the portfolio that does not ask about repetition at all.
-So, exactly:
-
-> §6 establishes that run length and composition are not inputs to placement. It
-> does **not** establish that placement re-derives to itself, because it assumes an
-> anchor the formatter is free to move.
-
-Obligation (ii) **cannot be discharged by idempotency testing at all**, since the
-class has members that are fixed points. Covering it needs an oracle that varies
-the input's **authoring** rather than repeating the formatter: *emit the same
-program spelled two legal ways and require the same bytes.* We have exactly one,
-we built it late, and building a second is the open work. Two other projects ship
-this shape today, one deliberately (§9.5, §9.6).
+The other one is worse. We first read this as a format¹-vs-format² disagreement
+and fixed it that way, twice. But when the same misreading also makes the
+vertical-space pass emit a blank line, that phantom blank is a **real run
+boundary on the next parse**, and the wrong grouping becomes self-consistent:
+formatting is a fixed point that has quietly declined to sort two adjacent
+imports. No idempotency gate can see that. What caught it was the
+**author-order invariance** oracle — emit the same module with its imports in the
+other order, require the same bytes — the one gate we have that does not ask
+about repetition at all. We built it late, and a second oracle of that shape is
+still open work. If a formatter rewrites tokens at all, some of its comment bugs
+are fixed points, and running it twice will never show them to you.
 
 ---
 
-## 8. What the gates cannot see
+## 8. The bugs no property gate can see
 
-A portfolio of property gates has *shaped* holes, and they can be enumerated in
-advance. What each gate varies is in [testing.md](testing.md); two results are
-worth carrying out of it.
+Sections 5 and 6 argue that the barrier makes one class of comment bug hard to
+write and easy to reason about, and §7 says the argument leaves something over.
+None of that says what any of it is worth against the bugs this project has
+actually had. So we counted.
 
-### 8.1 Three holes that look covered
+The question is whether our test gates would have found each bug before we did,
+so we asked them, one bug at a time. Take a commit that fixed something. Check
+out the commit before it, which is the last state of the tree where the bug is
+still present, build that, and run every gate we have against the input that
+triggered the bug. If a gate fails there and passes at the fix, that gate would
+have caught the bug on its own. Call the bug **witnessed**. If no gate fails, the
+bug was invisible to the entire portfolio: it shipped, and nothing we own would
+have said a word.
 
-- **A dropped comment passes almost everything.** Deleting a comment is
-  AST-equivalent and the output is its own fixed point, so the end-to-end check
-  passes and so does every stability check; only a marker count and a multiset
-  oracle can see it. Caught twice here, both times a renderer indexing a node's
-  children positionally — in a formatter where **a comment is a child**. Not ours
-  alone: rustfmt carries 89 issue titles reporting a lost comment, 29 open, and
-  swift-format loses one today in a rule whose comment guard covers one slot of
-  three (§9.6).
-- **A wrongly *attached* comment passes even those.** A multiset oracle discards
-  positions on purpose, so a wrong-but-stable attachment is a perfectly good
-  fixed point; only §7.3's author-order oracle sees it, and only a generator can
-  run that.
-- **A run reassembled backwards is a perfectly good fixed point.** Tear a run
-  across a separator with the mover written *first* and the output is stable,
-  AST-equivalent and comment-preserving; only the *ordered* marker oracles see
-  it. Torn with the mover written *second*, nothing in the portfolio can see it
-  at all — that case is pinned by a fixture, found by enumerating the grid rather
-  than by a gate. [prettier #10108](https://github.com/prettier/prettier/issues/10108),
-  "Comments in array: idempotence violation *and change of order*", is the same
-  shape reported externally.
-
-One methodological finding generalizes well past formatters:
-
-> **A gate green over the wrong axis is indistinguishable from a correct
-> implementation.**
-
-Our comment axis ran green for months over two of the three comment kinds. Adding
-the third found 70 non-idempotencies the same afternoon. Check what a gate
-*varies* before trusting what it reports.
-
-### 8.2 The class no property gate sees at all
-
-Replayed against the project's own history: 135 fix commits, each checked out at
-its parent, built there, and run against the one input that triggered the bug. An
-oracle **witnesses** a bug when it fires at the parent and is clean at the fix —
-so a commit is only usable as an experiment if the tree builds at both, and **61
-of the 135 did**. 37 of those were witnessed by some oracle. **21 were invisible
-to the entire portfolio**: the output changed, and was *wrong but stable* —
+Not every commit can be used. The tree has to compile both before and after the
+fix, and in a project this old plenty of commits no longer build at all. Of 135
+fix commits, 61 were usable. Of those, 37 were witnessed, **21 were invisible**,
+and 3 would not reproduce. An invisible one means the output was wrong and also
 AST-equivalent, its own fixed point, every comment preserved, the end-to-end
-check exiting 0 at the parent. Each commit's class was assigned by hand from what
-was wrong, never from which oracle fired — which would have made the table below
-a tautology.
+check exiting 0. We labelled each bug by hand from what was broken, never from
+which gate fired, since the other way round would have made the table true by
+construction.
 
 | class | witnessed | invisible | not reproduced |
 |---|---:|---:|---:|
@@ -830,20 +787,51 @@ a tautology.
 | **layout** | **0** | **16** | 1 |
 | mixed · dropped-content · blank-lines · literal-corruption | 4 | 5 | 0 |
 
-The separation is almost perfect. The property portfolio caught **every** crash,
-oscillation, wrong-attachment and performance bug it was given — and **none of
-the seventeen layout bugs**, the single largest class in the corpus.
+The first row is the barrier's own class. Oscillation and wrong attachment are
+comment bugs of exactly the shape §3.2 draws — a comment placed from a position
+that formatting then invalidated — and the gates caught all 33. So the barrier
+and the portfolio turn out to be aimed at the same target from opposite sides: a
+gate finds an instance after someone writes it, the barrier is meant to stop it
+being written. Those 33 are the gates doing their job, and they are also 33 bugs
+that got written in the first place. §7's anchor bug is the one that needed
+both, since it was a fixed point and only the author-order oracle could see it.
 
-> A property oracle asks "did the output violate an invariant?" A layout bug
-> violates none. The output is complete, stable, AST-equivalent and
-> comment-preserving, and merely **wrong**. Only an expected answer, or a second
-> implementation to compare against, can say so.
+The second row is the one worth stopping on. Sixteen layout bugs ran, and every
+one of them was invisible; a seventeenth would not reproduce, so it says nothing
+either way. A layout bug breaks no property: the output is complete, stable,
+AST-equivalent, every comment present, and simply wrong. There is no invariant
+left for a gate to check. The barrier is no help either, for a reason that goes
+to what the barrier is — it governs *where* a placement decision gets made, not
+whether the decision is any good. A role assigned once from the author's
+positions, and re-derived identically on every pass afterwards, can still be the
+wrong role.
 
-That is why one gate takes its inputs from real published packages — the only
-inputs in the portfolio that nobody here chose. Every other gate is synthetic,
-built from a vocabulary this project authored, and a sweep of ten such packages
-found nine bugs, each a *feature conjunction* no single-axis gate could
-generate.
+The third row falls across that line, which is why it splits almost evenly. A
+dropped comment breaks preservation, and we have a check that counts the comments
+going in and coming out, so it gets caught. A blank line gained or lost around a
+comment is a layout bug wearing a comment's clothes, and nothing catches it. Same
+row, opposite outcomes, for the same reason the first two rows differ.
+
+The axis, then, is not comments versus code. It is **where** a comment goes
+versus **how** it looks once it is there. Everything this essay argues about —
+roles, the barrier, §6's coverage argument — lives on the *where* side, and so
+does every gate that fired. The *how* side has neither an architectural defense
+nor an invariant to check, and it is the largest single class in the corpus.
+
+What works over there is an expected answer or a second implementation, and we
+have one of each. The fixture suite is 391 hand-written before-and-after pairs,
+and it is the only reason a wrong indent gets caught here at all. The elm-format
+comparison in §9.5 is the second implementation: emit a construct, format it
+both ways, read the diff. Neither scales the way a property gate does. Both see
+things no property gate can.
+
+One last thing, because the inputs matter as much as the check does. Our comment
+axis ran green for months over two of §6.2's three comment kinds; adding the third
+found 70 non-idempotencies the same afternoon. A gate green over an axis it never
+varies looks exactly like a gate green over a correct implementation. That is
+also why one gate here draws its inputs from real published packages, the only
+inputs in the portfolio nobody here chose — ten of them turned up nine bugs, each
+a conjunction of features no single-axis generator would have produced.
 
 ---
 
@@ -887,13 +875,13 @@ we have two groups:
 | **A0–A2** — attachment delivered by the front end | all eight (google-java-format: partial) | — |
 | **A3–A4** — attachment must be reconstructed | **gren-format, alone** | prettier, ocamlformat, ormolu, gofmt, rustfmt, zig |
 
-**Every tool that must reconstruct attachment lacks the barrier, except ours** —
-and those six are where the survey's *architectural* instabilities live, the ones
+**Every tool that must reconstruct attachment lacks the barrier, except ours.**
+Those six are where the survey's *architectural* instabilities live, the ones
 answered with an exemption or an iteration loop rather than a fix (§9.3, §9.4,
 §9.8). §9.5 is the counterweight: having the barrier does not make a tool immune,
 it keeps its bugs local.
 
-The top row invites an inference that does not hold — that a front end which
+The top row invites an inference that does not hold: that a front end which
 delivers attached comments delivers the barrier along with it. Attachment is a
 fact about the input; the barrier is a prohibition on a stage, and most of
 §5.1's questions are not about comments at all. A trivia CST still carries a
@@ -918,8 +906,8 @@ exactly the two whose *layout* stage reads positions.
 
 ### 9.2 biome and CSharpier are the controlled experiment
 
-This is the strongest external evidence available for anything in this document,
-and it was produced by people with no stake in it.
+Neither biome nor CSharpier was built to test anything in this document. That is
+what makes the pair worth reading.
 
 **biome** is prettier's algorithm, prettier's 3×3 role model and prettier's
 80-column `Doc` fitter, rebuilt over a trivia-carrying rowan CST. **CSharpier** is
@@ -945,9 +933,9 @@ it formats it repeatedly, under a comment reading `(* iterate until formatting
 stabilizes *)`, bounded by a user-facing `--max-iters`, default **10**, after
 which it emits `BUG: formatting did not stabilize after %i iterations`.
 
-That is the most direct external evidence that §3.2's instability class is real,
-general, and unsolved: a mature, widely used formatter's shipped answer is *run it
-up to ten times and report a bug if it still moves.*
+A mature, widely used formatter's shipped answer to §3.2 is *run it up to ten
+times and report a bug if it still moves.* The class is real, and nobody has
+solved it.
 
 ### 9.4 gofmt has the strongest corpus gate in the survey, and an exemption inside it
 
@@ -974,10 +962,9 @@ fails when replayed on go1.25.1 — as does
 pass *invents* a bare `//` line. Separately, `go/printer`'s own fixture suite
 opts out per file, because idempotency "is very difficult to achieve in general".
 
-This is the sharpest form of the thesis available anywhere in the survey: **the
-corpus gate is not the missing piece.** gofmt has a bigger one than we do. What
-it does not have is an architecture in which the answer cannot go stale — so the
-gate finds the instance, the instance resists fixing, and the file gets an
+**The corpus gate is not the missing piece.** gofmt has a bigger one than we do.
+What it does not have is an architecture in which the answer cannot go stale, so
+the gate finds the instance, the instance resists fixing, and the file gets an
 exemption.
 
 ### 9.5 The barrier is necessary and demonstrably not sufficient
@@ -998,18 +985,17 @@ onto one line, which flipped the body's indentation between runs**" — and they
 show where the obligation went: topiary's engine cannot have the bug, so it lives
 in the per-language query files instead, for four years. Black's is better
 documented: omitting optional parentheses "**re-parents the comment onto a
-different leaf after the next parse**", which changes the split on a second pass
-— in a tool that runs `assert_stable` on every format. That is §7's shape
+different leaf after the next parse**", which changes the split on a second
+pass, in a tool that runs `assert_stable` on every format. That is §7's shape
 exactly: the classifier answered differently because its *anchor* moved, not
-because anything re-read a position. Biome's
-four are all at *composition boundaries*, where one barriered formatter's output
-becomes another's input.
+because anything re-read a position. Biome's four are all at *composition
+boundaries*, where one barriered formatter's output becomes another's input.
 
 Read that table together with §5.4: four tools have the barrier and no coverage
 argument, all four still ship the bug, and three compensate with a runtime check.
 
-**And elm-format, from the other direction.** It sits on rung A1 — named comment
-slots, no source positions anywhere for a layout rule to misread — and ships
+**And elm-format, from the other direction.** It sits on rung A1 (named comment
+slots, no source positions anywhere for a layout rule to misread) and ships
 §3.2's mechanism anyway: for a pipeline whose last step forces a multi-line
 block, it produces two different outputs for semantically identical code,
 differing only in how the author happened to break the source lines. We found it
@@ -1023,8 +1009,8 @@ it was.
 
 ### 9.6 swift-format is the control condition
 
-This is the survey's most useful external datapoint, because each stage of it is
-a stage of this document's argument.
+Each stage of swift-format's story is a stage of this document's argument, which
+is why it gets a section of its own.
 
 **The rule.** `BlankLineBetweenMembers` (2019-07-10) put at least one blank line
 between the members of a type. It is a phase-1 rule — it rewrites the syntax tree
@@ -1066,7 +1052,7 @@ choose.
 three rules that rewrite tokens. `OrderedImports` reconstructs attachment from
 row adjacency and then sorts the row out from under it: a file header above the
 first import is carried into the middle of the block when that import sorts down,
-and the output is **a fixed point** — §7.3's category exactly. **This one is not
+and the output is **a fixed point** — §7.2's category exactly. **This one is not
 a defect, and that is the better result.** It was reported as swift-format #772
 (2024-07-18) and closed as working-as-intended: attaching a leading comment is
 *required*, because a comment about the import below it is indistinguishable from
@@ -1126,7 +1112,7 @@ three report a comment migrating between owners across an import reordering
 ([#5485](https://github.com/rust-lang/rustfmt/issues/5485),
 [#6241](https://github.com/rust-lang/rustfmt/issues/6241),
 [#3127](https://github.com/rust-lang/rustfmt/issues/3127)) — §7's class, the one
-§8.1 says only an author-order oracle can see. Two things keep this from being a
+only an author-order oracle can see. Two things keep this from being a
 cheap comparison. The **arrival rate** rather than the backlog is the signal:
 roughly forty comment issues a year for eleven consecutive years, no downward
 trend, in a mature and near-universally deployed formatter. And **rustfmt is not
