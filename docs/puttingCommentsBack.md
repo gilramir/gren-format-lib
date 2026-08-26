@@ -1,17 +1,8 @@
 # Putting the comments back
 
 *How `gren-format` places comments when the parser it uses throws them away:
-what the problem is, what we built, what it does not cover, and what we
-measured afterwards.*
-
-This is an essay, not a reference, and deliberately not normative. The rules that
-decide where a comment actually lands are stated in **[How gren-format places
-your comments](commentHandling.md)** (C1–C7, with a worked example for each), and
-the implementation in **[The comment algorithm](commentAlgorithm.md)** (attachment
-fold, roles, state machines, the gates). This document restates just enough of
-both to make an argument and links down whenever the detail matters; where either
-disagrees with this one, it is right. Every code example here was produced by
-running the formatter.
+what the problem is, what we built, what it does not cover, and a survey
+of other formatters.*
 
 ## Table of contents
 
@@ -30,15 +21,15 @@ running the formatter.
 
 ## 1. Background
 
-`gren-format` reuses the Gren compiler's parser, and that parser discards
-comments. The formatter is handed a comment-free syntax tree plus a flat list of
-comments carrying nothing but `(row, column)` positions, and has to work out
-where each one belongs. The whole difficulty fits in a sentence:
+`gren-format` reuses the Gren compiler's upcoming parser, and that parser discards
+comments. The formatter is handed a comment-free syntax tree plus a list of
+comments carrying nothing but `(row, column)` positions, and has to figure out
+where each one belongs. The difficulty is:
 
 > **Placement is decided from source positions, and formatting invalidates the
 > positions the placement was decided from.**
 
-Get that wrong and the formatter is non-idempotent: formatting an
+It's easy to get that wrong and produce non-idempotent output: formatting an
 already-formatted file changes it again.
 
 Our answer is the **position barrier** — a line drawn across the pipeline that
@@ -46,20 +37,29 @@ source positions do not cross. Above it, in the logical stage, code reads the
 author's rows freely; that is where every comment's placement is decided, once,
 and recorded as one of seven roles. Below it, in the stage that chooses line
 breaks and writes bytes, positions are not merely off-limits, they are *absent*:
-the renderer consumes a different type with every position field dropped, so a
-row read down there is a compile error rather than a review comment.
+the renderer consumes a different data structure with every position field dropped, so
+the formatter author simply cannot access the row and column of anything.
 
-The barrier does not buy the fixed point. It buys **localization** — with nothing
-downstream reading a position, the only thing that can differ between two runs is
-one function's answer. Discharging what is left is the second half of this
-document: holding *every* row-keyed decision to the same criterion and not just
-the ones that place a comment (§5.3), covering the rewrites that move a comment's
-anchor out from under a decision that was right when it was made (§7), and
-knowing which bug classes a property gate cannot see at all (§8).
+The barrier does not buy idempotency. It buys **localization**: with nothing
+below the line reading a source position, two runs can disagree only if one
+function — the classifier that assigns those roles — answers differently on the
+second pass. The risk that was spread across every layout rule before we
+implemented the position barrier now sits in one place.
+
+That only narrows the problem; we still ran into other problems:
+
+- **§5.3** — the comment classifier is not the only code above the barrier
+  that reads the author's rows, so care must still be taken to trust the source position
+  during the logical stage.
+- **§7** — formatting rewrites code as well as laying it out. Sorting an import
+  list moves the code a comment was attached to, so a placement that was right
+  when it was decided is wrong by the time the file is read back.
+- **§8** — some bugs break no property at all: the output is complete, stable
+  and comment-preserving, and merely wrong. No property gate can see them.
 
 ---
 
-## 2. Five kinds of front end, and no parser of our own
+## 2. Five kinds of formatter front ends
 
 Formatters are usually told apart by their layout algorithm — whether they fit
 lines to a page width, how they choose where to break. For comments, none of
@@ -77,7 +77,7 @@ decreasing order of how much work the parser has already done.
 | **A3** | a **comment-free AST**, beside a flat source-ordered list of located comments | **gren-format**, [ormolu](https://github.com/tweag/ormolu), [ocamlformat](https://github.com/ocaml-ppx/ocamlformat), [gofmt](https://github.com/golang/go/tree/master/src/go/printer), [prettier](https://github.com/prettier/prettier) |
 | **A4** | nothing; comments are recovered by re-reading the raw source between two nodes' byte offsets | [rustfmt](https://github.com/rust-lang/rustfmt), [zig fmt](https://github.com/ziglang/zig/blob/master/lib/std/zig/Ast/Render.zig) |
 
-**One word in that table needs spelling out.** *Trivia* is what compiler front
+**Trivia** is what compiler front
 ends call the bytes between two tokens that the grammar does not care about:
 whitespace, newlines and comments. A trivia-carrying front end does not discard
 them; it hangs them off the token they sit beside, split into *leading* trivia
@@ -90,11 +90,12 @@ starts: the front end answered "which code is this comment beside?" while it was
 still looking at the input, and the answer travels with the tree. Placement is
 then a question about a tree the comment is already in, and the problem this
 document is about does not arise — though it is worth noting that four of those
-eight tools have shipped idempotency fixes anyway (§9.5), and that the gate
-blindness of §8 is not rung-specific.
+eight tools have shipped idempotency fixes anyway (§9.5), so just knowing
+where comments should attach is not enough to guarantee idempotency. The test
+problems of §8 apply to all the rungs of formatter front-ends.
 
-On **A3 and A4** that question was never asked, so attachment does not exist yet
-and has to be reconstructed — from source positions, which are the one piece of
+On **A3 and A4** the comments are not attached to the parse tree, so it
+has to be reconstructed — from source positions, which are the one piece of
 evidence formatting destroys. Every instability story in §9 lives on those two
 rungs.
 
@@ -102,22 +103,18 @@ A3 is not an exotic place to be: it is simply **what a production compiler's
 parser hands a formatter**, and five of the fifteen tools surveyed are there.
 
 **`gren-format` is on A3, deliberately.** It has no parser of its own: it calls
-the Gren compiler's parser — the same front end that compiles the code being
+the Gren compiler's in-development parser — the same front end that compiles the code being
 formatted. That buys one guarantee, and it is the reason for everything that
 follows: **the formatter can never drift from the language.** It accepts exactly
 what the compiler accepts, this release and every future one. A formatter with
-its own grammar is a bug factory whose bugs are silent, because they appear only
-on the inputs nobody wrote a test for — and a language that is still moving will
+its own grammar is a bug waiting to happen, and a language that is still moving will
 outrun a second grammar.
 
 The price is exact and unavoidable: a compiler's parser discards comments,
-because a compiler does not need them. We took it anyway, because Gren's front
+because a compiler does not need them. We use it anyway, because Gren's front
 end is still moving and a formatter that can never disagree with it is worth more
 to us than easy comment placement. Had the compiler already carried trivia we
-would have taken that instead, since it is free; a project that can afford to
-maintain a second grammar can buy its way out of this document entirely. The rest
-of it is the size of the bill we chose to pay, and §7 and §8 are the two largest
-line items on it.
+would have taken that instead.
 
 ---
 
@@ -162,7 +159,7 @@ the formatter receives an AST for `sizes = [1, 2]` and, separately:
 The comment does not know it is inside an array. The array does not know a
 comment exists. The only thing connecting them is a `(row, column)` pair.
 
-### 3.2 The one sentence
+### 3.2 Reattachment vs Formatting
 
 That is a reattachment problem, and reattachment interacts badly with the one
 thing a formatter does:
@@ -189,7 +186,7 @@ reading a comment written below a declaration, which is a different question
 with a different answer (detach to column 1). The file now has two spellings and
 alternates between them for ever.
 
-**Every comment bug this project has fixed is a variation on that one sentence.**
+**Every comment bug this project has fixed is a variation on this.**
 Oscillation is the single largest bug class in the project's history that any
 property gate can see (§8.2).
 
@@ -201,22 +198,33 @@ property gate can see (§8.2).
 2. **Faithful placement.** The comment lands beside the code the author wrote it
    beside. Specified as [C1–C7](commentHandling.md#the-seven-rules-at-a-glance):
    the first two decide *which code a comment attaches to*, the last five decide
-   *how it is laid out*. They do not trade against each other — attachment is
-   settled first, and layout works with whatever it is given.
+   *how it is laid out*. Attachment is settled first, then layout works
+   with whatever it is given.
 3. **Idempotency.** `format(format(x)) = format(x)`, byte for byte.
 
 Properties 1 and 2 come nearly free from a trivia-preserving front end. Property
-3 is where the architectures separate. Under trivia, a comment's slot in the tree
+3 is where the architectures separate. With trivia, a comment's slot in the tree
 is stable across formatting because it was never derived from layout in the first
 place. Here it is derived from layout, and layout is the output:
 
 ```
-placement    = place(code, positions)
-output       = layout(place(code, positions))
-second run   = place(code, positions')    where positions' = rows-of(output) ≠ positions
+run¹   placement¹ = place(code, positions)          -- positions = the author's rows
+       output¹    = layout(code, placement¹)
+
+run²   placement² = place(code, rows-of(output¹))   -- not the author's rows any more
+       output²    = layout(code, placement²)
 ```
 
-Nothing makes those two agree by construction. Something has to.
+Idempotency is `output² = output¹`, and it follows as soon as
+`placement² = placement¹` — that is, as soon as `place` gives the same answer
+asked about the formatter's own rows as it gave about the author's. Nothing above
+makes those two agree by construction. Something has to, and here it is one rule
+on the classifier — **a role must re-derive to itself** (§4): every comment is
+placed so that the row its placement was decided from is the row it renders on.
+Run 2 then asks the same question of the same row and gets the same answer.
+
+Note what is held fixed: `code` is the same in both runs. §7 is what happens when
+it is not.
 
 It is worth separating 1 from 2 explicitly, because keeping the comment does not
 give attachment. Black keeps every comment — they ride in a leaf's whitespace
@@ -238,28 +246,30 @@ optimizer that recomputes layout from scratch has no stale authorial rows to be
 wrong about. The survey in §9 contradicts that in both directions: prettier *is*
 that optimizer and has the class anyway, at a nine-year scale, while gofmt has no
 fitter at all and is not stable either. The variable is whether *placement* reads
-positions, not whether *layout* is author-driven.
+source positions, not whether *layout* is author-driven.
 
-What author-driven layout really does is make the authorial rows *more tempting
+What author-driven layout really does is make the author's rows *more tempting
 to read*. They are right there, and they are usually correct. That is precisely
 why the ban in §5 has to be mechanical rather than advisory.
 
-### 3.5 The shape of the answer
+### 3.5 The pipeline with the position barrier
 
-Eight steps; the rest of this document is about four of them.
+Here is `gren-format`'s algorithm, with the position barrier dividing the
+pipeline.
 
 ![The eight pipeline steps, and where the position barrier falls](diagrams/position-barrier.png)
 
 **Step 2** is where every placement decision is made, and §4 is the argument for
 making all of them there, once, rather than at each point of use. **Step 6** is
-the barrier, and §5 is what it costs to have the type checker hold it.
+the barrier, and §5 desribes it.
 
 **Steps 4 and 5 are shaded with step 2** because they are the same kind of step:
 all three read the author's rows. The difference is that they run *after* the
 placement decision and still on the legal side of the line, so nothing stops
-them moving a row step 2 was already decided from. Both of this document's
-hard-won sections are about that — §5.3, where the barrier turns out not to
-cover them, and §7, where sorting moves the code a comment was attached to.
+them moving a row step 2 was already decided from. So care must be taken!
+Both of this document's hard-won sections are about that — §5.3,
+where the barrier turns out not to cover them, and §7,
+where sorting moves the code a comment was attached to.
 
 ---
 
@@ -338,8 +348,8 @@ is revisited. The full decision procedure is
 **Every role has to survive being re-derived from the formatter's own output.**
 That is the rule the classifier is written to satisfy:
 
-> A role is a reparse fixed point: **the row a comment's placement is decided
-> from is the row that comment renders on.**
+> **A role must re-derive to itself**: the row a comment's placement is decided
+> from is the row that comment renders on.
 
 If the classifier says "this comment trails the item before it" because the
 author wrote it on that item's last row, then the comment must come out on that
@@ -361,12 +371,13 @@ until the last one is in
 returns a `CommentRole` — not a `Maybe`, not a `Result`, no `Unknown`
 constructor, no branch that leaves the question for the renderer to settle later.
 
-That totality is what §6 spends. Because the answer is always exactly one of
-seven values, a file with *n* comments carries *n* independent labels — not a
-combined state depending on how those comments sit relative to one another. The
-alternative is what people expect a comment placer to look like inside: a case
-analysis over *configurations*, a space that grows with the number of comments in
-one place and always has a corner nobody enumerated. There is no such space here.
+That totality is what makes §6's argument possible. Because the answer is always
+exactly one of seven values, a file with *n* comments carries *n* independent
+labels — not a combined state depending on how those comments sit relative to one
+another. The alternative is what people expect a comment placer to look like
+inside: a case analysis over *configurations*, a space that grows with the number
+of comments in one place and always has a corner nobody enumerated. There is no
+such space here.
 
 Deciding once is, incidentally, *not* the unusual part: ten of the fifteen tools
 surveyed in §9 do it, into role sets of two to nine members. What differs is
@@ -406,14 +417,15 @@ author's:
 | is there a line here to glue onto? | what the renderer has emitted so far (§5.3) |
 
 The second list is the whole of what the renderer is allowed to ask, and nothing
-on it is a source position — including the first row, which sounds like one.
-That row is §4's substitution seen from this side: `TrailsPrevious` says *glue
-onto the previous sibling's last rendered line*, `TrailsHead` says *onto the
-container's head*, `LeadsNext` says *the sibling after an unrecorded separator*
-— directions a renderer can follow without coordinates.
+on it is a source position — including *where does this comment go?*, which
+sounds like one. That question is §4's substitution seen from this side:
+`TrailsPrevious` says *glue onto the previous sibling's last rendered line*,
+`TrailsHead` says *onto the container's head*, `LeadsNext` says *the sibling
+after an unrecorded separator* — directions a renderer can follow without
+coordinates.
 
-The fourth row is what makes this affordable rather than merely strict: the
-questions that genuinely do need the author's rows still get answered — the
+The author-intent entry is what makes this affordable rather than merely strict:
+the questions that genuinely do need the author's rows still get answered — the
 renderer is handed the answer instead of the evidence, and cannot re-derive it
 later against different rows.
 
@@ -483,10 +495,10 @@ saw none and emitted one. Read correctly, the sentence was never about roles:
 
 ### 5.4 What the barrier is actually for
 
-It does not *prove* the fixed point. It **localizes the obligation**.
+It does not *prove* idempotency. It **localizes the obligation**.
 
 With no positional read downstream, the only thing that can differ between run 1
-and run 2 is the classifier's answer. So "is formatting a fixed point?" stops
+and run 2 is the classifier's answer. So "is formatting idempotent?" stops
 being a question about the whole pipeline and becomes a question about a single
 function — one that always returns an answer, and always one of seven. That is
 what makes the coverage argument in §6 possible at all. Without it, the
@@ -695,7 +707,7 @@ comments count as part of an import unit, the group boundary the sorter keys on
 moves too. Nothing re-read a position at render time; the classifier answered a
 different question because the code had changed shape. Underneath was an
 invariant nobody had written down — **siblings are disjoint and in row order** —
-which promotion is exactly what breaks.
+and promotion is exactly what breaks it.
 
 **And no gate here could have seen it.** Every comment-gap sweep ran against the
 corpus of **already-formatted** fixtures, and the rewrite that moves an anchor
@@ -723,7 +735,7 @@ That is the one gate in the portfolio that does not ask about repetition at all.
 So, exactly:
 
 > §6 establishes that run length and composition are not inputs to placement. It
-> does **not** establish that placement is a fixed point, because it assumes an
+> does **not** establish that placement re-derives to itself, because it assumes an
 > anchor the formatter is free to move.
 
 Obligation (ii) **cannot be discharged by idempotency testing at all**, since the
@@ -775,12 +787,16 @@ the third found 70 non-idempotencies the same afternoon. Check what a gate
 
 ### 8.2 The class no property gate sees at all
 
-Replayed against the project's own history — 135 fix commits, each parent built
-and today's oracles run against the one triggering input — 61 rows were usable at
-both ends. 37 were witnessed by some oracle. **21 were invisible to the entire
-portfolio**: the output changed, and was *wrong but stable* — AST-equivalent, its
-own fixed point, every comment preserved, the end-to-end check exiting 0 at the
-parent.
+Replayed against the project's own history: 135 fix commits, each checked out at
+its parent, built there, and run against the one input that triggered the bug. An
+oracle **witnesses** a bug when it fires at the parent and is clean at the fix —
+so a commit is only usable as an experiment if the tree builds at both, and **61
+of the 135 did**. 37 of those were witnessed by some oracle. **21 were invisible
+to the entire portfolio**: the output changed, and was *wrong but stable* —
+AST-equivalent, its own fixed point, every comment preserved, the end-to-end
+check exiting 0 at the parent. Each commit's class was assigned by hand from what
+was wrong, never from which oracle fired — which would have made the table below
+a tautology.
 
 | class | witnessed | invisible | not reproduced |
 |---|---:|---:|---:|
@@ -797,10 +813,11 @@ the seventeen layout bugs**, the single largest class in the corpus.
 > comment-preserving, and merely **wrong**. Only an expected answer, or a second
 > implementation to compare against, can say so.
 
-That is why one gate's inputs are chosen by nobody here — every other one is
-synthetic, built from a vocabulary this project authored, and a sweep over ten
-published packages found nine bugs, each a *feature conjunction* no single-axis
-gate could generate.
+That is why one gate takes its inputs from real published packages — the only
+inputs in the portfolio that nobody here chose. Every other gate is synthetic,
+built from a vocabulary this project authored, and a sweep of ten such packages
+found nine bugs, each a *feature conjunction* no single-axis gate could
+generate.
 
 ---
 
@@ -909,7 +926,7 @@ inside the emission loop. A maintainer's diagnosis on the resulting issue states
 > same line after formatting.**"
 
 `cmd/gofmt/long_test.go` re-formats **every `.go` file under `GOROOT`** and
-asserts the fixed point. It works — it caught the bug on a file in Go's own tree.
+asserts idempotency. It works — it caught the bug on a file in Go's own tree.
 But the bug is architectural, not local, and what has shipped since 2018 is an
 exemption *inside the gate*: a `strings.HasSuffix(filename, "issue22662.go")`
 branch that logs "known gofmt idempotency bug" and returns.
@@ -931,7 +948,7 @@ exemption.
 Mining the full histories of the five barrier-holding tools we cloned turns up
 idempotency fixes in four of them, two within six weeks of the survey date:
 
-| tool | idempotency fixes | comment-related | latest | fixed-point gate |
+| tool | idempotency fixes | comment-related | latest | idempotency gate |
 |---|---|---|---|---|
 | topiary | 8 (OCaml ×6, Nickel ×2) | 0 | 2026-07-20 | runtime, default on |
 | Black | 9 | 3 | 2026-07-21 | runtime, default on |
@@ -944,9 +961,10 @@ onto one line, which flipped the body's indentation between runs**" — and they
 show where the obligation went: topiary's engine cannot have the bug, so it lives
 in the per-language query files instead, for four years. Black's is better
 documented: omitting optional parentheses "**re-parents the comment onto a
-different leaf after the next parse**", changing the split on a second pass, in a
-tool that runs `assert_stable` on every format — the shape §6 does not cover, the
-classifier answering differently because its *anchor* moved, which is §7. Biome's
+different leaf after the next parse**", which changes the split on a second pass
+— in a tool that runs `assert_stable` on every format. That is §7's shape
+exactly: the classifier answered differently because its *anchor* moved, not
+because anything re-read a position. Biome's
 four are all at *composition boundaries*, where one barriered formatter's output
 becomes another's input.
 
@@ -1093,7 +1111,7 @@ label carried **109 issues, 54 open**, and **47 carried both `area:comments` and
 The contrast is sharper than either tracker alone:
 
 > A **discarding** parser puts *preservation* at risk — rustfmt loses comments in
-> volume, for years. **Keeping** the comment does not buy the fixed point,
+> volume, for years. **Keeping** the comment does not buy idempotency,
 > because attachment is still decided from positions that printing invalidates —
 > prettier loses almost nothing and oscillates constantly.
 
@@ -1108,7 +1126,7 @@ swift-format deletes the rule; ocamlformat iterates ten times; topiary reserves
 an exit code. Five projects, five ways of declining a fix, each an implicit
 judgment that the class is architectural rather than local.
 
-Runtime fixed-point checking is itself a recognized pattern — four of the fourteen
+Runtime idempotency checking is itself a recognized pattern — four of the fourteen
 ship one. ormolu offers `--check-idempotence`; ocamlformat iterates; topiary
 checks by default; Black checks by default in `--safe` mode, alongside an AST
 equivalence check, and its source names the failure mode precisely:
