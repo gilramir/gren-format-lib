@@ -20,7 +20,7 @@ digraph PositionBarrier {
 
     // ── The logical stage ────────────────────────────────────────
     subgraph cluster_logical {
-        label="the logical stage — every row is still the author's, and reading one here is legal";
+        label="the logical stage — every position is still the author's, and reading one here is legal";
         labeljust="l";
         fontsize=11;
         fontcolor="#5b6b7c";
@@ -28,23 +28,23 @@ digraph PositionBarrier {
         color="#9aa8b6";
         margin=12;
 
-        // steps whose DECISIONS do not read the author's rows
+        // steps whose DECISIONS do not read the author's positions
         node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
-        s1 [group="flow", label="1 · build\nwalk the AST into one node per declaration\n— no comments in it yet"];
+        s1 [group="flow", label="1 · build\nwalk the AST into one node per declaration\n(no comments in it yet)"];
         s3 [group="flow", color="#c07a2c", penwidth=1.8,
-            label=<3 · repair<BR/>two passes over the finished tree: build the tree<BR/>a reparse of our own output would build<BR/><FONT POINT-SIZE="9" COLOR="#8a5a1e">its decisions read no rows — its bookkeeping<BR/>reads and rewrites them, so it runs before step 4</FONT>>];
+            label=<3 · repair<BR/>two passes over the finished tree: build the tree<BR/>a reparse of our own output would build<BR/><FONT POINT-SIZE="9" COLOR="#8a5a1e">its decisions read no positions — its bookkeeping<BR/>reads and rewrites the row ranges, so it runs before step 4</FONT>>];
 
-        // steps that DO read the author's rows
+        // steps that DO read the author's positions
         node [shape=box, style="rounded,filled", fillcolor="#fdeee0", color="#c07a2c", fontcolor="#5a3410"];
         s2 [group="flow", label="2 · attach\nplace each comment; record the answer\nas one of seven roles                    § 4"];
         s4 [group="flow", label="4 · sort\nexposing lists, import groups"];
         s5 [group="flow", label="5 · space\nblank lines between top-level items"];
 
         node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
-        rowNote [label="These three steps read the\lauthor's rows to make decisions.\lSteps 4 and 5 run after step 2 —\lso they can move a row that step 2\lhas already been decided from.\l        § 5.3, § 7\l"];
+        posNote [label="These three steps read the\lauthor's positions to make decisions.\lSteps 4 and 5 run after step 2 — so they\lcan move a position that step 2 has\lalready been decided from.\l        § 5.3, § 7\l"];
 
         s1 -> s2 -> s3 -> s4 -> s5;
-        { rank=same; s4; rowNote }
+        { rank=same; s4; posNote }
 
         // One invisible waypoint low on the left: enough to pull the roles edge
         // down the west side rather than around the east, without turning it
@@ -59,7 +59,7 @@ digraph PositionBarrier {
     roles [shape=box, style="rounded,filled", fillcolor="#e8f3f0", color="#2e7d6b",
            fontcolor="#14453a", fontsize=10, penwidth=1.6,
            label=<COMMENT ROLES<BR/><FONT POINT-SIZE="9">the seven answers of § 4 —<BR/>what the renderer gets<BR/>instead of a position</FONT>>];
-    barrier [group="flow", label="THE POSITION BARRIER\n6 · lower — copy the tree into a type with no (row, col) field on it anywhere,\nso a row read below this line is a compile error rather than a review comment.        § 5.2"];
+    barrier [group="flow", label="THE POSITION BARRIER\n6 · lower — copy the tree into a type with no (row, col) field on it anywhere        § 5.2"];
 
     { rank=same; roles; barrier }
     roles -> barrier [style=invis];
@@ -97,9 +97,9 @@ digraph PositionBarrier {
     wl -> roles:n [arrowhead=normal];
     roles -> s7 [arrowhead=normal, constraint=false];
 
-    s2 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
-    s4 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
-    s5 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    s2 -> posNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    s4 -> posNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    s5 -> posNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
 
     { rank=same; ast; ctx }
 }
