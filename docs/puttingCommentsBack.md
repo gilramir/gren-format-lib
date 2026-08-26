@@ -271,6 +271,14 @@ Both of this document's hard-won sections are about that — §5.3,
 where the barrier turns out not to cover them, and §7,
 where sorting moves the code a comment was attached to.
 
+**Step 3 keeps the blue fill but takes an orange border**, because it is half of
+each. Its decisions are made from a comment's role and its own text, never from
+a row — but the bookkeeping that records them reads and rewrites the row ranges
+the later steps go on to read. That is what fixes its place in the order: step 4
+renumbers rows when it moves an import, and step 3 writes a range derived from
+the numbering step 4 has not yet changed. Running the two the other way round
+leaves one node holding a row from each numbering.
+
 ---
 
 ## 4. Decide once

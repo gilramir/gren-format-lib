@@ -28,10 +28,11 @@ digraph PositionBarrier {
         color="#9aa8b6";
         margin=12;
 
-        // steps that do NOT read the author's rows
+        // steps whose DECISIONS do not read the author's rows
         node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
         s1 [group="flow", label="1 · build\nwalk the AST into one node per declaration\n— no comments in it yet"];
-        s3 [group="flow", label="3 · repair\ntwo passes over the finished tree: build the tree\na reparse of our own output would build"];
+        s3 [group="flow", color="#c07a2c", penwidth=1.8,
+            label=<3 · repair<BR/>two passes over the finished tree: build the tree<BR/>a reparse of our own output would build<BR/><FONT POINT-SIZE="9" COLOR="#8a5a1e">its decisions read no rows — its bookkeeping<BR/>reads and rewrites them, so it runs before step 4</FONT>>];
 
         // steps that DO read the author's rows
         node [shape=box, style="rounded,filled", fillcolor="#fdeee0", color="#c07a2c", fontcolor="#5a3410"];
@@ -40,15 +41,28 @@ digraph PositionBarrier {
         s5 [group="flow", label="5 · space\nblank lines between top-level items"];
 
         node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
-        rowNote [label="These three steps read the author's rows.\lSteps 4 and 5 run after step 2 — so they can move a row\lthat step 2 has already been decided from.        § 5.3, § 7\l"];
+        rowNote [label="These three steps read the\lauthor's rows to make decisions.\lSteps 4 and 5 run after step 2 —\lso they can move a row that step 2\lhas already been decided from.\l        § 5.3, § 7\l"];
 
         s1 -> s2 -> s3 -> s4 -> s5;
         { rank=same; s4; rowNote }
+
+        // One invisible waypoint low on the left: enough to pull the roles edge
+        // down the west side rather than around the east, without turning it
+        // into a polyline.
+        wl [shape=point, width=0.02, height=0.02, style=invis, label=""];
+        { rank=same; wl; s5 }
+        wl -> s5 [style=invis];
     }
 
     // ── The barrier itself ───────────────────────────────────────
     node [shape=box, style="filled", fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=10, penwidth=2];
+    roles [shape=box, style="rounded,filled", fillcolor="#e8f3f0", color="#2e7d6b",
+           fontcolor="#14453a", fontsize=10, penwidth=1.6,
+           label=<COMMENT ROLES<BR/><FONT POINT-SIZE="9">the seven answers of § 4 —<BR/>what the renderer gets<BR/>instead of a position</FONT>>];
     barrier [group="flow", label="THE POSITION BARRIER\n6 · lower — copy the tree into a type with no (row, col) field on it anywhere,\nso a row read below this line is a compile error rather than a review comment.        § 5.2"];
+
+    { rank=same; roles; barrier }
+    roles -> barrier [style=invis];
 
     // ── The rendering stage ──────────────────────────────────────
     subgraph cluster_render {
@@ -73,6 +87,15 @@ digraph PositionBarrier {
     s5  -> barrier [ltail=cluster_logical, style=bold, color="#c9a227", arrowhead=none];
     barrier -> s7  [lhead=cluster_render, style=bold, color="#c9a227"];
     s8 -> out;
+
+    // The one answer that crosses the barrier: positions are dropped, roles are not.
+    // `wl` is what keeps this on the WEST side: as an ordinary forward edge into a
+    // waypoint below step 2, dot splines it down the left. With constraint=false it
+    // would be routed as a back-edge, around the east, however the ports are named.
+    edge [style=dashed, penwidth=1.4, color="#2e7d6b", fontcolor="#2e7d6b", fontsize=9, arrowhead=none];
+    s2 -> wl [arrowhead=none];
+    wl -> roles:n [arrowhead=normal];
+    roles -> s7 [arrowhead=normal, constraint=false];
 
     s2 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
     s4 -> rowNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
