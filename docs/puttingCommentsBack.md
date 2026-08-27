@@ -6,7 +6,7 @@ other formatters do about the same thing.*
 
 ## Table of contents
 
-- [1. Background](#1-background)
+- [1. Introduction](#1-introduction)
 - [2. Five kinds of front end, and no parser of our own](#2-five-kinds-of-front-end-and-no-parser-of-our-own)
 - [3. The problem, concretely](#3-the-problem-concretely)
 - [4. Decide once — the role, not the position](#4-decide-once--the-role-not-the-position)
@@ -19,14 +19,16 @@ other formatters do about the same thing.*
 
 ---
 
-## 1. Background
+## 1. Introduction
 
 `gren-format` has no parser of its own. It uses the Gren compiler's parser, and
-that parser, like most compiler parsers, throws comments away. What the
-formatter is handed is a syntax tree with no comments in it, plus a separate
-list of the comments, each tagged with nothing but where it was in the source:
-a `(row, column)` pair. From that, the formatter has to work out
-where each comment belongs and put it back.
+that parser, like most compiler parsers, throws comments away. That is a choice
+rather than an accident: a formatter that shares the compiler's parser can
+never drift from the language, and we would rather pay for comment placement
+than for a second parser (§2). What the formatter is handed is a syntax tree
+with no comments in it, plus a separate list of the comments, each tagged with
+nothing but where it was in the source: a `(row, column)` pair. From that, the
+formatter has to work out where each comment belongs and put it back.
 The difficulty is easy to state:
 
 > **Placement is decided from source positions, and formatting invalidates the
@@ -34,6 +36,11 @@ The difficulty is easy to state:
 
 If the formatter gets that wrong, the output is not idempotent.
 Run it on a file it just formatted and the file changes again. This is bad.
+Keeping every comment is easy, placing each beside the code the author wrote
+it beside is harder, and neither of those gives idempotency; it has to be
+engineered in on its own (§3.3). Nor is the cause our choice to lay code out
+the way the author did rather than to fit a page width: formatters that refit
+from scratch have the same problem (§3.4).
 
 Our answer is the **position barrier**: a line drawn across the pipeline that
 source positions do not cross. Above the line, in what we call the logical
@@ -42,7 +49,8 @@ comment's relative placement is decided, once, and recorded as one of seven *rol
 Below the line, in the stage that picks line breaks and writes bytes, positions
 are not just off-limits, they are gone. The renderer works on a different data
 structure with every position field removed, so there is no way to ask for the
-row or column of anything.
+row or column of anything. That is enforced by the type checker, not by review
+(§5).
 
 **So what crosses the barrier is a role, not a position**, and that one
 substitution shapes everything below the line. A `(row, column)` pair describes
@@ -50,19 +58,30 @@ the file the author wrote; the renderer is producing a different file, so the
 pair is stale the moment layout begins. A role describes the placement relative
 to the comment's neighbours instead: which one it belongs to and how it
 attaches. `TrailsPrevious`, for instance, means "glue onto the previous
-sibling's last rendered line". That stays true however the lines move, because
-it never mentioned any line number. The seven roles, and what each tells the renderer to do,
-are in §4.
+sibling's last rendered line". That is a direction the renderer can follow
+however the lines move, because it never mentioned a line number. It stays
+*correct* from one run to the next only if the output honours it, so the
+classifier is written to one rule: **a role must re-derive to itself**. The
+position a comment's placement was decided from is the position it renders at,
+and the second run then asks the same question of the same row. The seven
+roles, what each tells the renderer to do, and that rule are in §4.
 
-The barrier does not guarntee idempotency on its own. What it buys is **localization**.
+The barrier does not guarantee idempotency on its own. What it buys is **localization**.
 With nothing below the line reading a position, two runs of the formatter can
 disagree only if the role-classifier function answers
 differently the second time. Before introducing the barrier that risk was
 spread over every layout rule. After adding the position barrier to `gren-format`,
-that decision sits in one place.
+that decision sits in one place. §6 is the argument that the one place is
+right: a run of comments of any length and any mix of kinds reaches no decision
+that a run of two does not, so what the barrier leaves behind is small enough
+to reason about in full.
 
 Even with the barrier there were problems left over, and we hit all of them:
 
+- A role is not a row. Turning `TrailsPrevious` into output still needs to
+  know whether there is a line to glue onto, and that is a fact about what the
+  renderer has just emitted: legitimately below the line, and still possible
+  to get wrong (§5.3).
 - The classifier is not the only code above the barrier that reads the author's
   positions, and some of the other code *moves* them. A decision keyed on a
   position that the pipeline later moves is just as stale as a decision made
@@ -73,9 +92,14 @@ Even with the barrier there were problems left over, and we hit all of them:
 - Some bugs break no property at all. The output is complete, stable, and
   keeps every comment. It is just wrong. No property gate can see those (§8).
 
+§9 puts all of this beside fourteen other formatters. The barrier turns out to
+be neither our idea nor rare. What is new is holding it while also
+reconstructing attachment from a list of positions, which no other tool that
+has to do that reconstruction does.
+
 ---
 
-## 2. Five kinds of formatter front ends
+## 2. Five kinds of front end, and no parser of our own
 
 Formatters are usually compared by their layout algorithm: whether they fit
 lines to a page width and how they pick where to break. For comments, that is not
@@ -189,7 +213,7 @@ Separately, the Context has this:
                   "end":   { "row": 5, "col": 15 } } ] }
 ```
 
-The coment lives on row 5.
+The comment lives on row 5.
 The comment does not know it is inside an array. The array does not know a
 comment exists. The only thing connecting them is a `(row, column)` pair across
 two data structures.
@@ -293,7 +317,7 @@ fitter at all and is not stable either. The variable is whether *placement*
 reads source positions, not whether *layout* is author-driven.
 
 What author-driven layout does do is make the author's positions more tempting
-to read. The (rol, column) data are right there, and they are usually correct.
+to read. The (row, column) data are right there, and they are usually correct.
 That is why the ban in §5 has to be mechanical rather than advisory.
 
 ### 3.5 The pipeline
@@ -465,7 +489,7 @@ with its answer.
 
 ---
 
-## 5. The position barrier
+## 5. The position barrier, and how to make it a type
 
 ### 5.1 The rule
 
@@ -561,7 +585,7 @@ what the renderer has just emitted. That is legitimately below the barrier,
 answered from render state rather than positions, and perfectly possible to
 get wrong.
 
-**On the logical of the barrier, different stages of the pipeline can modify
+**On the logical side of the barrier, different stages of the pipeline can modify
 positions.** Above the barrier, reading source positions is legal and necessary.
 But they stop being the author's part-way through the logical stage. Steps 4
 and 5 in §3.5 can each move a position that step 2 decided from. A decision
@@ -770,7 +794,7 @@ role(k) = f(code, comments 1 … k−1)
 ```
 
 §6 shows that `f` is length-independent in its **second** argument. But `code` is
-an argument too, so we must worry about about both code and comments, requiring:
+an argument too, so we must worry about both code and comments, requiring:
 
 > **(i)** given the same `code`, `f` returns the same roles when re-asked over
 > the output's positions; and
@@ -801,7 +825,7 @@ That comment's range overlaps the import's, and there is nowhere inside an
 import node for it to live, so attachment promotes it to a sibling and the
 first pass prints it on a row of its own. When we sorted the imports,
 we messed up, and the formatter saw the comment as a different role as
-a result. Same number of comments, but roles came out differnet because
+a result. Same number of comments, but roles came out different because
 we changed the code incorrectly.
 
 Our comment-gap sweeps could not have found it. But there we made a mistake too
@@ -945,7 +969,7 @@ immune, it keeps its bugs local.
 The top row invites an inference that does not hold, that a front end which
 delivers attached comments delivers the barrier with them. Attachment is a fact
 about the input; the barrier is a prohibition on a stage, and most of the
-questions in §5.1 are not about comments at all. A trivia concrete syntaxt tree
+questions in §5.1 are not about comments at all. A trivia concrete syntax tree
 (CST) still carries a
 position on every token. So seven of those eight built the barrier themselves,
 each in an IR that drops positions. Only elm-format is simply handed it, and
@@ -1242,38 +1266,39 @@ Three of those four tools *have* the barrier and check anyway.
 ## 10. Summary
 
 The problem is one sentence: placement is decided from source positions, and
-formatting invalidates them. We are in that position by choice, because
-reusing the compiler's parser is worth more to us than a parser that keeps
-comments (§2). Our answer is three moves. **Decide once**, while the positions
-are still the author's, into one of seven roles (§4). **Enforce it with a
-type**, by handing the render stage a tree with no positions on it at all (§5).
-**Cover what remains**: the barrier leaves the obligation on one function, and
-§6 is the coverage argument that the function is right for a run of any size.
-Then keep
-looking, because the barrier localizes the problem without ending it:
-position-keyed passes above the line (§5.3), and an anchor that moves under a
-decision that was right when it was made (§7). And the barrier has a boundary
-as well as leaks: the largest class of bugs in our history, layout, is on a
-side of the line it does not touch at all (§8).
+formatting invalidates them. We are there by choice, because reusing the
+compiler's parser is worth more to us than a parser that keeps comments (§2).
 
-**Decide once, behind an enforced barrier** generalizes to any pass whose own
-output destroys the evidence its input decisions were made from. Two components
-do the work and they are separable: the decision must be recorded as a value
-rather than recomputed on demand, and the ban on re-deriving it must be
-mechanically checked rather than documented. The second is what turns "we were
-careful" into "the mistake is unrepresentable".
+Our answer is three moves. **Decide once**, while the positions are still the
+author's, into one of seven roles, each of which must re-derive to itself from
+the formatter's own output (§4). **Enforce it with a type**, by handing the
+render stage a tree with no positions on it at all (§5). **Cover what
+remains**: the barrier leaves the obligation on one function, and §6 argues
+that the function is right for a run of any size.
+
+The barrier localizes the problem without ending it. Passes above the line can
+move a position that was already decided from (§5.3). Sorting can move the code
+a comment was attached to, leaving a fixed point that no idempotency gate can
+see (§7). And the largest class of bugs in our history, layout, is on a side of
+the line the barrier does not touch at all (§8).
 
 The survey in §9 says the barrier is neither our idea nor rare: eight of
 fifteen tools have it. What is new is having it while also reconstructing
-attachment from a located list; every other tool that has to do that
-reconstruction lacks the barrier.
+attachment from a located list. Every other tool that has to do that lacks it,
+and their instabilities are architectural, not local: nothing in one place is
+wrong, so they are answered with an exemption or an iteration loop rather than
+a fix (§9.3, §9.4). Two ports of prettier that changed only the input, and lost
+the instability, say where the class comes from: positional attachment, not a
+discarding parser (§9.2). The barrier does not end the bugs; four tools that
+have it have shipped fixes anyway (§9.5). It keeps them local, and holding it
+by review instead of by a type has a price: swift-format had to delete a
+feature to keep the principle (§9.6).
 
-Two limits, both visible in §9. **A barrier protects one pass, not a pipeline of
-them**: where one formatter's output becomes another's input, the outer pass
-decides from positions the inner pass just wrote, and the premise that made
-deciding once safe is gone. All four of biome's shipped idempotency fixes are
-at such a seam. **And a barrier relocates the obligation rather than removing it**:
-topiary's engine cannot have the bug, so it lives in the per-language query
-files instead, for four years and counting. Where the obligation lands is the
-whole question. Ours lands on one function that always returns one of seven
-answers, small enough that §6 can be an argument about all of it.
+**Decide once, behind an enforced barrier** generalizes to any pass whose output
+destroys the evidence its decisions were made from. Record the decision as a
+value, and check the ban on re-deriving it mechanically. The second is what
+turns "we were careful" into "the mistake is unrepresentable". Two limits: a
+barrier protects one pass, not a pipeline of them, and it relocates the
+obligation rather than removing it. Where the obligation lands is the whole
+question. Ours lands on one function that always returns one of seven answers,
+small enough that §6 can be an argument about all of it.
