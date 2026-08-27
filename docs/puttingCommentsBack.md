@@ -4,6 +4,16 @@
 what the problem is, what we built, what it does not cover, and what fourteen
 other formatters do about the same thing.*
 
+**TL;DR.** Comment placement is decided from source positions, and
+formatting invalidates them. We decide each placement once, as a role,
+and hand the renderer a tree with no positions on it, so a stale read
+is a compile error.  That does not end the bugs; it confines them to one
+function, small enough to argue about in full. Of the fourteen formatters
+we surveyed, every other one that has to reconstruct comment attachment
+from source positions lacks that barrier, and that is where the survey's
+architectural instabilities live: the ones a project has stopped trying
+to fix, and exempts or iterates around instead.
+
 ## Table of contents
 
 - [1. Introduction](#1-introduction)
@@ -1285,9 +1295,9 @@ the line the barrier does not touch at all (§8).
 The survey in §9 says the barrier is neither our idea nor rare: eight of
 fifteen tools have it. What is new is having it while also reconstructing
 attachment from a located list. Every other tool that has to do that lacks it,
-and their instabilities are architectural, not local: nothing in one place is
-wrong, so they are answered with an exemption or an iteration loop rather than
-a fix (§9.3, §9.4). Two ports of prettier that changed only the input, and lost
+and that is where the survey's architectural instabilities live, the ones
+answered with an exemption or an iteration loop because nothing in one place
+is wrong (§9.3, §9.4). Two ports of prettier that changed only the input, and lost
 the instability, say where the class comes from: positional attachment, not a
 discarding parser (§9.2). The barrier does not end the bugs; four tools that
 have it have shipped fixes anyway (§9.5). It keeps them local, and holding it
