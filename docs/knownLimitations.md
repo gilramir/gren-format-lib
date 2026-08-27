@@ -428,10 +428,27 @@ a -             -- ok: `b` is at col 9
 
 A blank line between the two rows makes no difference.
 
-A comment is not needed to trigger it, but a comment is how it shows up: with
-one written after the operator the misparse becomes visible in the output.
-gren-format renders the negation glued to its operand, as it must, and the
-comment lands between them:
+**Without a comment, the file is silently rewritten.** gren-format renders the
+tree it was handed — a call whose argument is a negation, and a negation is
+glued to its operand — so the two rows above come out as one:
+
+```gren
+subtraction =           -- input             -- gren-format's rendering
+    10 -                                         10 -3
+        3
+```
+
+`10 -3` is a call to *both* parsers (the real compiler rejects it with `TOO MANY
+ARGS`), so parse → format → reparse → AST-compare sees two identical trees, the
+check passes, and the file is written. A subtraction the real compiler accepted
+is now a call it refuses. Nothing in this repo's gates can see that, for the
+same reason the [2^53 rewrite](#an-integer-literal-just-below-253-is-silently-rewritten)
+below is invisible: the damage is done in the parser, before the formatter
+sees a thing (verified 2026-08-27 against the devbox `gren@0.6` compiler).
+
+**With a comment after the operator, the file is refused instead.** The
+misparse becomes visible in the output: gren-format renders the negation glued
+to its operand, as it must, and the comment lands between them:
 
 ```gren
 subtraction =           -- input             -- gren-format's rendering
@@ -486,10 +503,10 @@ a =                             -- input               -- after gren-format
     9007199254740991                                       9007199254740992
 ```
 
-This is the one entry here that **corrupts** rather than refusing or laying out
-awkwardly. The binary `-` bug above is caught by the AST check and the file is
-left alone; this one is not caught by anything, because the corruption happens
-in the *parser*, before the formatter sees a thing. Both parses agree on the
+This is one of two entries here that **corrupt** rather than refusing or laying
+out awkwardly — the other is the comment-free case of the binary `-` bug above.
+Neither is caught by anything, because the corruption happens in the *parser*,
+before the formatter sees a thing. Both parses agree on the
 wrong number, so parse → format → reparse → AST-compare compares two identical
 wrong trees, and re-formatting the corrupted output reproduces it exactly.
 Nothing in this repo's gates can see it.
