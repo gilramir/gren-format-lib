@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Render the Logical Printing Tree, render tree or Box tree for a Gren file as ASCII art.
+"""Render the AST, Logical Printing Tree, render tree or Box tree for a Gren file as ASCII art.
 
-Calls `gren-format.sh --lpt`, `--rt` or `--box` to get the JSON dump, then
-prints it as a `├──`/`└──` tree, in one of two styles:
+Calls `gren-format.sh --pre-ast`, `--lpt`, `--rt` or `--box` to get the JSON
+dump, then prints it as a `├──`/`└──` tree, in one of two styles:
 
 - regular (default): every node in the JSON, one line each, no collapsing.
   Works generically off the JSON shape — a dict field that is itself a
@@ -25,6 +25,16 @@ prints it as a `├──`/`└──` tree, in one of two styles:
       The result collapses onto one line if it fits in --width columns.
   Either way, whatever doesn't collapse expands into a normal indented tree.
 
+--ast is the parser's own `Src.Module`, before the formatter has touched it:
+the comment-free tree the compiler hands over. It has its own printer, because
+the AST JSON is not `{"type": ...}` nodes but `Located` wrappers — a `start`,
+an `end` and a `value` — around records that mostly have no `type` field. The
+printer unwraps each `Located` into an `@row:col-row:col` annotation on the
+node it wraps, shows a field holding a record or a list as a branch, and drops
+`null` fields and empty lists so the tree shows what the module *has* rather
+than every slot it could fill. Use `--all` to keep them. There is no
+--condensed style; the AST is small enough not to need one.
+
 --rt is the LPT as the renderer receives it: the same shape with the source
 positions stripped, plus the `flags` string naming the author-intent booleans
 `RenderTree.lower` computed. It has no --condensed style, and cannot: condensing
@@ -33,6 +43,8 @@ precisely what the render tree does not have.
 
 Usage:
     ./show-tree.py File.gren                    # LPT, verbose
+    ./show-tree.py --ast File.gren               # the parser's AST (Src.Module)
+    ./show-tree.py --ast --all File.gren         # ... keeping null / empty fields
     ./show-tree.py --condensed File.gren         # LPT, condensed
     ./show-tree.py --rt File.gren                # render tree, verbose
     ./show-tree.py --box File.gren               # Box, verbose
@@ -122,6 +134,67 @@ def verbose_expand(node):
         elif is_child_list(v):
             children.extend(v)
     return label, children
+
+
+# ---------------------------------------------------------------------------
+# AST mode: the parser's Src.Module. Not `{"type": ...}` nodes but `Located`
+# wrappers ({start, end, value}) around records that mostly carry no `type`,
+# so the generic printer above would show the whole module as one repr blob.
+# Each Located collapses to an `@row:col-row:col` tag on the value it wraps.
+# ---------------------------------------------------------------------------
+
+def is_located(v):
+    return isinstance(v, dict) and set(v) == {"start", "end", "value"}
+
+
+def span_of(loc):
+    s, e = loc["start"], loc["end"]
+    return f"@{s['row']}:{s['col']}-{e['row']}:{e['col']}"
+
+
+def unwrap_located(v):
+    """Strip nested Located wrappers, returning (inner value, [span, ...])."""
+    spans = []
+    while is_located(v):
+        spans.append(span_of(v))
+        v = v["value"]
+    return v, spans
+
+
+def make_ast_expand(keep_empty):
+    def is_empty(v):
+        return v is None or (isinstance(v, list) and not v)
+
+    def expand(item):
+        key, raw = item
+        value, spans = unwrap_located(raw)
+        label = key
+        if isinstance(value, dict) and "type" in value:
+            label += f": {value['type']}"
+        if spans:
+            label += "  " + " ".join(spans)
+
+        if not isinstance(value, dict):
+            if isinstance(value, list):
+                return label, [(f"[{i}]", v) for i, v in enumerate(value)]
+            return f"{label} = {value!r}", []
+
+        scalars, children = [], []
+        for k, v in value.items():
+            if k == "type":
+                continue
+            if is_empty(v) and not keep_empty:
+                continue
+            inner, inner_spans = unwrap_located(v)
+            if isinstance(inner, (dict, list)) and not is_empty(inner):
+                children.append((k, v))
+            else:
+                scalars.append(f"{k}={inner!r}" + ("  " + " ".join(inner_spans) if inner_spans else ""))
+        if scalars:
+            label += "  " + ", ".join(scalars)
+        return label, children
+
+    return expand
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +372,8 @@ def lpt_expand(node):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("file", help="path to a .gren source file")
+    parser.add_argument("--ast", action="store_true", help="show the parser's AST (Src.Module, via --pre-ast) instead of the LPT")
+    parser.add_argument("--all", action="store_true", help="with --ast: keep null fields and empty lists")
     parser.add_argument("--box", action="store_true", help="show the Box tree instead of the LPT")
     parser.add_argument("--rt", action="store_true", help="show the render tree (the LPT with source positions stripped) instead of the LPT")
     parser.add_argument("--condensed", action="store_true", help="collapse subtrees onto one line (README style)")
@@ -306,17 +381,21 @@ def main():
     parser.add_argument("--gren-format-sh", default=GREN_FORMAT, help="path to gren-format.sh (default: ../../gren-format/gren-format.sh)")
     args = parser.parse_args()
 
-    if args.box and args.rt:
-        sys.exit("--box and --rt are different trees; pick one.")
+    if sum([args.ast, args.box, args.rt]) > 1:
+        sys.exit("--ast, --box and --rt are different trees; pick one.")
+    if args.ast and args.condensed:
+        sys.exit("--ast has no --condensed style.")
     if args.rt and args.condensed:
         # Not an unimplemented style: the LPT condenser asks whether a subtree
         # sits on a single SOURCE ROW, and the render tree has no source rows.
         sys.exit("--rt has no --condensed style: condensing keys on source rows, which the render tree does not carry. Use --lpt --condensed for that view.")
 
-    flag = "--box" if args.box else ("--rt" if args.rt else "--lpt")
+    flag = "--pre-ast" if args.ast else ("--box" if args.box else ("--rt" if args.rt else "--lpt"))
     data = fetch_json(args.gren_format_sh, flag, args.file)
 
-    if args.box:
+    if args.ast:
+        print_tree(("module", data["module"]), "", "", verbose_one_line, make_ast_expand(args.all))
+    elif args.box:
         one_line = make_box_one_line(args.width) if args.condensed else verbose_one_line
         expand = box_expand if args.condensed else verbose_expand
         for i, root in enumerate(data):
