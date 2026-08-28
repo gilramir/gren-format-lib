@@ -1,0 +1,100 @@
+// The same pipeline as position-barrier.dot, with the labels cut to a few
+// words each. Used by docs/grenFormatChallenges.md §3.
+digraph PositionBarrierSimple {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="Helvetica,Arial,sans-serif";
+    fontsize=12;
+    ranksep=0.38;
+    nodesep=0.45;
+    compound=true;
+
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=11];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=9, color="#555555"];
+
+    // ── What the compiler's parser hands over ────────────────────
+    node [shape=box, style="rounded,filled", fillcolor="#eef2f7", color="#7a95b8", fontcolor="#1c2b3a"];
+    ast [group="flow", label="AST"];
+    ctx [label="Comments"];
+    out [group="flow", label="Formatted code"];
+
+    // ── The logical stage ────────────────────────────────────────
+    subgraph cluster_logical {
+        label="before the barrier — the positions are the author's, and reading one is legal";
+        labeljust="l";
+        fontsize=11;
+        fontcolor="#5b6b7c";
+        style="dashed,rounded";
+        color="#9aa8b6";
+        margin=12;
+
+        // steps whose DECISIONS do not read the author's positions
+        node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+        s1 [group="flow", label="Build a logical tree from the AST"];
+        s3 [group="flow", label="Repair comments after all are attached"];
+
+        // steps that DO read the author's positions
+        node [shape=box, style="rounded,filled", fillcolor="#fdeee0", color="#c07a2c", fontcolor="#5a3410"];
+        s2 [group="flow", label="Attach comments"];
+        s4 [group="flow", label="Sort imports and exposing lists"];
+        s5 [group="flow", label="Add blank lines"];
+
+        node [shape=note, style=filled, fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=9];
+        posNote [label="These steps read\lthe author's positions.\l"];
+
+        s1 -> s2 -> s3 -> s4 -> s5;
+        { rank=same; s4; posNote }
+
+        // Invisible waypoint low on the left, so the roles edge runs down the
+        // west side instead of around the east.
+        wl [shape=point, width=0.02, height=0.02, style=invis, label=""];
+        { rank=same; wl; s5 }
+        wl -> s5 [style=invis];
+    }
+
+    // ── The barrier itself ───────────────────────────────────────
+    node [shape=box, style="filled", fillcolor="#fffbe6", color="#c9a227", fontcolor="#4a3b06", fontsize=10, penwidth=2];
+    roles [shape=box, style="rounded,filled", fillcolor="#e8f3f0", color="#2e7d6b",
+           fontcolor="#14453a", fontsize=10, penwidth=1.6,
+           label="Comment roles"];
+    barrier [group="flow", label="THE POSITION BARRIER — drop every source position"];
+
+    { rank=same; roles; barrier }
+    roles -> barrier [style=invis];
+
+    // ── The rendering stage ──────────────────────────────────────
+    subgraph cluster_render {
+        label="after the barrier — no position exists to be read";
+        labeljust="l";
+        fontsize=11;
+        fontcolor="#5b6b7c";
+        style="dashed,rounded";
+        color="#9aa8b6";
+        margin=12;
+
+        node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
+        s7 [group="flow", label="Make a render plan"];
+        s8 [group="flow", label="Write out the text"];
+
+        s7 -> s8;
+    }
+
+    // ── Flow ─────────────────────────────────────────────────────
+    ast -> s1 [lhead=cluster_logical, minlen=2];
+    ctx -> s2;
+    s5  -> barrier [ltail=cluster_logical, style=bold, color="#c9a227", arrowhead=none];
+    barrier -> s7  [lhead=cluster_render, style=bold, color="#c9a227", minlen=2];
+    s8 -> out;
+
+    // The one answer that crosses the barrier: positions are dropped, roles are not.
+    edge [style=dashed, penwidth=1.4, color="#2e7d6b", fontcolor="#2e7d6b", fontsize=9, arrowhead=none];
+    s2 -> wl [arrowhead=none];
+    wl -> roles:n [arrowhead=normal];
+    roles:s -> s7:w [arrowhead=normal, constraint=false];
+
+    s2 -> posNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    s4 -> posNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+    s5 -> posNote [style=dotted, arrowhead=none, color="#c9a227", constraint=false];
+
+    { rank=same; ast; ctx }
+}
