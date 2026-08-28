@@ -894,9 +894,9 @@ gate would fail *on the triggering input*, not that the gate's own probe would
 ever have generated that input, so "witnessed" means the gate can see the bug,
 not that it would have found it unprompted.
 
-Not every commit can be used. Of 135 fix commits, 57 predate a shift in
+Not every commit can be used. Of 135 fix commits, 53 predate a shift in
 how the formatter and library were built together,
-12 turned out on inspection not to be bug fixes,
+16 turned out on inspection not to be bug fixes,
 and 5 no longer build. That leaves 61. Of those, 37 were
 witnessed, **21 were invisible**, and 3 would not reproduce. An invisible one
 means the output was wrong and also AST-equivalent, its own idempotent
@@ -1008,7 +1008,8 @@ each in an IR that drops positions. Only elm-format is simply handed it, and
 only because level A1 has no position information for comments.
 
 The position barrier is neither our idea (swift-format wrote it down in 2020)
-nor rare (nine of fifteen have it, counting ours). What is new is having it while also
+nor rare (nine of fifteen have it, counting google-java-format's partial one and
+ours). What is new is having it while also
 reattaching comments to the tree.
 
 ### 9.1 Deciding attachment once is the norm
