@@ -911,10 +911,16 @@ answer.** Look for the structural fact instead.
 
 ### 4.6 Repairs that need the finished tree
 
-Two passes run at the end of `lptAddComments`, over the whole tree. They exist
+Two repair passes run at the end of `lptAddComments`, in that order. They exist
 because their questions cannot be answered while placing one comment: they are
 about what the *rendering* will look like, which you only know once every
 comment is in.
+
+Neither is a walk of the whole tree. `detachOwnLineTrailer` is applied to each
+top-level child and descends only the one spine `peelOwnLineTrailingRun`
+follows; `rehomePipelineStepTrailers` recurses through the subtree but does work
+only at a `Pipeline` node. The order between them is load-bearing, for the
+reason given under the second.
 
 **`detachOwnLineTrailer`** — §4.2's rule, asked of the tree instead of the rows.
 `findOrCreateOrigRow` refuses a comment written on a row *below* a declaration.

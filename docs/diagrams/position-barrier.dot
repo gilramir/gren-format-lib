@@ -32,7 +32,7 @@ digraph PositionBarrier {
         node [shape=box, style="rounded,filled", fillcolor="#dbe9f7", color="#3f6fa8", fontcolor="#1c2b3a"];
         s1 [group="flow", label="1 · build\nwalk the AST into one node per declaration\n(no comments in it yet)"];
         s3 [group="flow", color="#c07a2c", penwidth=1.8,
-            label=<3 · repair<BR/>two passes over the finished tree: build the tree<BR/>a reparse of our own output would build<BR/><FONT POINT-SIZE="9" COLOR="#8a5a1e">its decisions read no positions — its bookkeeping<BR/>reads and rewrites the row ranges, so it runs before step 4</FONT>>];
+            label=<3 · repair<BR/>two ordered passes once every comment is in: build the<BR/>tree a reparse of our own output would build<BR/><FONT POINT-SIZE="9" COLOR="#8a5a1e">its decisions read no positions — its bookkeeping<BR/>reads and rewrites the row ranges, so it runs before step 4</FONT>>];
 
         // steps that DO read the author's positions
         node [shape=box, style="rounded,filled", fillcolor="#fdeee0", color="#c07a2c", fontcolor="#5a3410"];

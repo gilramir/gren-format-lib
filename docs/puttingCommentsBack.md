@@ -462,9 +462,12 @@ the author put it; the trouble is that the output puts it somewhere else. The
 fix is to **make the first format build the tree the second format would
 build**. The comment is going to end up below the declaration, so the first
 pass puts it there itself, at column 1, which is what a reparse would produce.
-Two passes do this once the last comment is in, over the whole tree, because a
-comment's neighbours are not known until then. They run at the tail of the
-comment pass itself, before sorting or vertical spacing touches anything
+Two repair passes do this once the last comment is in, because a comment's
+neighbours are not known until then. Neither is a walk of the whole tree: the
+first is applied to each top-level declaration and descends a single spine, the
+second recurses but does work only at a pipeline. They run in that order --- it
+is load-bearing --- at the tail of the comment pass itself, before sorting or
+vertical spacing touches anything
 ([commentAlgorithm.md §4.6](commentAlgorithm.md#46-repairs-that-need-the-finished-tree)).
 
 **Every comment gets a role; there is no "don't know".**
