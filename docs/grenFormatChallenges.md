@@ -1,6 +1,9 @@
 # Challenges when writing gren-format
 
-*A short tour of the problems we ran into building a code formatter for Gren,
+Gilbert Ramirez<br>
+August 2026
+
+*A short tour of the problems we ran into building a code formatter for [Gren](https://gren-lang.org/),
 and what we did about each one. For the long version of the comment story, see
 [Putting the comments back](puttingCommentsBack.md).*
 
