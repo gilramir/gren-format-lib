@@ -17,7 +17,7 @@ make it a compile error for later stages to look at the source positions again.
 
 ## Table of contents
 
-- [1. We borrowed the compiler's parser, and it keeps almost nothing](#1-we-borrowed-the-compilers-parser-and-it-keeps-almost-nothing)
+- [1. We borrowed the compiler's parser](#1-we-borrowed-the-compilers)
 - [2. No page width: your line breaks are the layout](#2-no-page-width-your-line-breaks-are-the-layout)
 - [3. Putting the comments back](#3-putting-the-comments-back)
 - [4. Idempotency](#4-idempotency)
@@ -30,7 +30,7 @@ make it a compile error for later stages to look at the source positions again.
 
 ---
 
-## 1. We borrowed the compiler's parser, and it keeps almost nothing
+## 1. We borrowed the compiler's parser
 
 `gren-format` has no parser of its own. It calls the Gren compiler's v2 parser,
 the same code that compiles the program. The reason is simple: Gren is a
