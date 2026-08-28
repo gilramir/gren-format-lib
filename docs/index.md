@@ -361,7 +361,7 @@ Everything above is the short version. The full documents are in this same
 
 **Working on some other formatter**
 
-- **[What was hard about writing gren-format](grenFormatChallenges.md)** — a
+- **[Challenges when writing gren-format](grenFormatChallenges.md)** — a
   short, informal tour of the problems we hit and what we did about each; the
   place to start.
 - **[Putting the comments back](puttingCommentsBack.md)** — the long essay for

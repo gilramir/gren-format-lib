@@ -1,29 +1,29 @@
-# What was hard about writing gren-format
+# Challenges when writing gren-format
 
 *A short tour of the problems we ran into building a code formatter for Gren,
 and what we did about each one. For the long version of the comment story, see
 [Putting the comments back](puttingCommentsBack.md).*
 
 **TL;DR.** We built the formatter on top of the compiler's own v2 parser, which
-hands us a syntax tree with no comments in it, and some punctation tokens elided. Most of the
-hard parts follow from that: putting comments back where they belong, doing it
+produces a syntax tree with no comments in it, and some punctuation tokens elided. Many
+difficulties arise from that: putting comments back where they belong, doing it
 in a way that gives the same answer on the second run, and testing a tool whose
 only spec is "it looks right". The one idea we would carry to the next project:
 decide anything position-dependent once, record the decision as a value, and
-make it a compile error for later stages to look at the positions again.
+make it a compile error for later stages to look at the source positions again.
 
 ## Table of contents
 
 - [1. We borrowed the compiler's parser, and it keeps almost nothing](#1-we-borrowed-the-compilers-parser-and-it-keeps-almost-nothing)
 - [2. No page width: your line breaks are the layout](#2-no-page-width-your-line-breaks-are-the-layout)
 - [3. Putting the comments back](#3-putting-the-comments-back)
-- [4. "It doesn't change on the second run" is its own feature](#4-it-doesnt-change-on-the-second-run-is-its-own-feature)
+- [4. Idempotency](#4-idempotency)
 - [5. Matching elm-format without copying it](#5-matching-elm-format-without-copying-it)
 - [6. Testing a thing with no spec](#6-testing-a-thing-with-no-spec)
 - [7. Bugs that aren't ours](#7-bugs-that-arent-ours)
 - [8. How fourteen other formatters cope](#8-how-fourteen-other-formatters-cope)
 - [9. Odds and ends](#9-odds-and-ends)
-- [10. If you remember three things](#10-if-you-remember-three-things)
+- [10. Three takeaways](#10-three-takeaways)
 
 ---
 
@@ -33,7 +33,7 @@ make it a compile error for later stages to look at the positions again.
 the same code that compiles the program. The reason is simple: Gren is a
 language that is still changing, and a formatter with its own parser will
 eventually disagree with the compiler about what is valid. Ours can't. It
-accepts exactly what the compiler accepts, this release and the next one.
+accepts exactly what the compiler accepts, always.
 
 The price is what a compiler's parser throws away, because a compiler doesn't
 need it. Two things are gone by the time we see the tree.
@@ -54,23 +54,25 @@ x = {- c -} y
 ```
 
 reach the formatter as the same three facts: where `x` ends, where the comment
-is, where `y` starts. We can't tell them apart, and we refuse to look at
-whitespace widths (formatting must not depend on your spacing). So one of them
-has to move. We picked a rule, "the comment lands after the separator", and
+is, where `y` starts. The formatter doesn't know where the `=` is at all.
+We can't tell them apart, and we refuse to guess by looking at
+whitespace widths (formatting must not depend on your spacing). The only way
+to ensure idempotent formatting is to choose one side of the `=` to place
+such a comment. We picked a rule, "the comment lands after the separator", and
 recorded it as one of the roles in section 3.
 
 Had the compiler kept comments, we'd have taken them gladly. It didn't, so
-everything in the next three sections is the bill.
+sections 3 and 4 are the result.
 
 ---
 
 ## 2. No page width: your line breaks are the layout
 
-Many formatters have a column limit and a search: try to fit the code in 80
+Many formatters have a column limit and a decision: try to fit the code in 80
 columns, break the least bad thing when it doesn't. `gren-format` has neither.
 The whole layout policy is this:
 
-- If you wrote a construct on one row, it stays on one line, however wide.
+- If you wrote a construct on one line, it stays on one line, however wide.
 - If you put a line break anywhere inside a container (an array, a record, a
   call's arguments, a pipeline), every item gets its own line.
 
@@ -94,10 +96,10 @@ Section 3 is about making that second kind of question impossible.
 
 ## 3. Putting the comments back
 
-Here's the problem in one sentence: **comment placement is decided from source
+Here's the formatter's fundamental problem: **comment placement is decided from source
 positions, and formatting is the thing that invalidates source positions.**
 
-Take this module:
+Take this Gren source code:
 
 ```gren
 module S exposing (sizes)
@@ -150,7 +152,7 @@ placement was re-derived at each point of use, in at least eight places in the
 rendering code, each one doing its own row arithmetic. We replaced that with
 two moves.
 
-**Decide once, as a role.** Every comment's placement is decided exactly once,
+**Decide once, as a role.** Every comment's placement is now decided exactly once,
 early, while every position in the tree is still the author's, and the answer
 is stored on the comment as one of seven values:
 
@@ -169,6 +171,12 @@ A role is a direction, not a coordinate. "Glue onto the previous sibling's last
 line" is something a renderer can do wherever that line ends up. Every
 comment gets a role; there is no "unknown role".
 
+We call this a **position barrier**. It is a barrier in our formatter's
+pipeline. Before the barrier, code can read the source positions. After
+the barrier, those source positions are gone, completely inaccessible.
+
+![The pipeline, and where the position barrier falls](diagrams/position-barrier-simple.png)
+
 **Make the barrier a type.** The renderer does not receive the tree with the
 positions on it. It receives a copy, `RenderNode`, built by a function called
 `lower` that strips every position field and every `Located` payload off. A
@@ -183,24 +191,25 @@ differently, and it went quietly stale when the list of names did.
 "Don't read positions here" as a comment in a file
 is advice. "It doesn't compile" is a property of the system.
 
-The barrier doesn't prove anything is stable. What it does is shrink the
-question. With nothing downstream reading positions, two runs can disagree
-only if the role classifier answers differently the second time, and that's one
-function, small enough to argue about in full. Section 4 is that argument.
+The position barrier doesn't prove anything is stable. What it does is
+shrink the surface area of the question. With nothing downstream reading
+positions, two runs can disagree only if the role classifier answers
+differently the second time, and that's one function, small enough to
+argue about in full. Section 4 is that argument.
 
 ---
 
-## 4. "It doesn't change on the second run" is its own feature
+## 4. Idempotency
 
 There are three distinct requirements when formatting these re-attached
 comments:
 
 1. Every comment survives.
 2. Every comment ends up beside the code it was written beside.
-3. Formatting an already-formatted file changes nothing.
+3. Formatting an already-formatted file changes nothing. (idempotency)
 
-You can have 1 and 2 and still fail 3, and we did, often. Here's the classic
-shape of it, an old bug of ours:
+You can have 1 and 2 and still fail 3, and we did, often. Here's an example
+from an old bug of ours:
 
 ```
 you wrote:            first format:         second format:
@@ -224,24 +233,62 @@ on row N, so that the second run asks the same question of the same row. When
 the output fails to honour that, the fix goes to the output, not the rule.
 
 That handles the case where the *comment* moves. The nastier case is when the
-**code** moves. The formatter rewrites the source in a few small ways: it sorts
+**code** moves. The Gren formatter rewrites the source in a few small ways: it sorts
 `exposing` lists and runs of `import`s, and it can add or drop a `port` keyword.
-Sorting imports moves the import a comment was anchored to. When we got that
+Sorting imports moves the `import` a comment was anchored to. When we got that
 bookkeeping wrong, the comment stayed put while its anchor sailed away, and the
 second run classified it differently.
 
-That's the oscillating version, and an idempotency check catches it. But the
-same mistake has a second face: sometimes the misplaced comment also made the
+Here's one of the bugs we hit. The comment is written *inside* an `import`,
+which is a place the tree has no room for a comment, so the formatter has to
+promote it to a line of its own. The goal was to sort the Alpha, Mu, and Zeta
+`import` statements.
+
+```
+you wrote:            first format:         second format:
+
+import Zeta           import Zeta           {- k -}
+import {- k -} Mu     {- k -}               import Alpha
+import Alpha          import Alpha          import Mu
+                      import Mu             import Zeta
+```
+
+The first (buggy) run promotes the comment onto its own line and then sorts, but its
+bookkeeping leaves the comment's row looking like the end of the import run, so
+only `Mu` and `Alpha` are sorted and `Zeta` stays put. The second run reads
+*that* file, where the comment genuinely is on a line of its own above `import
+Alpha`. A comment does not end an import run, so now all three sort together,
+and the comment travels with the import it leads. Two runs, two files, and a
+comment that now sits beside an import it was never written next to.
+
+That's the non-idempotent version, and an idempotency check catches it. But the
+same mistake can happen differently: sometimes the misplaced comment also made the
 blank-line pass emit a blank line, and on the next parse that blank line was a
-real boundary between import groups. The output was now a fixed point. It had
-just silently declined to sort two adjacent imports. No idempotency check can
-see that, because nothing changes. We finally caught it with an oracle that
-generates the same random module with its imports in the other order and
-demands byte-identical output.
+real boundary between import groups:
+
+```
+the same input, first format — and every format after it:
+
+import Zeta
+
+{- k -}
+import Alpha
+import Mu
+```
+
+A blank line is the one thing that splits a run of imports, so on the next parse
+`import Zeta` is alone in its run and there is nothing left to sort. The output
+was now a fixed point. It had just silently declined to sort `Zeta` below the
+other two. No idempotency check can see that, because nothing changes. We
+finally caught it with a test that generates the same random module with its
+imports in the other order and demands byte-identical output: write those three
+imports as `Alpha`, `Mu`, `Zeta` to begin with and the formatter has nothing to
+move, so it prints them in that order — a different file from the same module.
 
 Worth saying out loud: any formatter that rewrites tokens at all, sorting,
 removing redundant syntax, normalizing a keyword, has this problem, and its
-idempotency gate does not cover the fixed-point half of it.
+idempotency test gate does not cover the case of an idempotent but wrong
+format.
 
 ---
 
@@ -250,7 +297,7 @@ idempotency gate does not cover the fixed-point half of it.
 Gren is a fork of Elm, and elm-format is a mature, well-liked formatter. Where
 the two languages agree we wanted the two formatters to mostly agree, so that an Elm
 programmer feels at home. We could not simply reuse it: elm-format has its own
-parser, which is the thing we decided not to have. The elm formatter is writen
+parser, which is the thing we decided not to have. The elm formatter is written
 in Haskell, and the Gren formatter is written in, well, Gren itself.
 
 What we did take is its output model. Our `Box` module is a port of
@@ -267,11 +314,15 @@ Where we deliberately differ, every divergence is written down in the
 in `tests/testfiles/Divergence/` that a script keeps 1:1 with the document. The
 test suite is testing the documentation.
 
-And elm-format is used a comparison, not something we try to match completely.
+Elm-format is used as a comparison, not something we try to match completely.
 Our generated-syntax matrix
 diffs every cell against elm-format and gates against a *reviewed* baseline
-rather than assuming elm-format is right. That turned up one place where
-elm-format's own output is not a fixed point: run it twice on a certain
+rather than assuming elm-format is right. Yes, the `gren-format` author
+reviewed differences and recorded "gren is right" or "elm is right" for each one.
+Or, "neither is right", making us fix the formatter again.
+
+That work turned up one place where elm-format's own output is not
+idempotent: run it twice on a certain
 pipeline shape and you get two different files. We reported it as
 [elm-format#842](https://github.com/avh4/elm-format/issues/842). Either side of
 a differential comparison can be the wrong side.
@@ -302,21 +353,23 @@ the answer is one newline check on the text. And every local rule in the
 placer reads at most one neighbour: the previous member's last row, the
 previous member's kind, its own text. Nothing looks two back, or forward. So a
 run of comments is a chain of boundaries, and there are exactly nine possible
-comment-to-comment boundaries (three kinds squared). Runs of two comments
-can cover all nine combinations; runs of three comments can also cover only
+comment-to-comment boundaries (three kinds squared). If two comments sit next
+to each other, there are only nine combinations of comment types to worry
+about. Runs of three comments in a row (or N comments in a row) can also cover only
 those nine combinations. Once we fixed bugs related to 2 comments in a row,
 we ran runs of three across half a million gaps as a prediction,
 and found no new bugs.
 
 **The bugs no property test can see.** We replayed 61 of our own old bug fixes
 against the full set of gates we have today: build the formatter from the
-commit just before the fix, run every current gate on the triggering input, see what
-fires. 37 were caught. **21 were invisible**, and 16 of those 21 were layout
-bugs: output that parsed, meant the same thing, kept every comment, was its own
-fixed point, and was wrong. There is nothing left for a property to check.
-The barrier from section 3 doesn't help either; it controls *where* a decision
-is made, not whether it's right. For that class the only defense is an
-expected answer, meaning the fixtures and the elm-format comparison.
+commit just before the fix, run every current gate on the triggering input, see
+what fires. 37 were caught again and 3 would not reproduce. **21 were invisible
+to our test gates**, and 16 of those 21 were layout bugs: output that parsed,
+meant the same thing, kept every comment, was idempotent, yet was wrong. There
+is nothing left for a property to check. The position barrier from section 3
+doesn't help either; it controls *where* a decision is made, not whether it's
+right. For that class the only defense is an expected answer, meaning the test
+fixtures and the elm-format comparison.
 
 **A green gate on the wrong axis.** For months every fuzzer swept the
 `.formatted.gren` half of the corpus, because those are known-good fixed
@@ -334,27 +387,39 @@ hit most often: given
 
 ```gren
 10 -
-        3
+    3
 ```
 
-the parser hands us not a subtraction but a *function call*, `10 (-3)`: the
-number ten applied to the argument negative three. It decides "no space after
-the `-`, so this is a unary minus" by comparing columns, and here the `3`
-happens to start in the column right after the `-`, one row down. The
-production Gren compiler (the Haskell one) reads this as subtraction, and so
-does elm-format; we use the newer v2 parser, written in Gren, and it gets this
-wrong.
+the parser hands us this tree:
+
+```
+call  @1:1-2:6
+    ├── fn: number  @1:1-1:3
+    │   └── value: int  value=10
+    └── args
+        └── [0]: negate  @1:4-2:6
+            └── expr: number  @2:5-2:6
+                └── value: int  value=3
+```
+
+There is no subtraction node in it anywhere: this is a *function call*, `10
+(-3)`, the number ten applied to the argument negative three. The parser
+decides "no space after the `-`, so this is a unary minus" by comparing
+columns, and here the `3` happens to start in the column right after the `-`,
+one row down. The production Gren compiler (the Haskell one) reads this as
+subtraction, and so does elm-format; we use the newer v2 parser, written in
+Gren, and it gets this wrong.
 
 The formatter renders the tree it is given, so it never sees a subtraction
-here. With nothing else on the line it writes `10 -3`, which both parsers read
-as the same call, so every check passes and a subtraction the real compiler
-accepted has quietly become a call it rejects. Nothing on our side can see
-that. What we *can* see is the case where the author put a comment after the
-operator:
+here. With nothing else on the line it writes `10 -3`, which the v2 parser and
+the production compiler both read as that same call, so every check passes and
+a subtraction the real compiler accepted has quietly become a call it rejects.
+Nothing on our side can see that. What we *can* see is the case where the
+author put a comment after the operator:
 
 ```gren
 10 - -- c
-        3
+    3
 ```
 
 Now the tree says: call `10` with a negated `3`, and the comment sits between
@@ -368,8 +433,10 @@ rendering of that tree lands the comment right after the minus sign:
 ```
 
 The `-` has been swallowed into the `--`, and the expression means something
-else. The formatter's own AST check notices that the output no longer re-parses
-to the same tree, and it **refuses to write the file**. That's the decision,
+else. A space would not help: negation must be glued to its operand (`- 3` is a
+subtraction), and a `--` runs to end of line — so that tree has no legal way
+to be written. The formatter's own AST check notices that the output no longer re-parses to
+the same tree, and it **refuses to write the file**. That's the decision,
 not an oversight: a wrong file is worse than an unformatted one.
 
 The fuzzers hit this bug nineteen times. Rather than subtracting those from
@@ -400,9 +467,10 @@ The first three rows never have to work out where a comment goes; the front
 end already attached it. The last two have to reconstruct attachment from
 positions, which is our situation, and it's where the survey's stubborn
 instability bugs live. Crossing that with "does the tool have a position
-barrier" gives a table with one lonely cell:
+barrier" gives a table where `gren-format` is the lone exemplar of its
+category.
 
-| | has a barrier | no barrier |
+| | has a position barrier | no position barrier |
 |---|---|---|
 | attachment delivered by the front end | all eight | — |
 | attachment must be reconstructed | **gren-format** | [prettier](https://github.com/prettier/prettier), [ocamlformat](https://github.com/ocaml-ppx/ocamlformat), [ormolu](https://github.com/tweag/ormolu), [gofmt](https://github.com/golang/go/tree/master/src/go/printer), [rustfmt](https://github.com/rust-lang/rustfmt), [zig](https://github.com/ziglang/zig/blob/master/lib/std/zig/Ast/Render.zig) |
@@ -412,7 +480,22 @@ Four stories from the right-hand column and its neighbours:
 - **ocamlformat** decides attachment once, but its printer still reads source
   rows. Its shipped answer is to format the file repeatedly, "until formatting
   stabilizes", up to a user-settable `--max-iters` of 10, then print `BUG:
-  formatting did not stabilize`.
+  formatting did not stabilize`. This is `lib/Translation_unit.ml`, abridged:
+
+  ```ocaml
+  (* iterate until formatting stabilizes *)
+  let rec print_check ~i ~conf ~prev_source ext_t std_t =
+    …
+    if String.equal prev_source fmted then Ok (strlocs, fmted)
+    else
+      …
+      (* Too many iteration ? *)
+      if i >= conf.opr_opts.max_iters.v then
+        Error (Unstable {iteration= i; prev= prev_source; next= fmted; input_name})
+      else (* All good, continue *)
+        print_check ~i:(i + 1) ~conf ~prev_source:fmted ext_t_new std_t_new
+  ```
+
 - **gofmt** reformats every `.go` file in the Go tree and checks for
   idempotency. That gate found a comment-placement bug in 2018. The bug is
   architectural, so what shipped is an exemption inside the gate for that
@@ -432,19 +515,46 @@ Four stories from the right-hand column and its neighbours:
   ```
 
   [golang/go#24472](https://github.com/golang/go/issues/24472) is still open.
+
 - **swift-format** had a rule that inserted blank lines between members by
   reading the *input's* line numbers before the printer ran. Two comment-bug
   patches later, the maintainers named the problem ("single-line-ness must be
   based on the source after pretty printing") and deleted the rule, 149 lines
-  of code and 365 of tests, in January 2020. It has not come back. They
-  discovered the principle, but the only way they could honour it was to
-  delete the feature; because our barrier is a type, we get to keep the
-  equivalent rule.
+  of code and 365 of tests, in January 2020. Two days later they deleted the
+  accessor it had called, whose last line is the whole bug
+  (`SyntaxProtocol+Convenience.swift`):
+
+  ```swift
+  let startLocation = sourceLocationConverter.location(for: startPosition)
+  let endLocation = sourceLocationConverter.location(
+    for: lastToken.endPositionBeforeTrailingTrivia)
+
+  return startLocation.line == endLocation.line
+  ```
+
+  Neither has come back. They discovered the principle, but the only way they
+  could honour it was to delete the feature; because our barrier is a type, we
+  get to keep the equivalent rule.
+
 - **rustfmt** is in exactly our position, reusing the compiler's parser and
   recovering comments from source spans. Its comment label carries about 450
   issues, 89 of them about a comment being lost or eaten, arriving at roughly
   forty a year for eleven years, in a tool that has a 400-file idempotency
-  gate. The gate is not the missing piece.
+  gate. The gate is not the missing piece. What ships instead is a runtime
+  net — `recover_comment_removed`, in `src/comment.rs`, which compares the
+  comments in a rewrite against the ones in the span it replaced and throws
+  the rewrite away if any went missing:
+
+  ```rust
+  let snippet = context.snippet(span);
+  if snippet != new && changed_comment_content(snippet, &new) {
+      // We missed some comments. Warn and keep the original text.
+      …
+      snippet.to_owned()
+  } else {
+      new
+  }
+  ```
 
 And the counterweight: having a barrier doesn't make a tool immune. Black and
 topiary both have one, both ship idempotency fixes anyway, and both run an
@@ -460,24 +570,28 @@ bugs small enough to find.
   rendering the same subtree twice (exponential in nesting depth). The fixes
   were equally uniform: accumulate with a builder, and render each subtree
   once, up front.
-- **The formatter rewrites exactly two things** that aren't layout: the order
-  of an `exposing` list and the order of a run of imports. A blank line is the
-  only thing that splits an import run; a comment travels with the import it
-  leads. Redundant parentheses are never stripped. Every one of those was a
-  decision, and each is written down in [settled decisions](settledDecisions.md)
-  so it doesn't get relitigated.
+- **The formatter rewrites three things** that aren't layout: the order of an
+  `exposing` list, the order of a run of imports, and the `port` keyword on a
+  module header (plus whole imports, on request, under
+  `--remove-unused-imports`). A blank line is the only thing that splits an
+  import run; a comment travels with the import it leads. Redundant parentheses
+  in an expression or a type are never stripped — a pattern's parens are not in
+  the tree at all, so those are re-synthesized where the meaning needs them.
+  Every one of those was a decision, and each is written down in
+  [settled decisions](settledDecisions.md) so it doesn't get relitigated.
 - **CRLF got normalized in some modes and not others**, because one file-reading
   path didn't go through the function whose docstring said "every read funnels
   through here". The fix was to make that true and to add a fuzzer that
   exercises the modes that actually write files, since every other gate runs
   `--show` on one file.
-- **Never rebuild the binary while a fuzzer is running.** The gates shell out
-  to it, and a rebuild underneath produces a burst of findings that look
-  exactly like a regression. We learned this the expensive way.
+- **Never rebuild the binary while a fuzzer is running.** This silly mistake
+  bit us a few times. The tests shell out to the formatter,
+  and a rebuild at the same time produces a burst of findings that look
+  exactly like a regression. Oops!
 
 ---
 
-## 10. If you remember three things
+## 10. Three takeaways
 
 1. **Reusing the compiler's parser is worth it**, and it means you will
    reconstruct comment placement from positions. Budget for that.
