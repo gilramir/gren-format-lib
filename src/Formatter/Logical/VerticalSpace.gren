@@ -507,13 +507,15 @@ insertEmptyLines root =
                             -- the run sorted and this blank still emitted. Both
                             -- ask the same question of the same overlap, one
                             -- pass apart.
-                            , last = max info.last (when acc.prev is
-                                                        Just prior ->
-                                                            prior.last
+                            , last =
+                                max info.last
+                                    (when acc.prev is
+                                        Just prior ->
+                                            prior.last
 
-                                                        Nothing ->
-                                                            info.last
-                                                   )
+                                        Nothing ->
+                                            info.last
+                                    )
                             , stype = info.stype
                             , docLeadsBelow = info.docLeadsBelow
                             -- Is a signature still open above this point — i.e.
