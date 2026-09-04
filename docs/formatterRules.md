@@ -86,15 +86,25 @@ The four core rules:
    produces the same code back. Format once or ten times — same result. A
    torture test inserts a comment into every inter-token gap of every fixture
    file, formats twice, and requires byte-identical output. Nothing shifts.
-   Its **19** residual findings out of some 56,000 gaps are not shifts at all:
-   every one is the same upstream parser bug
-   ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35)),
+   Its **44** residual findings, out of some 143,000 comment probes over the
+   whole fixture corpus, are not shifts at all: every one is an upstream parser
+   bug reached by the probe, in two families.
+
+   **38** are
+   [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
    which reads `10 -` ⏎ `····3` as the call `10 (-3)`, so a `--` written after
    that `-` comes back as `---`. The formatter's own AST check catches that and
    refuses the file (see
    [knownLimitations.md](knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column)).
-   Nothing left in it is the formatter's to fix; the 19 are registered by name
-   and forgiven, and they stop being reported when that parser fix ships.
+   The other **6** are
+   [compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14),
+   where a continuation line at exactly the same column as the body above it
+   ends that body early — so splicing a comment there changes what the parser
+   believes the code says (see [that
+   entry](knownLimitations.md#a-continuation-line-at-the-same-column-as-the-body-above-it)).
+
+   Nothing left in it is the formatter's to fix; the 44 are registered by name
+   and forgiven, and they stop being reported when those parser fixes ship.
 
    The same test run with a **run of two** comments in every gap — a comment
    whose neighbour is another comment, which is where the rules are hardest —
@@ -1254,7 +1264,7 @@ following the same author-layout rules.
 
 ## String literals
 
-A regular string is left as written, with its escape sequences intact:
+A regular string keeps its content and its escape sequences:
 
 ```gren
 greeting =
@@ -1265,10 +1275,54 @@ withEscapes =
     "line one\nline two\t!\\"
 ```
 
+The formatter has no copy of your original spelling to fall back on — the parser
+hands it the decoded string, in which `"\u{0041}"` and `"A"` are the same
+thing — so it writes every character back out under one rule. That rule is the
+same for `"..."`, `"""..."""` and `'x'`:
+
+- Tab, newline, carriage return, a backslash, and the quote that would close
+  this literal take their two-character escapes: `\t`, `\n`, `\r`, `\\`, and
+  `\"` or `\'`. (Inside a `"""` string a real newline and a real tab stand for
+  themselves, which is the whole point of the form.)
+- A character you can **see** is written as itself. Letters, marks, numbers,
+  punctuation and symbols all qualify, in any script — `"é"`, `"日本"` and `"😀"`
+  come back untouched, and so do `'é'` and `'☃'`.
+- A character you **cannot** see keeps a `\u{...}` escape, which is what makes
+  it visible in the source at all: control characters; every space separator
+  except a plain space, so a no-break space cannot masquerade as one; the line
+  and paragraph separators; format characters, which is where the byte order
+  mark, the zero-width space, the bidi controls and an emoji sequence's
+  zero-width joiner live; surrogates; private-use code points; and
+  noncharacters.
+
+```gren
+byteOrderMark =
+    "\u{FEFF}"
+
+
+noBreakSpace =
+    "\u{00A0}"
+
+
+family =
+    "👨\u{200D}👩\u{200D}👧"
+```
+
+This works in the other direction too. Paste a no-break space or a zero-width
+space straight into a string and the formatter writes it back as an escape,
+turning something invisible into something you can read, `grep` for, and see in
+a diff.
+
+The hex digits are uppercase, and at least four wide: `\u{001B}`, `\u{FEFF}`,
+`\u{1F600}`. Which case *you* wrote is not recoverable — `\u{001B}`, `\u{001b}`
+and a raw ESC byte all arrive at the formatter as one and the same character —
+so the case is a choice rather than a preservation, and the choice matches
+elm-format.
+
 ### Character literals
 
-A character uses single quotes. Five special characters are always written as
-escapes; everything else is written as the plain character:
+A character uses single quotes and follows exactly the rule above, so a string
+and a char never disagree about the same code point:
 
 ```gren
 tab = '\t'
@@ -1277,6 +1331,9 @@ carriageReturn = '\r'
 singleQuote = '\''
 backslash = '\\'
 letter = 'a'
+accented = 'é'
+snowman = '☃'
+byteOrderMark = '\u{FEFF}'
 ```
 
 ### Multi-line (triple-quoted) strings
