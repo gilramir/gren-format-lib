@@ -1,0 +1,40 @@
+module InvisibleCharacters exposing (..)
+
+-- A code point a reader cannot see keeps the `\u{...}` escape that made it
+-- visible, in a string literal and in a char literal alike.
+byteOrderMark = "\u{FEFF}"
+
+zeroWidthSpace = "\u{200b}"
+
+noBreakSpace = "\u{00a0}"
+
+charByteOrderMark = '\u{feff}'
+
+-- A code point with a glyph is written as itself, in both kinds.
+letters = "é 日本 😀"
+
+charAccented = '\u{00e9}'
+
+charSnowman = '☃'
+
+-- A zero-width joiner is a format character, so an emoji sequence comes back
+-- with its joiners spelled out rather than hidden between the glyphs.
+family = "👨‍👩‍👧"
+
+-- The edges of those ranges: U+00A1 and U+D7FF are the printable neighbours of
+-- the C1 block and of the surrogates, and stay characters.
+boundaries = "\u{009f}\u{00a1}\u{d7ff}"
+
+-- Private-use and noncharacter code points are escaped as well.
+oddities = "\u{E000}\u{FDD0}\u{10FFFF}"
+
+-- Written as raw characters, the invisible ones are made visible.
+pastedFromElsewhere = "one two​three"
+
+-- The same rule inside a triple-quoted string, where a real tab still stands
+-- for itself.
+block =
+    """
+    one	two three​four
+    a\u{feff}b
+    """

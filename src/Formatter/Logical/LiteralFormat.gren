@@ -27,8 +27,8 @@ import Math
 
 {-| Escape content for embedding in a single-quoted `"..."` literal: tab,
 newline, carriage return, `"` and `\` become their two-character escapes, and
-any other control character (C0, or DEL) becomes `\u{HEX}`. Everything else is
-emitted verbatim.
+every other code point goes through `escapeUnlessPrintable` — verbatim if it is
+printable, a `\u{HEX}` escape if it is not.
 -}
 escapeStringContent : String -> String
 escapeStringContent s =
@@ -60,12 +60,7 @@ escapeStringContent s =
                     "\\\\"
 
                 _ ->
-                    -- C0 control characters (code < 32); DEL (code == 127)
-                    if code < 32 || code == 127 then
-                        "\\u{" ++ codePointHex code ++ "}"
-
-                    else
-                        String.fromChar c
+                    escapeUnlessPrintable c
     in
     String.foldl (\c acc -> acc ++ escapeChar c) "" s
 
@@ -121,12 +116,7 @@ escapeMultilineContent s =
                     "\\\\"
 
                 _ ->
-                    -- C0 control characters (code < 32); DEL (code == 127)
-                    if code < 32 || code == 127 then
-                        "\\u{" ++ codePointHex code ++ "}"
-
-                    else
-                        String.fromChar c
+                    escapeUnlessPrintable c
     in
     escapeQuoteRuns (String.foldl (\c acc -> acc ++ escapeChar c) "" s)
 
@@ -167,9 +157,10 @@ escapeQuoteRuns s =
 
 
 {-| The source text of a character literal, quotes included: `'a'`, `'\n'`,
-`'\u{00e9}'`. Printable ASCII is emitted as itself; tab, newline, carriage
-return, `'` and `\` take their two-character escapes; everything else —
-including every non-ASCII character — becomes a `\u{HEX}` escape.
+`'\u{FEFF}'`. Tab, newline, carriage return, `'` and `\` take their
+two-character escapes; every other code point goes through
+`escapeUnlessPrintable`, exactly as a string's does — so `'é'` is a letter and
+`'\u{FEFF}'` keeps its escape.
 -}
 charLiteralString : Char -> String
 charLiteralString c =
@@ -195,16 +186,147 @@ charLiteralString c =
                     "\\\\"
 
                 _ ->
-                    -- Keep non-ASCII characters as `\u{HEX}` escapes rather
-                    -- than emitting the raw byte. Printable ASCII (space
-                    -- through tilde) is emitted as-is.
-                    if code >= 32 && code <= 126 then
-                        String.fromChar c
-
-                    else
-                        "\\u{" ++ codePointHex code ++ "}"
+                    escapeUnlessPrintable c
     in
     "'" ++ inner ++ "'"
+
+
+-- The tail all three literal escapers share: a code point that is none of the
+-- kind-specific special cases above (the two-character escapes, and whichever
+-- quote would close this particular literal). It is written as itself if a
+-- reader can see it, and kept as a `\u{HEX}` escape if not.
+--
+-- One function, so the three kinds cannot drift apart. They used to: a string
+-- emitted every code point from U+0080 up verbatim, so `"\u{FEFF}"` came back
+-- as a byte order mark with nothing visible between the quotes, while
+-- `'\u{FEFF}'` kept its escape.
+escapeUnlessPrintable : Char -> String
+escapeUnlessPrintable c =
+    let
+        code =
+            Char.toCode c
+    in
+    if isPrintable code then
+        String.fromChar c
+
+    else
+        "\\u{" ++ codePointHex code ++ "}"
+
+
+-- Is this code point safe to write into the source file as itself?
+--
+-- The rule is elm-format's (`ElmFormat/Render/Box.hs`, `fix`): emit verbatim
+-- when the character is printable and is not a space separator other than
+-- U+0020. Letters, marks, numbers, punctuation and symbols stay readable — `é`,
+-- `日本` and `😀` are untouched — while anything a reader cannot see keeps the
+-- escape that made it visible.
+--
+-- Escaped, by Unicode general category:
+--
+--   * Cc — C0 controls, DEL, C1 controls
+--   * Zs — every space separator but U+0020 and U+3000 (see
+--     `isSeparatorOtherThanSpace`). A no-break space is indistinguishable from
+--     a plain space by eye, by `grep`, and in a diff
+--   * Zl, Zp — LINE and PARAGRAPH SEPARATOR
+--   * Cf — format characters, which is where U+FEFF, U+200B and the bidi
+--     controls live. The zero-width joiner of an emoji sequence is one of
+--     these, so a family emoji comes back with its `\u{200D}`s spelled out
+--   * Cs — surrogates
+--   * Co — private use
+--   * Cn — noncharacters: U+FDD0–U+FDEF and the last two of every plane
+--
+-- The one place this is an approximation of elm-format rather than a copy: Cn
+-- also covers every *unassigned* code point, which elm-format escapes because
+-- Haskell's `Char.isPrint` consults the full Unicode database. Gren's `Char`
+-- carries no category data, so the ranges below are written out by hand, and a
+-- table of every assigned code point is not worth shipping in a formatter. An
+-- unassigned code point that is not a noncharacter is therefore emitted
+-- verbatim. It has no glyph today, but it is also not one of the characters an
+-- author deliberately spells as an escape.
+--
+-- The ranges were checked against Python's Unicode 15.0 tables over all of
+-- U+0000–U+10FFFF: for the seven categories above they agree exactly, in both
+-- directions, U+3000 being the single deliberate exemption.
+isPrintable : Int -> Bool
+isPrintable code =
+    not
+        (isControlOrFormat code
+            || isSeparatorOtherThanSpace code
+            || isSurrogateOrPrivateUse code
+            || isNoncharacter code
+        )
+
+
+-- General categories Cc and Cf.
+isControlOrFormat : Int -> Bool
+isControlOrFormat code =
+    -- Cc: the C0 block, DEL, and the C1 block
+    (code < 0x20)
+        || (code >= 0x7F && code <= 0x9F)
+        -- Cf
+        || (code == 0xAD)
+        || (code >= 0x0600 && code <= 0x0605)
+        || (code == 0x061C)
+        || (code == 0x06DD)
+        || (code == 0x070F)
+        || (code >= 0x0890 && code <= 0x0891)
+        || (code == 0x08E2)
+        || (code == 0x180E)
+        || (code >= 0x200B && code <= 0x200F)
+        || (code >= 0x202A && code <= 0x202E)
+        || (code >= 0x2060 && code <= 0x2064)
+        || (code >= 0x2066 && code <= 0x206F)
+        || (code == 0xFEFF)
+        || (code >= 0xFFF9 && code <= 0xFFFB)
+        || (code == 0x110BD)
+        || (code == 0x110CD)
+        || (code >= 0x13430 && code <= 0x1343F)
+        || (code >= 0x1BCA0 && code <= 0x1BCA3)
+        || (code >= 0x1D173 && code <= 0x1D17A)
+        || (code == 0xE0001)
+        || (code >= 0xE0020 && code <= 0xE007F)
+
+
+-- General categories Zs, Zl and Zp, less the two separators that are meant to
+-- be written as themselves.
+--
+-- U+0020 is one of them, obviously. The other is **U+3000 IDEOGRAPHIC SPACE**,
+-- where we part company with elm-format (divergence #35). A full-width space is
+-- the space of CJK text and is as visible as the characters around it: it is a
+-- full character cell wide, it lines up with the ideographs on the rows above
+-- and below, and nothing else in a Gren file is that shape. Escaping it is what
+-- would hide it. The corpus makes the case better than the argument does —
+-- `blaix/gren-tui`'s spinner variants lay out animation frames with U+3000 as
+-- the padding (`"🤜　　　　🤛 "`), and `\u{3000}` for each of those would turn a
+-- readable strip of frames into something nobody can edit.
+isSeparatorOtherThanSpace : Int -> Bool
+isSeparatorOtherThanSpace code =
+    -- Zs
+    (code == 0x00A0)
+        || (code == 0x1680)
+        || (code >= 0x2000 && code <= 0x200A)
+        || (code == 0x202F)
+        || (code == 0x205F)
+        -- Zl and Zp
+        || (code == 0x2028)
+        || (code == 0x2029)
+
+
+-- General categories Cs and Co.
+isSurrogateOrPrivateUse : Int -> Bool
+isSurrogateOrPrivateUse code =
+    (code >= 0xD800 && code <= 0xDFFF)
+        || (code >= 0xE000 && code <= 0xF8FF)
+        || (code >= 0xF0000 && code <= 0xFFFFD)
+        || (code >= 0x100000 && code <= 0x10FFFD)
+
+
+-- The 66 permanent noncharacters: one run inside the Arabic Presentation Forms
+-- block, plus the last two code points of each of the seventeen planes.
+isNoncharacter : Int -> Bool
+isNoncharacter code =
+    (code >= 0xFDD0 && code <= 0xFDEF)
+        || (Math.modBy 0x10000 code >= 0xFFFE)
 
 
 {-| The source text of a hex integer literal, sign included: `0x1F`, or `-0x1`.
@@ -298,59 +420,18 @@ intToHex n =
         intToHex (Math.floor (toFloat n / 16)) ++ hexDigit (Math.modBy 16 n)
 
 
--- Format a code point for a `\u{...}` escape: lowercase hex, padded to 4 digits.
--- Kept separate from intToHex (which is uppercase, unpadded) because intToHex
--- is also used for hex integer literals where case and padding follow different rules.
+-- Format a code point for a `\u{...}` escape: uppercase hex, padded to at least
+-- four digits — `\u{001B}`, `\u{FEFF}`, `\u{1F600}`.
 --
--- `//` is safe here, unlike in intToHex: a code point is at most 0x10FFFF, far
--- below the 2^35 where Gren's 32-bit `//` starts truncating.
+-- The author's own spelling is not available to copy. The parser hands the
+-- formatter a decoded `String`/`Char`, so `\u{001B}`, `\u{001b}` and a raw ESC
+-- byte all arrive here identical (compiler-common#34, and divergence #9 in
+-- docs/elmFormatComparison.md). The case is therefore invented rather than
+-- preserved, and the one invented is elm-format's, which prints `%04X`.
 codePointHex : Int -> String
 codePointHex n =
     let
-        hexDigitLower d =
-            when d is
-                10 ->
-                    "a"
-
-                11 ->
-                    "b"
-
-                12 ->
-                    "c"
-
-                13 ->
-                    "d"
-
-                14 ->
-                    "e"
-
-                15 ->
-                    "f"
-
-                _ ->
-                    String.fromInt d
-
-        toHexLower m =
-            if m < 16 then
-                hexDigitLower m
-
-            else
-                toHexLower (m // 16) ++ hexDigitLower (Math.modBy 16 m)
-
-        raw =
-            toHexLower n
-
-        rawLen =
-            String.count raw
-
-        pad =
-            String.repeat
-                (if rawLen < 4 then
-                    4 - rawLen
-
-                 else
-                    0
-                )
-                "0"
+        digits =
+            intToHex n
     in
-    pad ++ raw
+    String.repeat (max 0 (4 - String.count digits)) "0" ++ digits

@@ -9,8 +9,8 @@ bell = "\u{0007}"
 
 del = "\u{007f}"
 
--- Control characters whose lowercase hex spans the remaining code-point digits
--- (a, d, e) — none is one of the specially-escaped chars (tab/newline/CR).
+-- Control characters whose hex spans the remaining code-point digits
+-- (A, D, E) — none is one of the specially-escaped chars (tab/newline/CR).
 sub = "\u{001a}"
 
 groupSep = "\u{001d}"

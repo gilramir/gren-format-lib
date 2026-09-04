@@ -1,0 +1,15 @@
+module D35IdeographicSpace exposing (..)
+
+-- Divergence #35. U+3000 IDEOGRAPHIC SPACE is a full-width, visible space, so
+-- it is written as itself; elm-format escapes it with the rest of the Zs
+-- category. Every other space separator is escaped here too.
+
+
+spinnerFrames : Array String
+spinnerFrames =
+    [ "a　　b", "　ab　" ]
+
+
+otherSeparators : String
+otherSeparators =
+    "one\u{00A0}two\u{2003}three"

@@ -84,11 +84,16 @@ BINOPS = ["||", "&&", "==", "/=", "<", ">", "<=", ">=", "++", "+", "-", "*",
 PIPES = ["|>", "<|"]
 WORDS = ["alpha", "bravo", "delta", "echo", "foxtrot", "sierra", "tango"]
 # Escape sequences spliced into Str/PStr/PChar content — verified directly
-# against the app: all round-trip stably, and \u{...} is NORMALIZED on
-# format (expands to its literal character in a string; survives with its
-# hex lowercased in a char literal) rather than merely echoed back.
-STR_ESCAPES = ["\\n", "\\t", "\\\\", "\\\"", "\\u{0041}", "\\u{00e9}", "\\u{1F600}"]
-CHAR_ESCAPES = ["\\n", "\\t", "\\\\", "\\'", "\\u{0041}", "\\u{1F600}"]
+# against the app: all round-trip stably, and a \u{...} is NORMALIZED on format
+# rather than merely echoed back, in a string and a char alike. Which way it is
+# normalized depends on the code point, so both kinds are listed here: one whose
+# character is PRINTABLE contracts to that character (`\u{0041}` -> `A`,
+# `\u{1F600}` -> the emoji), while one whose character is INVISIBLE stays an
+# escape and is respelled in uppercase (`\u{feff}` -> `\u{FEFF}`).
+STR_ESCAPES = ["\\n", "\\t", "\\\\", "\\\"", "\\u{0041}", "\\u{00e9}", "\\u{1F600}",
+               "\\u{feff}", "\\u{00a0}", "\\u{200b}"]
+CHAR_ESCAPES = ["\\n", "\\t", "\\\\", "\\'", "\\u{0041}", "\\u{1F600}",
+                "\\u{feff}", "\\u{00a0}"]
 # Concrete (arity-0) type-constructor names, used as leaf types and type-app args.
 TYPE_CONS = ["Int", "Float", "String", "Bool", "Char"]
 INDENT = 4
@@ -1993,9 +1998,9 @@ class Gen:
         an embedded escape sequence (`\\n`/`\\t`/`\\\\`/`\\"`/`\\u{...}`)
         spliced between them — verified directly against the app that each
         round-trips stably even though the formatter NORMALIZES some of them
-        on format (a `\\u{...}` string escape expands to its literal
-        character; the same escape in a char literal instead survives but
-        with its hex lowercased) — exercising that normalization is the
+        on format (a `\\u{...}` escape whose character is printable expands to
+        that character, and one whose character is invisible stays an escape
+        with its hex uppercased) — exercising that normalization is the
         point."""
         words = [self.pick(WORDS) for _ in range(self.rng.randint(1, 2))]
         if self.chance(0.25):
@@ -2005,8 +2010,8 @@ class Gen:
     def char_content(self):
         """An already-escaped char content for a `PChar` pattern or a `Chr`
         expression: a plain letter normally, else one of `CHAR_ESCAPES` (a
-        `\\u{...}` escape survives with its hex lowercased on format — the same
-        normalization the str-escape path exercises, now reached in char
+        `\\u{...}` escape is normalized on format exactly as it is in a string —
+        the same rule serves both — so this reaches that normalization in char
         position too)."""
         if self.chance(0.3):
             return self.pick(CHAR_ESCAPES)

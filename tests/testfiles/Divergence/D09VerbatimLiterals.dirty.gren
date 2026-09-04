@@ -2,7 +2,7 @@ module D09VerbatimLiterals exposing (..)
 
 -- Divergence #9. Every literal keeps the author's exact spelling. elm-format
 -- normalizes scientific-notation floats (`1e5` -> `1.0e5`, `1.5E3` -> `1.5e3`,
--- `1.5e+3` -> `1.5e3`), uppercases `\u{...}` escapes and expands named ones.
+-- `1.5e+3` -> `1.5e3`) and expands named escapes (`\r` -> `\u{000D}`).
 
 
 sci : Array Float

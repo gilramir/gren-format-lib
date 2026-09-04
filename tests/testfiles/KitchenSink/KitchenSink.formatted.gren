@@ -118,7 +118,7 @@ magicByteSequenceAsHex =
 
 sentinelCharacterValue : Char
 sentinelCharacterValue =
-    '\u{2603}'
+    '☃'
 
 
 -- Non-ASCII characters inside a string literal must round-trip unchanged.

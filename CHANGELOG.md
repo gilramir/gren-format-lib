@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An invisible character no longer loses the `\u{...}` escape that made it
+  visible.** A string literal was rebuilt with every code point from U+0080 up
+  written out verbatim, so `"\u{FEFF}"` came back as a byte order mark with
+  nothing to see between the quotes, `"\u{200B}"` as a zero-width space, and
+  `"\u{00A0}"` as something no reader, `grep` or diff can tell from a plain
+  space. A char literal did the opposite and kept the escape, so the two rules
+  disagreed with each other.
+
+### Changed
+
+- **One rule now decides how every literal is written**, shared by `"..."`,
+  `"""..."""` and `'x'` so they cannot drift apart again. A code point is
+  written as itself when it is printable, and keeps a `\u{...}` escape when it
+  is not: control characters, format characters (the byte order mark, the
+  zero-width space, the bidi controls, an emoji sequence's zero-width joiner),
+  every space separator but U+0020, the line and paragraph separators,
+  surrogates, private-use code points and noncharacters. This is elm-format's
+  rule. Letters, marks, numbers, punctuation and symbols are unaffected — `"é"`,
+  `"日本"` and `"😀"` come back as themselves, as before.
+- **A char literal no longer escapes every non-ASCII character**, which is the
+  half of that rule that changes existing output: `'☃'` and `'é'` are now
+  written as themselves rather than as `'\u{2603}'` and `'\u{00e9}'`, the same
+  way a string has always written them.
+- **`\u{...}` escapes are written in uppercase hex** — `\u{001B}`, not
+  `\u{001b}` — matching elm-format. The case you wrote is not recoverable
+  either way, since the parser hands the formatter a decoded value in which
+  `\u{001B}`, `\u{001b}` and a raw ESC byte are one and the same character; see
+  divergence #9 in `docs/elmFormatComparison.md`.
+
+
 ## [1.1.0] - 2026-08-26
 
 ### Added

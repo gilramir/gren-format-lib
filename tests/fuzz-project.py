@@ -106,6 +106,16 @@ that one piece of shared code has already been made to answer:
   - non-source x `--diff`. `--diff` walks the same discovery code as the
     in-place mode it mirrors, and J/M3 already require it to agree with that
     mode file-for-file.
+  - `-r` / `--recurse` x anything. The flag adds a column to the "how the files
+    were found" axis and nothing to the other one: `expandDirectory` applies
+    the same listing and the same filter the flag-less form always has, once
+    per directory instead of once. What is new is only WHICH directories it
+    descends into, and that question does not vary with what is wrong with the
+    files -- `gren-format/tests`' `PositionalTests` pins both halves of it (the
+    subtree it reaches, and the dotted / `node_modules` / `gren_packages`
+    directories it must refuse). A project generated here is one level deep, so
+    this fuzzer would need a nested-source generator before the column could
+    say anything the CLI suite does not.
 
 Anything that stops being true of the shared code turns these back into real
 cells, so they are listed rather than forgotten.

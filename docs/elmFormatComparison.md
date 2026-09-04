@@ -425,12 +425,21 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 
    - **Integers.** `0xff` and `0x00Ff` both print as `0xFF`. elm-format does the
      same, so this is not a divergence at all — just not preservation.
-   - **String and character escapes.** These are re-emitted in their shortest
-     form: `"\u{000d}"` prints as `"\r"`, `'\u{0041}'` as `'A'`, and
-     `"\u{1F600}"` as a literal `"😀"`. This *is* a divergence, and it runs the
-     **opposite** way from the rest of this entry — elm-format expands named
-     escapes (`\r` → `\u{000D}`) where gren-format contracts them, so on escapes
-     it is elm-format that is closer to what a `\u{…}`-writing author typed.
+   - **String and character escapes.** An escape whose code point is *printable*
+     is re-emitted in its shortest form: `"\u{000d}"` prints as `"\r"`,
+     `'\u{0041}'` as `'A'`, and `"\u{1F600}"` as a literal `"😀"`. This *is* a
+     divergence, and it runs the **opposite** way from the rest of this entry —
+     elm-format expands named escapes (`\r` → `\u{000D}`) where gren-format
+     contracts them, so on escapes it is elm-format that is closer to what a
+     `\u{…}`-writing author typed.
+
+     An escape whose code point is **not** printable is left as an escape, by
+     the same rule elm-format uses and in the same uppercase spelling —
+     `"\u{FEFF}"`, `'\u{FEFF}'` and `"\u{200B}"` all survive untouched. See
+     [String literals](formatterRules.md#string-literals). Only the *case* of
+     the hex digits is invented rather than preserved (the parser hands over a
+     decoded value, so `\u{001B}` and `\u{001b}` arrive identical); the case
+     invented is elm-format's.
 
    Fixture: `Divergence/D09VerbatimLiterals`, which pins all three. Both sides
    are verified against the `elm-format` binary.
@@ -2157,6 +2166,50 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     *quieter* than [#33](#divergence-33)'s neighbouring hazard, where a second
     statement at the chain's column is a parse error and fails loudly. This one
     compiles, and can typecheck; the four-column indent is the only signal.
+
+
+35. <a id="divergence-35"></a>**A full-width space is written as itself;
+    elm-format escapes it.** Both formatters write an invisible code point as a
+    `\u{...}` escape rather than as the character itself — a no-break space, a
+    zero-width space, a byte order mark; see
+    [String literals](formatterRules.md#string-literals). elm-format decides
+    that from the Unicode general category, so **U+3000 IDEOGRAPHIC SPACE** is
+    escaped along with the rest of the Zs separators. gren-format exempts it,
+    and escapes every other member of the category.
+
+    A full-width space is not invisible. It is a full character cell wide, the
+    same width as the ideographs it sits among, and it lines up with them on the
+    rows above and below. It is the space of CJK text, and nothing else in a
+    Gren file has that shape — escaping it is what would hide it.
+
+    The corpus settled this, not the argument. `blaix/gren-tui` lays its spinner
+    animations out with U+3000 as the padding between the glyphs:
+
+    ```gren
+    , frames = [ "🤜　　　　🤛 ", "　🤜　　🤛　 ", "　　🤜🤛　　 " ]
+    ```
+
+    Respelled as `"🤜\u{3000}\u{3000}\u{3000}\u{3000}🤛 "` those frames stop
+    being something a person can read or edit, and the alignment that is their
+    entire point is no longer visible in the source.
+
+    A no-break space keeps its escape, because a no-break space really can pass
+    for a plain space — which is the hazard the rule exists for, and the one a
+    full-width space does not present. Every other member of the category was
+    weighed at the same time and kept its escape for that reason. Chosen by the
+    maintainer, 2026-09-04.
+
+    Verified against the `elm-format` binary, which escapes `\u{3000}`,
+    `\u{00A0}` and `\u{2003}` alike and agrees with gren-format on every other
+    code point the rule touches — `\u{feff}` → `"\u{FEFF}"`, `\u{001b}` →
+    `"\u{001B}"`, `'\u{2603}'` → `'☃'`, a ZWJ sequence → `"👨\u{200D}👩"`. This
+    entry is the whole of the difference between the two formatters here.
+
+    Fixture: `Divergence/D35IdeographicSpace` — which has to carry it alone,
+    because `matrix-syntax.py`'s parity oracle cannot see this rule at all. Its
+    literal atoms are `'c'` and `"s"`, plain ASCII, so no cell it generates holds
+    an escape or a non-ASCII character, and no entry in
+    `matrix-parity-baseline.json` moves when the rule changes.
 
 
 ## Out of scope for comparison
