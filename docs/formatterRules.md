@@ -1289,11 +1289,11 @@ same for `"..."`, `"""..."""` and `'x'`:
   come back untouched, and so do `'é'` and `'☃'`.
 - A character you **cannot** see keeps a `\u{...}` escape, which is what makes
   it visible in the source at all: control characters; every space separator
-  except a plain space, so a no-break space cannot masquerade as one; the line
-  and paragraph separators; format characters, which is where the byte order
-  mark, the zero-width space, the bidi controls and an emoji sequence's
-  zero-width joiner live; surrogates; private-use code points; and
-  noncharacters.
+  except a plain space and a full-width space, so a no-break space cannot
+  masquerade as a plain one; the line and paragraph separators; format
+  characters, which is where the byte order mark, the zero-width space, the
+  bidi controls and an emoji sequence's zero-width joiner live; surrogates;
+  private-use code points; and noncharacters.
 
 ```gren
 byteOrderMark =
@@ -1312,6 +1312,12 @@ This works in the other direction too. Paste a no-break space or a zero-width
 space straight into a string and the formatter writes it back as an escape,
 turning something invisible into something you can read, `grep` for, and see in
 a diff.
+
+The full-width space, U+3000, is the one member of the space-separator category
+that is written as itself. It is not invisible: it is a full character cell
+wide, it lines up with the ideographs around it, and it is the space of CJK
+text, so an escape is what would hide it. elm-format escapes it with the rest
+of the category; this is [divergence #35](elmFormatComparison.md#divergence-35).
 
 The hex digits are uppercase, and at least four wide: `\u{001B}`, `\u{FEFF}`,
 `\u{1F600}`. Which case *you* wrote is not recoverable — `\u{001B}`, `\u{001b}`

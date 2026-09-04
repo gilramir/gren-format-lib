@@ -24,10 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written as itself when it is printable, and keeps a `\u{...}` escape when it
   is not: control characters, format characters (the byte order mark, the
   zero-width space, the bidi controls, an emoji sequence's zero-width joiner),
-  every space separator but U+0020, the line and paragraph separators,
-  surrogates, private-use code points and noncharacters. This is elm-format's
-  rule. Letters, marks, numbers, punctuation and symbols are unaffected — `"é"`,
-  `"日本"` and `"😀"` come back as themselves, as before.
+  every space separator but U+0020 and U+3000, the line and paragraph
+  separators, surrogates, private-use code points and noncharacters. This is
+  elm-format's rule, with one deliberate exemption: elm-format escapes U+3000
+  IDEOGRAPHIC SPACE along with the rest of the space separators, and
+  gren-format writes it as itself, because a full-width space is a full
+  character cell wide and is the space of CJK text — escaping it is what would
+  hide it. See divergence #35 in `docs/elmFormatComparison.md`. Letters, marks,
+  numbers, punctuation and symbols are unaffected — `"é"`, `"日本"` and `"😀"`
+  come back as themselves, as before.
 - **A char literal no longer escapes every non-ASCII character**, which is the
   half of that rule that changes existing output: `'☃'` and `'é'` are now
   written as themselves rather than as `'\u{2603}'` and `'\u{00e9}'`, the same
