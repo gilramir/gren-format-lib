@@ -66,6 +66,14 @@ The dirty half was added to the standing sweep on 2026-08-23. It had never been
 swept before, and the first sweep of it found 24 findings in 66,252 probe sites
 that the formatted half could not reach.
 
+`tools/gren2elm.py` is not a gate either, and not in `tests/` for that reason:
+it is the mechanical half of the elm-format comparison in the root `CLAUDE.md`.
+It translates a Gren file to Elm for `elm-format --stdin`, and `--normalize`
+takes that output back through the literal-spelling divergences that are already
+catalogued (#35's `\u{3000}`, #9's `\u{000D}`) so the diff you read carries only
+differences nobody has classified. Add an entry to its `NORMALIZATIONS` only
+once the divergence has a catalogue number and a `Divergence/` fixture.
+
 The five `tests/_run_*.py` are **instruments, not gates** — they answer a
 question (is this pile of findings a bug, or is the instrument asking the wrong
 one?) and guard nothing. Nothing runs them automatically and their exit status
