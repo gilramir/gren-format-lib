@@ -1,0 +1,17 @@
+module InstanceDeclaration exposing (x)
+
+
+instance Inspect Path where
+    inspect path =
+        "a path"
+
+
+instance Eq a => Eq (Array a) where
+    eq p q =
+        True
+    ne p q =
+        False
+
+
+x : Int
+x = 1

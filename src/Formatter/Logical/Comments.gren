@@ -126,6 +126,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , RecordKind(..)
     , SyntaxType(..)
     , commentLeadsNext
@@ -1187,6 +1188,12 @@ isDeclStype st =
             True
 
         StTypeUnion ->
+            True
+
+        StClass ->
+            True
+
+        StInstance ->
             True
 
         StPort ->
@@ -2271,10 +2278,10 @@ keyword and this list after it is on the tail — whatever rows anything is on. 
 isExposingListNode : LPNode -> Bool
 isExposingListNode node =
     when lpnShape node is
-        AllAcrossOrAllVertical ListParen ->
+        AllAcrossOrAllVertical (ListParen ParenExposing) ->
             True
 
-        AlwaysVertical ListParen ->
+        AlwaysVertical (ListParen ParenExposing) ->
             True
 
         _ ->
@@ -2346,15 +2353,15 @@ subtreeHasMultilineString node =
 
 
 {-| True when a bracket container is an `exposing ( … )` list. `ListParen` is
-used for nothing else (`SortSymbols.gren`: "ListParen is exclusively exposing
+used for nothing else (`SortSymbols.gren`: "ListParen ParenExposing is only an exposing
 lists"), so the shape alone says it. -}
 isExposingListShape : LPShape -> Bool
 isExposingListShape shape =
     when shape is
-        AllAcrossOrAllVertical ListParen ->
+        AllAcrossOrAllVertical (ListParen ParenExposing) ->
             True
 
-        AlwaysVertical ListParen ->
+        AlwaysVertical (ListParen ParenExposing) ->
             True
 
         _ ->
@@ -2916,7 +2923,7 @@ prevBlockGlueRow commentIsMultiline node =
             else
                 bracketClosingRow node
 
-        AllAcrossOrAllVertical ListParen ->
+        AllAcrossOrAllVertical (ListParen ParenExposing) ->
             if bracketRendersMultiline node || commentIsMultiline then
                 bracketClosingRow node
 

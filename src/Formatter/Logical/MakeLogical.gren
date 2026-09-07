@@ -16,7 +16,7 @@ import Math exposing (maxSafeInteger)
 
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
-import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
+import Formatter.Logical.InsertTypes exposing (makeSignatureBranch, makeAnnotationBranch)
 import Formatter.Logical.LPTHelpers exposing
     ( endOfToken
     , mkText
@@ -28,6 +28,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , RecordKind(..)
     , SyntaxType(..)
     , lastRowInSubtree
@@ -67,6 +68,8 @@ lptFromAst modAst =
         |> Result.andThen (\b -> resultFoldl processModDecl b modAst.values)
         |> Result.andThen (\b -> resultFoldl processAliasDecl b modAst.aliases)
         |> Result.andThen (\b -> resultFoldl processUnionDecl b modAst.unions)
+        |> Result.andThen (\b -> resultFoldl processClassDecl b modAst.classes)
+        |> Result.andThen (\b -> resultFoldl processInstanceDecl b modAst.instances)
         |> Result.andThen (processPorts modAst)
         |> Result.andThen (processInfixDecls modAst)
         |> Result.map (\b -> lpnNode RootBox (Builder.toArray b))
@@ -519,10 +522,10 @@ literal-vs-multiline shape choice array/record literals make from
 exposingListShape : Bool -> LPShape
 exposingListShape spansRows =
     if spansRows then
-        AlwaysVertical ListParen
+        AlwaysVertical (ListParen ParenExposing)
 
     else
-        AllAcrossOrAllVertical ListParen
+        AllAcrossOrAllVertical (ListParen ParenExposing)
 
 
 processImports : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
@@ -687,8 +690,19 @@ processUnionDecl modDecl root =
         union_ =
             modDecl.value.value
 
+        -- `@derive(...)`, when the author wrote one, sits on the row above the
+        -- `type` keyword. `modDecl.start` is the attribute's own `@` when there
+        -- is one and the `type` keyword's row when there is not, so the
+        -- declaration's row range covers it either way.
+        typeRow =
+            if Array.isEmpty union_.derives then
+                modDecl.start.row
+
+            else
+                modDecl.start.row + 1
+
         typeNode =
-            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type")
+            lpnLeaf (mkText { row = typeRow, col = 1 } "type")
 
         nameNode =
             lpnLeaf (mkTextFromLocString union_.name)
@@ -706,13 +720,174 @@ processUnionDecl modDecl root =
                     variantsBlock =
                         lpnNode IndentedBlock variantNodes
 
-                    allChildren =
+                    declChildren =
                         [ typeNode, nameNode ] ++ varNodes ++ [ variantsBlock ]
+
+                    -- The attribute is one unbreakable token. It has no
+                    -- flat-or-vertical choice to preserve — the class names are
+                    -- a set, never long, and there is no second shape for them
+                    -- in the grammar — so it renders as written, and
+                    -- `BodyBlock` puts the declaration on the row below it at
+                    -- the same column.
+                    allChildren =
+                        when Array.popFirst union_.derives is
+                            Nothing ->
+                                declChildren
+
+                            Just _ ->
+                                Array.pushFirst
+                                    (lpnLeaf (mkText modDecl.start (deriveText union_.derives)))
+                                    declChildren
 
                     origRow =
                         makeOrigRows modDecl.start.row StTypeUnion allChildren
                 in
                 addRootChild origRow rootWithDoc
+            )
+
+
+deriveText : Array (Located String) -> String
+deriveText derives =
+    "@derive("
+        ++ String.join ", " (Array.map .value derives)
+        ++ ")"
+
+
+{-| Emit one `class` declaration as an `StClass` `OriginalRows`, preceded by
+its doc comment if any.
+
+Structurally a `type` declaration: a keyword, a name, one type variable, and an
+indented block under it. `where` is a keyword the parser discards and a comment
+can legitimately sit beside it, so it is a zero-width leaf anchored at the end
+of the variable rather than a `SynthesizedText`.
+
+    class Eq a where
+        eq : a -> a -> Bool
+-}
+processClassDecl : Src.ModuleDeclaration Src.Class -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processClassDecl modDecl root =
+    let
+        class_ =
+            modDecl.value.value
+
+        classNode =
+            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "class")
+
+        nameNode =
+            lpnLeaf (mkTextFromLocString class_.name)
+
+        varNode =
+            lpnLeaf (mkTextFromLocString class_.var)
+
+        whereNode =
+            lpnLeaf (mkZeroWidthText class_.var.end "where")
+
+        rootWithDoc =
+            processFunctionDoc modDecl.value.docs root
+    in
+    resultFoldl processClassMethodNode [] class_.methods
+        |> Result.map
+            (\methodNodes ->
+                let
+                    methodsBlock =
+                        lpnNode IndentedBlock methodNodes
+
+                    allChildren =
+                        [ classNode, nameNode, varNode, whereNode, methodsBlock ]
+
+                    origRow =
+                        makeOrigRows modDecl.start.row StClass allChildren
+                in
+                addRootChild origRow rootWithDoc
+            )
+
+
+processClassMethodNode : Located Src.ClassMethod -> Array LPNode -> Result String (Array LPNode)
+processClassMethodNode locMethod accNodes =
+    makeAnnotationBranch locMethod.value.signature
+        |> Result.map
+            (\typeNodes ->
+                let
+                    nameNode =
+                        lpnLeaf (mkTextFromLocString locMethod.value.name)
+
+                    colonNode =
+                        lpnLeaf (mkZeroWidthText locMethod.value.name.end ":")
+                in
+                Array.pushLast (plainAcross ([ nameNode, colonNode ] ++ typeNodes)) accNodes
+            )
+
+
+{-| Emit one `instance` declaration as an `StInstance` `OriginalRows`.
+
+    instance Eq a => Eq (Array a) where
+        eq p q =
+            ...
+
+The head is an annotation — an optional context and then a type — so it goes
+through the same `makeAnnotationBranch` a signature does. Each method is a
+definition with no annotation of its own.
+-}
+processInstanceDecl : Src.ModuleDeclaration Src.Instance -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processInstanceDecl modDecl root =
+    let
+        instance_ =
+            modDecl.value.value
+
+        instanceNode =
+            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "instance")
+
+        whereNode =
+            lpnLeaf (mkZeroWidthText instance_.head.end "where")
+
+        rootWithDoc =
+            processFunctionDoc modDecl.value.docs root
+    in
+    makeAnnotationBranch { constraints = instance_.constraints, type_ = instance_.head }
+        |> Result.andThen
+            (\headNodes ->
+                resultFoldl processInstanceMethodNode [] instance_.methods
+                    |> Result.map
+                        (\methodNodes ->
+                            let
+                                methodsBlock =
+                                    lpnNode IndentedBlock methodNodes
+
+                                allChildren =
+                                    [ instanceNode ] ++ headNodes ++ [ whereNode, methodsBlock ]
+
+                                origRow =
+                                    makeOrigRows modDecl.start.row StInstance allChildren
+                            in
+                            addRootChild origRow rootWithDoc
+                        )
+            )
+
+
+processInstanceMethodNode : Located Src.DefineRecord -> Array LPNode -> Result String (Array LPNode)
+processInstanceMethodNode locMethod accNodes =
+    let
+        nameNode =
+            lpnLeaf (mkTextFromLocString locMethod.value.name)
+
+        eqNode =
+            lpnLeaf (SynthesizedText "=")
+    in
+    resultFoldl folderInsertPattern [] locMethod.value.args
+        |> Result.andThen
+            (\argsNodes ->
+                insertExpression locMethod.value.body
+                    |> Result.map
+                        (\bodyNodes ->
+                            let
+                                header =
+                                    plainAcross ([ nameNode ] ++ argsNodes ++ [ eqNode ])
+
+                                bodyWrapper =
+                                    lpnNode BodyBlock bodyNodes
+                            in
+                            Array.pushLast (plainAcross [ header, bodyWrapper ]) accNodes
+                        )
             )
 
 
@@ -888,14 +1063,14 @@ processFunctionDoc maybeLocString root =
 
 {-| Maybe or maybe not insert a FunctionSignature for this function
 -}
-processFunctionSignature : Located String -> Maybe { start : Position, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processFunctionSignature : Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processFunctionSignature locName maybeType root =
     when maybeType is
         Nothing ->
             Ok root
 
-        Just { start = sigStart, type_ = locType } ->
-            makeSignatureBranch locType
+        Just { start = sigStart, constraints = constraints, type_ = locType } ->
+            makeAnnotationBranch { constraints = constraints, type_ = locType }
                 |> Result.map
                     (\typeNodes ->
                         let

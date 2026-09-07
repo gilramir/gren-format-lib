@@ -93,6 +93,12 @@ classifyChildren nodes =
                                         StTypeUnion ->
                                             True
 
+                                        StClass ->
+                                            True
+
+                                        StInstance ->
+                                            True
+
                                         StPort ->
                                             True
 

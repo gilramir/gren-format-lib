@@ -1,4 +1,4 @@
-module Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
+module Formatter.Logical.InsertTypes exposing (makeSignatureBranch, makeAnnotationBranch)
 
 {-|
 Type → LPT conversion. Used by function signatures, type aliases, type
@@ -20,12 +20,96 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , RecordKind(..)
     , lpnBracketNode
     , lpnLeaf
     , lpnWithBracketStart
     )
 import Formatter.Results exposing (resultFoldl)
+
+
+{-| An annotation: a type, and the constraint context qualifying it.
+
+The context comes out as nodes in front of the type's, joined by a `=>` the
+same way `TLambda` joins its two halves with `->` — a zero-width leaf anchored
+at a real position, so a comment written in the gap always sorts after it.
+
+The layout is the author's, and it is read off the constraint list's own rows
+the way every other bracketed list here is read. One constraint is never
+parenthesized; two or more always are, because the grammar needs to know where
+the list ends.
+-}
+makeAnnotationBranch : Src.Annotation -> Result String (Array LPNode)
+makeAnnotationBranch ann =
+    makeSignatureBranch ann.type_
+        |> Result.map (\typeNodes -> makeContextNodes ann.constraints ++ typeNodes)
+
+
+makeContextNodes : Array Src.Constraint -> Array LPNode
+makeContextNodes constraints =
+    when Array.popFirst constraints is
+        Nothing ->
+            []
+
+        Just { first = firstConstraint, rest = others } ->
+            let
+                arrowNode =
+                    lpnLeaf (mkZeroWidthText (lastConstraintEnd firstConstraint others) "=>")
+            in
+            if Array.isEmpty others then
+                constraintNodes firstConstraint ++ [ arrowNode ]
+
+            else
+                let
+                    -- The same author-layout signal every list here uses: a
+                    -- context the author wrote across rows stays one
+                    -- constraint per line, one written on a single line stays
+                    -- inline.
+                    multiLine =
+                        itemsSpanRows
+                            (Array.map
+                                (\c -> { start = c.class.start, end = c.var.end })
+                                constraints
+                            )
+
+                    shape =
+                        if multiLine then
+                            AlwaysVertical (ListParen ParenContext)
+
+                        else
+                            AllAcrossOrAllVertical (ListParen ParenContext)
+
+                    items =
+                        Array.map (\c -> plainAcross (constraintNodes c)) constraints
+                in
+                [ lpnBracketNode shape (lastConstraintEnd firstConstraint others) items
+                    |> lpnWithBracketStart firstConstraint.class.start
+                , arrowNode
+                ]
+
+
+constraintNodes : Src.Constraint -> Array LPNode
+constraintNodes c =
+    let
+        classText =
+            when c.qualifier is
+                Just qualifier ->
+                    qualifier ++ "." ++ c.class.value
+
+                Nothing ->
+                    c.class.value
+    in
+    [ lpnLeaf (mkText c.class.start classText)
+    , lpnLeaf (mkTextFromLocString c.var)
+    ]
+
+
+lastConstraintEnd : Src.Constraint -> Array Src.Constraint -> { row : Int, col : Int }
+lastConstraintEnd firstConstraint others =
+    Array.last others
+        |> Maybe.map (\c -> c.var.end)
+        |> Maybe.withDefault firstConstraint.var.end
 
 
 folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)

@@ -438,7 +438,7 @@ splitAtArrows : Array LPNode -> Array (Array LPNode)
 splitAtArrows nodes =
     Array.foldl
         (\node acc ->
-            if leafText node == Just "->" then
+            if isSegmentArrow node then
                 Array.pushLast [ node ] acc
 
             else
@@ -451,6 +451,14 @@ splitAtArrows nodes =
         )
         []
         nodes
+
+
+{-| A signature segment starts at an arrow, and `=>` is one of them: the
+constraint context is a segment of its own, so an author-broken signature puts
+it on its own line ahead of the type's first segment (D116). -}
+isSegmentArrow : LPNode -> Bool
+isSegmentArrow node =
+    leafText node == Just "->" || leafText node == Just "=>"
 
 
 leafText : LPNode -> Maybe String
@@ -477,7 +485,7 @@ segFirstRow : Array LPNode -> Int
 segFirstRow seg =
     Array.foldl
         (\node acc ->
-            if leafText node == Just "->" || LPT.shapeIsComment (lpnShape node) then
+            if isSegmentArrow node || LPT.shapeIsComment (lpnShape node) then
                 acc
 
             else
@@ -515,7 +523,7 @@ segLastRow : Array LPNode -> Int
 segLastRow seg =
     Array.foldl
         (\node acc ->
-            if leafText node == Just "->" || LPT.shapeIsComment (lpnShape node) then
+            if isSegmentArrow node || LPT.shapeIsComment (lpnShape node) then
                 acc
 
             else

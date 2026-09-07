@@ -43,6 +43,7 @@ barrier a compile error rather than a convention.
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , PrefixKind(..)
     , RecordKind(..)
     )
@@ -442,9 +443,14 @@ leafValue node =
             Nothing
 
 
+{-| A signature's segment boundary. Both arrows are one: `=>` separates a
+constraint context from the type it qualifies exactly as `->` separates one
+argument from the next, and a signature the author broke across rows puts each
+on the front of its own line (D116).
+-}
 isArrowLeaf : RenderNode -> Bool
 isArrowLeaf node =
-    leafValue node == Just "->"
+    leafValue node == Just "->" || leafValue node == Just "=>"
 
 
 isColonLeaf : RenderNode -> Bool

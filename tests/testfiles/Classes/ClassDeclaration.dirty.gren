@@ -1,0 +1,14 @@
+module ClassDeclaration exposing (x)
+
+
+class Eq a where
+    eq : a -> a -> Bool
+    ne : a -> a -> Bool
+
+
+class Sortable a where
+    sortBy : Ord b => (a -> b) -> a -> a
+
+
+x : Int
+x = 1

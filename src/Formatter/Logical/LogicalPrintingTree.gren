@@ -4,6 +4,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , PrefixKind(..)
     , RecordKind(..)
     , SyntaxType(..)
@@ -133,9 +134,21 @@ by scanning a field's children for a `SynthesizedText ":"` — asking the
 separator glyph what the construct is, one altitude below where the answer was
 already known. -}
 type ListBrackets
-    = ListParen
+    = ListParen ParenKind
     | ListCurly RecordKind
     | ListSquare
+
+
+{-| What a parenthesized list is. Both render the same — tight when flat,
+leading-comma when vertical — but they are not interchangeable: an exposing
+list is sorted alphabetically (`SortSymbols`) and its comments are placed by
+rules of its own (`Comments`), and a constraint context must be neither sorted
+nor treated as one. `ListParen` used to be exclusively exposing lists and three
+modules said so in comments; this is that assumption made checkable.
+-}
+type ParenKind
+    = ParenExposing
+    | ParenContext
 
 
 {-| Whether a curly bracket list separates its fields with `:` or with `=`. -}
@@ -169,6 +182,8 @@ type SyntaxType
     | StFunctionDeclaration
     | StTypeAlias
     | StTypeUnion
+    | StClass
+    | StInstance
     | StPort
     | StInfixDecl
 
@@ -203,6 +218,12 @@ stypeToString st =
         StTypeUnion ->
             "typeUnion"
 
+        StClass ->
+            "class"
+
+        StInstance ->
+            "instance"
+
         StPort ->
             "port"
 
@@ -217,7 +238,7 @@ a diff nobody can read across. -}
 bracketsToString : ListBrackets -> String
 bracketsToString brackets =
     when brackets is
-        ListParen ->
+        ListParen _ ->
             "paren"
 
         ListCurly _ ->

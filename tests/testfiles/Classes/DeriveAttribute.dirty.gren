@@ -1,0 +1,10 @@
+module DeriveAttribute exposing (UserId, Colour)
+
+
+@derive(Eq, Ord, Inspect)
+type UserId
+    = UserId Int
+
+
+@derive(Eq)
+type Colour = Red | Green | Blue

@@ -66,6 +66,7 @@ surfaced before facts are built.
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , roleGlues
     )
 import Formatter.RenderTree exposing

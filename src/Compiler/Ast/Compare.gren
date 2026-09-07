@@ -31,6 +31,8 @@ compareModules a b =
         , compareExposing "exports" a.exports b.exports
         , compareArray "imports" compareImport (sortImportsForCompare a.imports) (sortImportsForCompare b.imports)
         , compareArray "values" compareValueDecl a.values b.values
+        , compareArray "classes" compareClassDecl a.classes b.classes
+        , compareArray "instances" compareInstanceDecl a.instances b.instances
         , compareArray "unions" compareUnionDecl a.unions b.unions
         , compareArray "aliases" compareAliasDecl a.aliases b.aliases
         , compareArray "binops" compareBinopDecl a.binops b.binops
@@ -217,6 +219,7 @@ compareValueDecl la lb =
         [ compareStr "function name" a.name.value b.name.value
         , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareMaybe (ctx ++ " signature") (\sa sb -> compareType_ ctx sa.value sb.value) (Maybe.map .type_ a.signature) (Maybe.map .type_ b.signature)
+        , compareArray (ctx ++ " constraints") compareConstraint (constraintsOf a.signature) (constraintsOf b.signature)
         , compareArray (ctx ++ " args") comparePattern a.args b.args
         , compareExpr ctx a.body b.body
         ]
@@ -242,6 +245,90 @@ compareUnionDecl la lb =
         , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareArray (ctx ++ " vars") (\la_ lb_ -> compareStr "type var" la_.value lb_.value) a.vars b.vars
         , compareArray (ctx ++ " variants") compareVariant a.variants b.variants
+        , compareArray (ctx ++ " derives") (\da db -> compareStr "derived class" da.value db.value) a.derives b.derives
+        ]
+
+
+-- CLASSES AND INSTANCES
+
+
+{-| A constraint is part of what an annotation means, so it is compared like
+one. So is a `@derive` list and every class and instance declaration: the whole
+point of this module is that the formatter cannot drop something and still
+pass, and a dropped instance is the one that would leave a program compiling
+and wrong.
+-}
+compareConstraint : Src.Constraint -> Src.Constraint -> Result String {}
+compareConstraint a b =
+    chainAll
+        [ compareMaybeStr "constraint qualifier" a.qualifier b.qualifier
+        , compareStr "constraint class" a.class.value b.class.value
+        , compareStr "constraint variable" a.var.value b.var.value
+        ]
+
+
+constraintsOf : Maybe { start : SP.Position, constraints : Array Src.Constraint, type_ : Src.Type } -> Array Src.Constraint
+constraintsOf maybeSig =
+    maybeSig
+        |> Maybe.map .constraints
+        |> Maybe.withDefault []
+
+
+compareClassDecl : Src.ModuleDeclaration Src.Class -> Src.ModuleDeclaration Src.Class -> Result String {}
+compareClassDecl la lb =
+    let
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+
+        ctx =
+            "class '" ++ a.name.value ++ "'"
+    in
+    chainAll
+        [ compareStr "class name" a.name.value b.name.value
+        , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
+        , compareStr (ctx ++ " variable") a.var.value b.var.value
+        , compareArray (ctx ++ " methods") (compareClassMethod ctx) a.methods b.methods
+        ]
+
+
+compareClassMethod : String -> SP.Located Src.ClassMethod -> SP.Located Src.ClassMethod -> Result String {}
+compareClassMethod ctx la lb =
+    chainAll
+        [ compareStr (ctx ++ " method name") la.value.name.value lb.value.name.value
+        , compareArray (ctx ++ " method constraints") compareConstraint la.value.signature.constraints lb.value.signature.constraints
+        , compareType (ctx ++ " method type") la.value.signature.type_ lb.value.signature.type_
+        ]
+
+
+compareInstanceDecl : Src.ModuleDeclaration Src.Instance -> Src.ModuleDeclaration Src.Instance -> Result String {}
+compareInstanceDecl la lb =
+    let
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+
+        ctx =
+            "instance"
+    in
+    chainAll
+        [ compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
+        , compareArray (ctx ++ " constraints") compareConstraint a.constraints b.constraints
+        , compareType (ctx ++ " head") a.head b.head
+        , compareArray (ctx ++ " methods") (compareInstanceMethod ctx) a.methods b.methods
+        ]
+
+
+compareInstanceMethod : String -> SP.Located Src.DefineRecord -> SP.Located Src.DefineRecord -> Result String {}
+compareInstanceMethod ctx la lb =
+    chainAll
+        [ compareStr (ctx ++ " method name") la.value.name.value lb.value.name.value
+        , compareArray (ctx ++ " method args") comparePattern la.value.args lb.value.args
+        , compareExpr (ctx ++ " method body") la.value.body lb.value.body
         ]
 
 
@@ -575,6 +662,13 @@ compareWhenBranch ctx a b =
         ]
 
 
+letConstraintsOf : Maybe Src.Annotation -> Array Src.Constraint
+letConstraintsOf maybeAnn =
+    maybeAnn
+        |> Maybe.map .constraints
+        |> Maybe.withDefault []
+
+
 compareLetDef : String -> SP.Located Src.Def -> SP.Located Src.Def -> Result String {}
 compareLetDef ctx la lb =
     when { fst = la.value, snd = lb.value } is
@@ -582,7 +676,8 @@ compareLetDef ctx la lb =
             chainAll
                 [ compareStr (ctx ++ " let.def name") da.name.value db.name.value
                 , compareArray (ctx ++ " let." ++ da.name.value ++ ".args") comparePattern da.args db.args
-                , compareMaybe (ctx ++ " let." ++ da.name.value ++ ".sig") (compareType (ctx ++ " let.sig")) da.typeSignature db.typeSignature
+                , compareMaybe (ctx ++ " let." ++ da.name.value ++ ".sig") (compareType (ctx ++ " let.sig")) (Maybe.map .type_ da.typeSignature) (Maybe.map .type_ db.typeSignature)
+                , compareArray (ctx ++ " let." ++ da.name.value ++ ".constraints") compareConstraint (letConstraintsOf da.typeSignature) (letConstraintsOf db.typeSignature)
                 , compareExpr (ctx ++ " let." ++ da.name.value ++ ".body") da.body db.body
                 ]
 

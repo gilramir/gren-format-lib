@@ -37,6 +37,7 @@ import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrec
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , RecordKind(..)
     , roleGlues
     )
@@ -139,7 +140,7 @@ bracketPunc bracket =
         ListSquare ->
             { left = "[", right = "]" }
 
-        ListParen ->
+        ListParen _ ->
             -- A parenthesized exposing list reached via the general list path
             -- rather than `makeExposingLineBox` — i.e. a module/import line
             -- whose header carries a comment, so `makeExposingLineBox` fell back

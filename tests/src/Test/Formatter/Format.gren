@@ -28,6 +28,7 @@ suites fsPerm =
     , patternsAndLiteralsSuite fsPerm
     , recordUpdatesSuite fsPerm
     , declarationSuite fsPerm
+    , classesSuite fsPerm
     , headerCommentsSuite fsPerm
     , pipelineCommentsSuite fsPerm
     , patternCommentsSuite fsPerm
@@ -656,6 +657,30 @@ declarationSuite fsPerm =
             , assertPrettyIn fsPerm "Declarations" "empty-bodied doc comment `{-| -}`" "EmptyDocComment"
             , assertPrettyIn fsPerm "Declarations" "a comment-bearing signature takes its shape from the rendered box, not a predicate" "SignatureCommentRecordType"
             , assertPrettyIn fsPerm "Declarations" "a multi-line `{- -}` past a declaration's last token renders below it, so it detaches to column 1 like the reparse and elm-format do; a glued or single-line one stays put" "DeclTrailingMultilineComment"
+            ]
+        }
+
+
+{-| M1b's classes: the constraint context on an annotation, the two new
+declarations, and the `@derive` attribute.
+
+The layout rules being pinned here are `docs/m1b-classes.md` §G13.1's: a single
+constraint is never parenthesized, two or more always are, and an annotation
+the author wrote across rows puts the `=>` in the column the `->`s use.
+-}
+classesSuite : FileSystem.Permission -> U.Suite
+classesSuite fsPerm =
+    U.suite
+        { name = "Classes"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPrettyIn fsPerm "Classes" "a constraint context: redundant parentheses around one constraint are dropped, two or more keep theirs, a qualified class name survives, and an expanded context puts `=>` in the column the arrows use" "Constraints"
+            , assertPrettyIn fsPerm "Classes" "a class declaration's methods pack one per line like a union's variants, and the body ends where the indentation does" "ClassDeclaration"
+            , assertPrettyIn fsPerm "Classes" "an instance declaration's methods are definitions, so they take one blank line between them like `let` bindings" "InstanceDeclaration"
+            , assertPrettyIn fsPerm "Classes" "`@derive(...)` renders on its own line above the type it belongs to, inside the same declaration unit, so no blank line opens between them" "DeriveAttribute"
             ]
         }
 

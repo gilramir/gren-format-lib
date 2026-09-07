@@ -1,0 +1,32 @@
+module Constraints exposing (a, b, c, d, e)
+
+
+a : (Eq x) => x -> Bool
+a _ = True
+
+
+b : (Eq x, Ord y) => x -> y -> Bool
+b _ _ = True
+
+
+c : Basics.Eq x => x -> Bool
+c _ = True
+
+
+d :
+    ( Eq x
+    , Ord y
+    )
+    => x
+    -> y
+    -> Bool
+d _ _ = True
+
+
+e : Int -> Int
+e n =
+    let
+        f : Eq q => q -> Bool
+        f _ = True
+    in
+    n

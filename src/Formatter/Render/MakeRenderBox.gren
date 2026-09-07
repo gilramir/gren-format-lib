@@ -15,6 +15,7 @@ import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , RecordKind(..)
     , SyntaxType(..)
     , prefixGlyph
@@ -191,7 +192,35 @@ makeDeclBodyBox node stype children =
             renderHeaderIndentedBody makeTypeAliasBody children
 
         StTypeUnion ->
-            renderHeaderIndentedBody makeUnionBodyBox children
+            -- `@derive(...)` is the first child when the author wrote one. It
+            -- is a line of its own above the declaration and nothing else in
+            -- the flow: peel it off, render the rest exactly as an unattributed
+            -- type, and stack the two. Doing it here rather than with a shape
+            -- of its own keeps the attribute inside the declaration's single
+            -- `OriginalRows`, which is what makes `VerticalSpace` treat the two
+            -- as one unit and put no blank line between them.
+            let
+                peeled =
+                    peelAttribute children
+            in
+            renderHeaderIndentedBody makeUnionBodyBox peeled.rest
+                |> Result.map
+                    (\declBox ->
+                        when peeled.attribute is
+                            Just text ->
+                                B.stack1 [ B.line (B.literal text), declBox ]
+
+                            Nothing ->
+                                declBox
+                    )
+
+        StClass ->
+            -- A header (`class Eq a where`) and an indented block of
+            -- annotations, which is `type`'s shape with a different body.
+            renderHeaderIndentedBody (buildBlockBody False) children
+
+        StInstance ->
+            renderHeaderIndentedBody (buildBlockBody True) children
 
         StSingleLineComment ->
             makeCommentLineBox children
@@ -619,6 +648,56 @@ renderHeaderIndentedBody bodyRenderer children =
 -- first segment to, every segment (including the first) sits at the SAME
 -- column, since `renderHeaderIndentedBody` already supplies the body's one
 -- +4 from `type alias Foo =`.
+{-| Split a leading `@derive(...)` leaf off a declaration's children. An
+attribute is the only leaf that can start with `@`, so the test is the glyph.
+-}
+peelAttribute : Array RenderNode -> { attribute : Maybe String, rest : Array RenderNode }
+peelAttribute children =
+    when Array.popFirst children is
+        Just { first = firstNode, rest = restNodes } ->
+            when leafValue firstNode is
+                Just text ->
+                    if String.startsWith "@" text then
+                        { attribute = Just text, rest = restNodes }
+
+                    else
+                        { attribute = Nothing, rest = children }
+
+                Nothing ->
+                    { attribute = Nothing, rest = children }
+
+        Nothing ->
+            { attribute = Nothing, rest = children }
+
+
+{-| A `class` / `instance` body: one member per line, always.
+
+Neither declaration has a one-line form in the grammar, so there is no author
+choice to preserve here — unlike a union body, where `= A | B` on one row is a
+shape the author picked. `grenIndent` is the per-member continuation indent: a
+class method whose type breaks, and an instance method's body, both drop +4
+from the member's own column, and the block itself is already indented once by
+`renderHeaderIndentedBody`.
+
+`spaced` is the same distinction the language already draws elsewhere: a
+class's members are annotations and pack like a union's variants, an instance's
+members are definitions with bodies and get one blank line between them like
+`let` bindings — always one, written or not, which is `VerticalSpace`'s rule
+for `let` said in a second place because these members are not a flow it walks.
+-}
+buildBlockBody : Bool -> RenderNode -> Result String Box
+buildBlockBody spaced bodyNode =
+    traverseResult (\member -> buildFlowBox grenIndent (rnChildren member)) (rnChildren bodyNode)
+        |> Result.map
+            (\memberBoxes ->
+                if spaced then
+                    B.stack1 (Array.intersperse B.blankLine memberBoxes)
+
+                else
+                    B.stack1 memberBoxes
+            )
+
+
 makeTypeAliasBody : RenderNode -> Result String Box
 makeTypeAliasBody bodyNode =
     let
@@ -2521,10 +2600,10 @@ makeExposingLineBox stype children =
                 -- the last node isn't a paren list (`(..)` wildcard, etc.).
                 exposingForceVertical =
                     when rnShape lastNode is
-                        AllAcrossOrAllVertical ListParen ->
+                        AllAcrossOrAllVertical (ListParen ParenExposing) ->
                             Just False
 
-                        AlwaysVertical ListParen ->
+                        AlwaysVertical (ListParen ParenExposing) ->
                             Just True
 
                         _ ->
@@ -2595,7 +2674,7 @@ makeExposingLineBox stype children =
                         -- `( `/`, `/`)` prefixes match `listBoxesWithBrackets`).
                         listBoxResult =
                             if commentForcesOpen then
-                                commentBracketListBox ListParen listChildren
+                                commentBracketListBox (ListParen ParenExposing) listChildren
 
                             else
                                 makeExposingListBox forceVertical listChildren
@@ -3260,8 +3339,22 @@ makeLiteralBox { forceMultiline } bracket children =
                 (\itemBoxes ->
                     when bracketPunc bracket is
                         { left = left, right = right } ->
-                            Ok (E.groupBox (bracket /= ListParen) left "," right forceMultiline itemBoxes)
+                            Ok (E.groupBox (not (isParenBracket bracket)) left "," right forceMultiline itemBoxes)
                 )
+
+
+{-| A parenthesized list renders tight — `(a, b)` — where a record or an array
+is padded. Both kinds of paren list do: an exposing list has rendered that way
+since 2026-07-25, and a constraint context is written `(Eq a, Ord b)` for the
+same reason, so the test is the bracket and not what is inside it. -}
+isParenBracket : ListBrackets -> Bool
+isParenBracket bracket =
+    when bracket is
+        ListParen _ ->
+            True
+
+        _ ->
+            False
 
 
 {-| Render a bracketed literal that contains a comment child, as an always-

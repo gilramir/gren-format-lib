@@ -43,6 +43,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPNode
     , LPShape(..)
     , ListBrackets(..)
+    , ParenKind(..)
     , SyntaxType(..)
     , commentFirstCol
     , commentRole
@@ -824,7 +825,7 @@ sortExposingLists node =
             lpnReplaceChildren node (hoistBracketLeadingComments (Array.map sortExposingLists (lpnChildren node)))
     in
     when lpnShape recursed is
-        AllAcrossOrAllVertical ListParen ->
+        AllAcrossOrAllVertical (ListParen ParenExposing) ->
             -- Flat *and* elastic = the module header's own one-row list, the
             -- only exposing list whose closing `)` is neither recorded by the
             -- parser nor on a row of its own. See `sortExposedChildren`.
@@ -837,7 +838,7 @@ sortExposingLists node =
                     (lpnChildren recursed)
                 )
 
-        AlwaysVertical ListParen ->
+        AlwaysVertical (ListParen ParenExposing) ->
             lpnReplaceChildren
                 recursed
                 (sortExposedChildren
@@ -896,10 +897,10 @@ hoistBracketLeadingComments children =
     Array.foldl
         (\child acc ->
             when lpnShape child is
-                AllAcrossOrAllVertical ListParen ->
+                AllAcrossOrAllVertical (ListParen ParenExposing) ->
                     Builder.append (hoistOne intoEffectHeaderTail child) acc
 
-                AlwaysVertical ListParen ->
+                AlwaysVertical (ListParen ParenExposing) ->
                     Builder.append (hoistOne intoEffectHeaderTail child) acc
 
                 _ ->

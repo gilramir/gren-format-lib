@@ -63,6 +63,8 @@ encodeModule mod =
         , { key = "docs", value = encMaybe (encLocated Json.string) mod.docs }
         , { key = "imports", value = Json.array (encLocated encImport) mod.imports }
         , { key = "values", value = Json.array (encLocated (encModuleDecl encValue)) mod.values }
+        , { key = "classes", value = Json.array (encLocated (encModuleDecl encClass)) mod.classes }
+        , { key = "instances", value = Json.array (encLocated (encModuleDecl encInstance)) mod.instances }
         , { key = "unions", value = Json.array (encLocated (encModuleDecl encUnion)) mod.unions }
         , { key = "aliases", value = Json.array (encLocated (encModuleDecl encAlias)) mod.aliases }
         , { key = "binops", value = Json.array (encLocated encInfix) mod.binops }
@@ -149,11 +151,58 @@ encValue v =
         ]
 
 
-encValueSig : { start : SP.Position, type_ : SP.Located Src.Type_ } -> Json.Value
+encValueSig : { start : SP.Position, constraints : Array Src.Constraint, type_ : SP.Located Src.Type_ } -> Json.Value
 encValueSig sig =
     Json.object
         [ { key = "start", value = encPos sig.start }
+        , { key = "constraints", value = Json.array encConstraint sig.constraints }
         , { key = "type_", value = encLocated encType_ sig.type_ }
+        ]
+
+
+encAnnotation : Src.Annotation -> Json.Value
+encAnnotation ann =
+    Json.object
+        [ { key = "constraints", value = Json.array encConstraint ann.constraints }
+        , { key = "type_", value = encLocated encType_ ann.type_ }
+        ]
+
+
+encConstraint : Src.Constraint -> Json.Value
+encConstraint c =
+    Json.object
+        [ { key = "qualifier", value = encMaybe Json.string c.qualifier }
+        , { key = "class", value = encLocated Json.string c.class }
+        , { key = "var", value = encLocated Json.string c.var }
+        ]
+
+
+-- Class and instance
+
+
+encClass : Src.Class -> Json.Value
+encClass class_ =
+    Json.object
+        [ { key = "name", value = encLocated Json.string class_.name }
+        , { key = "var", value = encLocated Json.string class_.var }
+        , { key = "methods", value = Json.array (encLocated encClassMethod) class_.methods }
+        ]
+
+
+encClassMethod : Src.ClassMethod -> Json.Value
+encClassMethod method =
+    Json.object
+        [ { key = "name", value = encLocated Json.string method.name }
+        , { key = "signature", value = encAnnotation method.signature }
+        ]
+
+
+encInstance : Src.Instance -> Json.Value
+encInstance instance_ =
+    Json.object
+        [ { key = "constraints", value = Json.array encConstraint instance_.constraints }
+        , { key = "head", value = encLocated encType_ instance_.head }
+        , { key = "methods", value = Json.array (encLocated (\rec -> encDef (Src.Define rec))) instance_.methods }
         ]
 
 
@@ -166,6 +215,7 @@ encUnion union =
         [ { key = "name", value = encLocated Json.string union.name }
         , { key = "vars", value = Json.array (encLocated Json.string) union.vars }
         , { key = "variants", value = Json.array (encLocated encUnionVariant) union.variants }
+        , { key = "derives", value = Json.array (encLocated Json.string) union.derives }
         ]
 
 
@@ -587,7 +637,7 @@ encDef def =
                 , { key = "name", value = encLocated Json.string rec.name }
                 , { key = "args", value = Json.array encPattern rec.args }
                 , { key = "body", value = encExpression rec.body }
-                , { key = "typeSignature", value = encMaybe encType rec.typeSignature }
+                , { key = "typeSignature", value = encMaybe encAnnotation rec.typeSignature }
                 ]
 
         Src.Destruct { pattern, body } ->
