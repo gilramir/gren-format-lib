@@ -217,7 +217,19 @@ makeDeclBodyBox node stype children =
         StClass ->
             -- A header (`class Eq a where`) and an indented block of
             -- annotations, which is `type`'s shape with a different body.
-            renderHeaderIndentedBody (buildBlockBody False) children
+            --
+            -- A class with no methods (D133) is the header alone — no block,
+            -- and so no `where` to introduce one. The test for which shape this
+            -- is has to be structural, because `renderHeaderIndentedBody` pops
+            -- the LAST child as the body: with nothing to pop it would take the
+            -- class variable for a body and render `class Num`, which is a
+            -- different declaration. The body is the only child that is not a
+            -- text leaf, so a last child that is one means there is no body.
+            if lastChildIsLeaf children then
+                buildFlowBox 0 children
+
+            else
+                renderHeaderIndentedBody (buildBlockBody False) children
 
         StInstance ->
             renderHeaderIndentedBody (buildBlockBody True) children
@@ -648,6 +660,26 @@ renderHeaderIndentedBody bodyRenderer children =
 -- first segment to, every segment (including the first) sits at the SAME
 -- column, since `renderHeaderIndentedBody` already supplies the body's one
 -- +4 from `type alias Foo =`.
+{-| Whether a declaration's last child is a text leaf rather than a block.
+
+`renderHeaderIndentedBody` splits header from body by popping the last child, so
+this is how a declaration says it has no body at all.
+-}
+lastChildIsLeaf : Array RenderNode -> Bool
+lastChildIsLeaf children =
+    when Array.last children is
+        Just node ->
+            when leafValue node is
+                Just _ ->
+                    True
+
+                Nothing ->
+                    False
+
+        Nothing ->
+            False
+
+
 {-| Split a leading `@derive(...)` leaf off a declaration's children. An
 attribute is the only leaf that can start with `@`, so the test is the glyph.
 -}

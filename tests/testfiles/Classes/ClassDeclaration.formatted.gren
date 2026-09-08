@@ -10,6 +10,12 @@ class Sortable a where
     sortBy : Ord b => (a -> b) -> a -> a
 
 
+class Num a
+
+
+class Marker a
+
+
 x : Int
 x =
     1

@@ -763,6 +763,12 @@ of the variable rather than a `SynthesizedText`.
 
     class Eq a where
         eq : a -> a -> Bool
+
+A class with no methods has no `where` either (D133) — the keyword only
+introduces the block, so with no block there is nothing for it to introduce and
+`class Num a` is the whole declaration.
+
+    class Num a
 -}
 processClassDecl : Src.ModuleDeclaration Src.Class -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processClassDecl modDecl root =
@@ -793,7 +799,11 @@ processClassDecl modDecl root =
                         lpnNode IndentedBlock methodNodes
 
                     allChildren =
-                        [ classNode, nameNode, varNode, whereNode, methodsBlock ]
+                        if Array.length methodNodes == 0 then
+                            [ classNode, nameNode, varNode ]
+
+                        else
+                            [ classNode, nameNode, varNode, whereNode, methodsBlock ]
 
                     origRow =
                         makeOrigRows modDecl.start.row StClass allChildren
