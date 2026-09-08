@@ -937,6 +937,11 @@ glueLeadingCommentRun bodyMayRide lead box =
     let
         -- Index of the first comment that cannot share a line; the length of the
         -- run when every comment can.
+        --
+        -- Annotated because the fold compares its accumulator with `>=` and
+        -- `<`, which need `Ord`, and an unannotated definition cannot carry an
+        -- inferred constraint (`geng-lang/docs/m1b-classes.md` §G29.6).
+        firstBreak : Int
         firstBreak =
             (Array.foldl
                 (\c acc ->

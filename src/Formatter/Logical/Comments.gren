@@ -1372,6 +1372,10 @@ insertCommentIntoSubtree commentNode row col node =
         -- false positive (e.g. two record types straddling a `->`: the
         -- comment between them appears to be on the same row as the first
         -- record's content, but really belongs between the two records).
+        -- Annotated because `acc.index >= startIndex` needs `Ord`, and an
+        -- unannotated definition cannot carry an inferred constraint
+        -- (`geng-lang/docs/m1b-classes.md` §G29.6).
+        anyLaterSiblingStartsAtOrBefore : Int -> Bool
         anyLaterSiblingStartsAtOrBefore startIndex =
             Array.foldl
                 (\sib acc ->
