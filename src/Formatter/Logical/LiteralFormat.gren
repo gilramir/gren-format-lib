@@ -326,7 +326,7 @@ isSurrogateOrPrivateUse code =
 isNoncharacter : Int -> Bool
 isNoncharacter code =
     (code >= 0xFDD0 && code <= 0xFDEF)
-        || (Math.modBy 0x10000 code >= 0xFFFE)
+        || (modBy 0x10000 code >= 0xFFFE)
 
 
 {-| The source text of a hex integer literal, sign included: `0x1F`, or `-0x1`.
@@ -416,8 +416,10 @@ intToHex n =
         -- (toFloat n / 16)` divides in Float (exact for n < 2^53, since /16 just
         -- shifts the exponent) and takes the exact quotient with no 32-bit
         -- coercion, so hex round-trips up to the real 2^53 parser limit.
-        -- `Math.modBy` is unaffected (not a bitwise op) and stays as-is.
-        intToHex (Math.floor (toFloat n / 16)) ++ hexDigit (Math.modBy 16 n)
+        -- `modBy` is unaffected (not a bitwise op) and stays as-is. It moved out
+        -- of `Math` into `Basics` with `Integral` (`m1b-int.md` §I12); the
+        -- operation it names did not change.
+        intToHex (Math.floor (toFloat n / 16)) ++ hexDigit (modBy 16 n)
 
 
 -- Format a code point for a `\u{...}` escape: uppercase hex, padded to at least
