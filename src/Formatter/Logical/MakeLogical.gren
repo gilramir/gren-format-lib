@@ -71,6 +71,7 @@ lptFromAst modAst =
         |> Result.andThen (\b -> resultFoldl processClassDecl b modAst.classes)
         |> Result.andThen (\b -> resultFoldl processInstanceDecl b modAst.instances)
         |> Result.andThen (processPorts modAst)
+        |> Result.andThen (\b -> resultFoldl processPrimDecl b modAst.prims)
         |> Result.andThen (processInfixDecls modAst)
         |> Result.map (\b -> lpnNode RootBox (Builder.toArray b))
         |> Result.map sortOriginalRows
@@ -675,6 +676,58 @@ processPortDecl modDecl root =
                 in
                 addRootChild origRow rootWithDoc
             )
+
+
+{-| Emit one `@prim("i32_add")` declaration as an `StPrim` `OriginalRows`,
+preceded by its doc comment if any.
+
+    @prim("i32_add")
+    addInt : Int -> Int -> Int
+
+A port's shape without the `port` keyword and with an attribute row above it,
+which is the two halves this borrows: `processPortDecl` for the signature and
+`processUnionDecl` for the attribute. The attribute is one unbreakable token --
+a primitive's name is a single string literal and there is no second shape for
+it in the grammar -- and it lives inside the declaration's own `OriginalRows`,
+so `VerticalSpace` puts no blank line between the two rows.
+-}
+processPrimDecl : Src.ModuleDeclaration Src.Prim -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processPrimDecl modDecl root =
+    let
+        prim =
+            modDecl.value.value
+
+        attributeNode =
+            lpnLeaf (mkText modDecl.start (primText prim.primName))
+
+        -- `modDecl.start` is the attribute's own `@`; the annotation is on the
+        -- row below it, always, because the parser demands a fresh line there.
+        nameNode =
+            lpnLeaf (mkTextFromLocString prim.name)
+
+        colonNode =
+            lpnLeaf (mkZeroWidthText prim.name.end ":")
+
+        rootWithDoc =
+            processFunctionDoc modDecl.value.docs root
+    in
+    makeSignatureBranch prim.signature
+        |> Result.map
+            (\typeNodes ->
+                let
+                    allChildren =
+                        [ attributeNode, nameNode, colonNode ] ++ typeNodes
+
+                    origRow =
+                        makeOrigRows modDecl.start.row StPrim allChildren
+                in
+                addRootChild origRow rootWithDoc
+            )
+
+
+primText : Located String -> String
+primText primName =
+    "@prim(\"" ++ primName.value ++ "\")"
 
 
 {-| Emit one `type ... = Variants` declaration as an `StTypeUnion`

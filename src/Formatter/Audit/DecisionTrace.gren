@@ -440,6 +440,9 @@ nodeDecisions decl node =
                 StPort ->
                     [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
 
+                StPrim ->
+                    [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
+
                 _ ->
                     []
 

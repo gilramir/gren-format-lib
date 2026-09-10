@@ -67,6 +67,7 @@ encodeModule mod =
         , { key = "instances", value = Json.array (encLocated (encModuleDecl encInstance)) mod.instances }
         , { key = "unions", value = Json.array (encLocated (encModuleDecl encUnion)) mod.unions }
         , { key = "aliases", value = Json.array (encLocated (encModuleDecl encAlias)) mod.aliases }
+        , { key = "prims", value = Json.array (encLocated (encModuleDecl encPrim)) mod.prims }
         , { key = "binops", value = Json.array (encLocated encInfix) mod.binops }
         , { key = "effects", value = encEffects mod.effects }
         ]
@@ -292,6 +293,15 @@ encPort prt =
     Json.object
         [ { key = "name", value = encLocated Json.string prt.name }
         , { key = "signature", value = encType prt.signature }
+        ]
+
+
+encPrim : Src.Prim -> Json.Value
+encPrim prim =
+    Json.object
+        [ { key = "name", value = encLocated Json.string prim.name }
+        , { key = "primName", value = encLocated Json.string prim.primName }
+        , { key = "signature", value = encType prim.signature }
         ]
 
 

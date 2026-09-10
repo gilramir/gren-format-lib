@@ -188,6 +188,26 @@ makeDeclBodyBox node stype children =
         StPort ->
             makeSignatureBox (rnTypeSegmentsBroken node) children
 
+        StPrim ->
+            -- `@prim("i32_add")` is a line of its own above the annotation, the
+            -- same shape `@derive` has above a type, so it is peeled off and
+            -- stacked the same way. What is left is a signature and nothing
+            -- else: a primitive declaration has no equation.
+            let
+                peeled =
+                    peelAttribute children
+            in
+            makeSignatureBox (rnTypeSegmentsBroken node) peeled.rest
+                |> Result.map
+                    (\declBox ->
+                        when peeled.attribute is
+                            Just text ->
+                                B.stack1 [ B.line (B.literal text), declBox ]
+
+                            Nothing ->
+                                declBox
+                    )
+
         StTypeAlias ->
             renderHeaderIndentedBody makeTypeAliasBody children
 

@@ -1199,6 +1199,9 @@ isDeclStype st =
         StPort ->
             True
 
+        StPrim ->
+            True
+
         StInfixDecl ->
             True
 

@@ -35,6 +35,7 @@ compareModules a b =
         , compareArray "instances" compareInstanceDecl a.instances b.instances
         , compareArray "unions" compareUnionDecl a.unions b.unions
         , compareArray "aliases" compareAliasDecl a.aliases b.aliases
+        , compareArray "prims" comparePrimDecl a.prims b.prims
         , compareArray "binops" compareBinopDecl a.binops b.binops
         , compareEffects a.effects b.effects
         ]
@@ -93,6 +94,22 @@ comparePortDecl la lb =
     chainAll
         [ compareStr "port name" a.name.value b.name.value
         , compareType ("port '" ++ a.name.value ++ "'") a.signature b.signature
+        ]
+
+
+comparePrimDecl : Src.ModuleDeclaration Src.Prim -> Src.ModuleDeclaration Src.Prim -> Result String {}
+comparePrimDecl la lb =
+    let
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+    in
+    chainAll
+        [ compareStr "prim name" a.name.value b.name.value
+        , compareStr ("prim '" ++ a.name.value ++ "' primitive") a.primName.value b.primName.value
+        , compareType ("prim '" ++ a.name.value ++ "'") a.signature b.signature
         ]
 
 

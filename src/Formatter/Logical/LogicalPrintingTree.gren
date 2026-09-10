@@ -185,6 +185,7 @@ type SyntaxType
     | StClass
     | StInstance
     | StPort
+    | StPrim
     | StInfixDecl
 
 
@@ -226,6 +227,9 @@ stypeToString st =
 
         StPort ->
             "port"
+
+        StPrim ->
+            "prim"
 
         StInfixDecl ->
             "infixDecl"

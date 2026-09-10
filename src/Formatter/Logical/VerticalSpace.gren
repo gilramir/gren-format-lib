@@ -102,6 +102,9 @@ classifyChildren nodes =
                                         StPort ->
                                             True
 
+                                        StPrim ->
+                                            True
+
                                         StFunctionDeclaration ->
                                             acc.lastNonComment /= Just StFunctionSignature
 
