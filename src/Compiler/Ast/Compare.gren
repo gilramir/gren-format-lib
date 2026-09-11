@@ -8,6 +8,7 @@ module Compiler.Ast.Compare exposing (compareModules)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Number as Number
 import Compiler.SourcePosition as SP
+import Formatter.Logical.LiteralFormat as LiteralFormat
 
 
 {-| Compare two parsed modules for semantic equivalence. Returns `Ok {}` when
@@ -527,7 +528,7 @@ comparePattern_ a b =
 
         { fst = Src.PInt ia, snd = Src.PInt ib } ->
             chainAll
-                [ compareInt "pattern int" ia.value ib.value
+                [ compareStr "pattern int" (normalise ia) (normalise ib)
                 , compareBool "pattern int isHex" ia.isHex ib.isHex
                 ]
 
@@ -880,6 +881,17 @@ compareBool ctx a b =
             )
 
 
+-- A pattern's integer literal, in the form the formatter would write it: the
+-- text as it stands for a decimal, normalised for a hex. See `compareNumber`.
+normalise : { text : String, isHex : Bool } -> String
+normalise lit =
+    if lit.isHex then
+        LiteralFormat.hexLiteral lit.text
+
+    else
+        lit.text
+
+
 compareNumber : String -> Number.Outcome -> Number.Outcome -> Result String {}
 compareNumber ctx a b =
     when { fst = a, snd = b } is
@@ -888,7 +900,7 @@ compareNumber ctx a b =
                 Ok {}
 
             else
-                Err (ctx ++ ": " ++ String.fromInt ia ++ " vs " ++ String.fromInt ib)
+                Err (ctx ++ ": " ++ ia ++ " vs " ++ ib)
 
         { fst = Number.FloatingPoint fa, snd = Number.FloatingPoint fb } ->
             -- Compare both the parsed value and the original source text:
@@ -902,11 +914,18 @@ compareNumber ctx a b =
                 Err (ctx ++ ": " ++ fa.text ++ " vs " ++ fb.text)
 
         { fst = Number.Hex ha, snd = Number.Hex hb } ->
-            if ha == hb then
+            -- Normalised rather than raw, and this is the one numeric literal
+            -- where the two differ: the formatter upper-cases a hex literal's
+            -- digits and drops its leading zeros, so `0x001f` and `0x1F` are
+            -- the same literal written twice and comparing the text as written
+            -- would call the formatter's own output a bug. `hexLiteral` is a
+            -- string operation, so this stays exact at a width no `Int` holds
+            -- (`docs/m1b-int.md` §I16).
+            if LiteralFormat.hexLiteral ha == LiteralFormat.hexLiteral hb then
                 Ok {}
 
             else
-                Err (ctx ++ " (hex): " ++ String.fromInt ha ++ " vs " ++ String.fromInt hb)
+                Err (ctx ++ " (hex): " ++ ha ++ " vs " ++ hb)
 
         _ ->
             Err (ctx ++ ": number literal kinds differ (Int/Float/Hex)")

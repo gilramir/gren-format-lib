@@ -149,14 +149,14 @@ insertPattern locPat =
         Src.PStr s ->
             Ok [ lpnLeaf (mkText locPat.start ("\"" ++ escapeStringContent s ++ "\"")) ]
 
-        Src.PInt { value = value, isHex = isHex } ->
+        Src.PInt { text = written, isHex = isHex } ->
             let
                 text =
                     if isHex then
-                        hexLiteral value
+                        hexLiteral written
 
                     else
-                        String.fromInt value
+                        written
             in
             Ok [ lpnLeaf (mkText locPat.start text) ]
 

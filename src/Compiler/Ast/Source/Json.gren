@@ -460,10 +460,10 @@ encPattern_ pat =
                 , { key = "value", value = Json.string str }
                 ]
 
-        Src.PInt { value, isHex } ->
+        Src.PInt { text, isHex } ->
             Json.object
                 [ { key = "type", value = Json.string "int" }
-                , { key = "value", value = Json.int value }
+                , { key = "text", value = Json.string text }
                 , { key = "isHex", value = Json.bool isHex }
                 ]
 
@@ -674,7 +674,7 @@ encNumberOutcome outcome =
         Number.Integer n ->
             Json.object
                 [ { key = "type", value = Json.string "int" }
-                , { key = "value", value = Json.int n }
+                , { key = "text", value = Json.string n }
                 ]
 
         Number.FloatingPoint { val = fval, text = ftext } ->
@@ -687,5 +687,5 @@ encNumberOutcome outcome =
         Number.Hex h ->
             Json.object
                 [ { key = "type", value = Json.string "hex" }
-                , { key = "value", value = Json.int h }
+                , { key = "text", value = Json.string h }
                 ]

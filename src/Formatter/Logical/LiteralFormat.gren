@@ -329,24 +329,62 @@ isNoncharacter code =
         || (modBy 0x10000 code >= 0xFFFE)
 
 
-{-| The source text of a hex integer literal, sign included: `0x1F`, or `-0x1`.
+{-| A hex integer literal, normalised: `0x1F`, or `-0x1`.
 
-A negative can reach here: the parser folds a leading `-` into the value it
-stores (`Src.PInt { value = -1, isHex = True }`), so the sign is placed in front
-of the `0x` rather than left to the digits.
+**The argument is the literal as written** -- `"0x001f"`, or `"-0x1F"` -- and
+what comes back is the same number with the digits upper-cased and any leading
+zeros dropped. It is a string operation and no arithmetic happens, which is the
+point: `0xFFFFFFFFFFFFFFFF` is a `UInt64.maxValue` a host `Int` cannot hold, and
+reading one in to print it back out is how the formatter used to rewrite wide
+literals (`docs/m1b-int.md` §I16). A negative can reach here because the parser
+folds a leading `-` into the text it stores, so the sign is placed in front of
+the `0x` rather than left to the digits.
 -}
-hexLiteral : Int -> String
-hexLiteral n =
-    if n < 0 then
-        "-0x" ++ intToHex (negate n)
+hexLiteral : String -> String
+hexLiteral written =
+    let
+        negative =
+            String.startsWith "-" written
+
+        digits =
+            written
+                |> String.dropFirst
+                    (if negative then
+                        3
+
+                     else
+                        2
+                    )
+                |> String.toUpper
+
+        trimmed =
+            dropLeadingZeros digits
+    in
+    (if negative then
+        "-0x"
+
+     else
+        "0x"
+    )
+        ++ trimmed
+
+
+-- Every leading zero but the last one, so that `0x0000` stays `0x0`.
+dropLeadingZeros : String -> String
+dropLeadingZeros digits =
+    if String.count digits > 1 && String.startsWith "0" digits then
+        dropLeadingZeros (String.dropFirst 1 digits)
 
     else
-        "0x" ++ intToHex n
+        digits
 
 
-{-| The hex digits of `n`, uppercase and unpadded. Callers building a literal
-want `hexLiteral`, which places the `0x` after the sign; a negative reaching
-here still gets a `-` rather than a wrong digit.
+{-| The hex digits of `n`, uppercase and unpadded.
+
+Nothing in the formatter reaches this any more -- a hex *literal* is normalised
+from its own text by [hexLiteral](#hexLiteral), which is exact at every width --
+and it stays because it is this module's published way to write a number in
+hex. A negative reaching here still gets a `-` rather than a wrong digit.
 -}
 intToHex : Int -> String
 intToHex n =

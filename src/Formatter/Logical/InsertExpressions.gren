@@ -302,7 +302,7 @@ insertExpression locExpr =
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
-                    Ok [ lpnLeaf (mkText locExpr.start (String.fromInt n)) ]
+                    Ok [ lpnLeaf (mkText locExpr.start n) ]
 
                 PN.FloatingPoint n ->
                     Ok [ lpnLeaf (mkText locExpr.start n.text) ]
@@ -983,7 +983,7 @@ simpleExprText locExpr =
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
-                    String.fromInt n
+                    n
 
                 PN.FloatingPoint n ->
                     n.text
