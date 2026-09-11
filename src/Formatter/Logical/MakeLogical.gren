@@ -12,7 +12,6 @@ import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
 import Formatter.Results exposing (resultFoldl)
-import Math exposing (maxSafeInteger)
 
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
@@ -27,6 +26,7 @@ import Formatter.Logical.LPTHelpers exposing
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
+    , beyondEveryRow
     , ListBrackets(..)
     , ParenKind(..)
     , RecordKind(..)
@@ -352,7 +352,7 @@ buildWhereBlock effects =
 
 An import hands `lpnBracketNode` its real closing position (`locImport.end` is
 one column past the `)`), but the module header's `)` has no position anywhere
-in the AST, so this synthesizes one. The column is always `maxSafeInteger` —
+in the AST, so this synthesizes one. The column is always `beyondEveryRow` —
 "past anything that can appear on this row" — which makes the inside/outside
 call depend only on the row. The row is where the `)` would sit given the items:
 one below the last for a **vertical** list, the item row itself for a **flat**
@@ -391,15 +391,15 @@ moduleExposingClose vertical exposed =
         Nothing
 
     else if vertical then
-        Just { row = lastItemRow + 1, col = maxSafeInteger }
+        Just { row = lastItemRow + 1, col = beyondEveryRow }
 
     else
-        -- A flat list closes on the row it opened on. `col = maxSafeInteger`
+        -- A flat list closes on the row it opened on. `col = beyondEveryRow`
         -- puts every comment on that row inside the list rather than past it:
         -- the `)` has no position, so `(a, b {- c -})` and `(a, b) {- c -}`
         -- are indistinguishable, and treating both as inside is the choice
         -- that does not depend on the order the names were written in.
-        Just { row = lastItemRow, col = maxSafeInteger }
+        Just { row = lastItemRow, col = beyondEveryRow }
 
 
 {-| True when the module line's closing bracket sits one row below its last

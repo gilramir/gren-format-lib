@@ -1,5 +1,6 @@
 module Formatter.Logical.LogicalPrintingTree exposing
     ( CommentFacts
+    , beyondEveryRow
     , CommentRole(..)
     , LPNode
     , LPShape(..)
@@ -118,7 +119,6 @@ Each constructor's own comment below carries the detailed rationale (much of it
 about idempotency); this table is the map, those comments are the territory.
 -}
 
-import Math exposing (maxSafeInteger)
 
 import Compiler.SourcePosition exposing (Located, Position)
 
@@ -1098,7 +1098,7 @@ lpnLastPos node =
 
 
 {-| Smallest source row covered by any positioned descendant, or
-`maxSafeInteger` if the subtree has no positioned leaves.
+`beyondEveryRow` if the subtree has no positioned leaves.
 -}
 lpnMinRow : LPNode -> Int
 lpnMinRow node =
@@ -1549,7 +1549,7 @@ selfShapeBounds shape =
         empty =
             { firstPos = Nothing
             , lastPos = Nothing
-            , minRow = maxSafeInteger
+            , minRow = beyondEveryRow
             , maxRow = -1
             , isBracket = False
             }
@@ -1642,7 +1642,7 @@ selfShapeBounds shape =
 
 
 -- Source-row range covered by a subtree's positioned leaves.
--- An empty range (minRow = maxSafeInteger, maxRow = -1) means the subtree
+-- An empty range (minRow = beyondEveryRow, maxRow = -1) means the subtree
 -- has no positioned leaves (only synthesized tokens, EmptyLine, etc.).
 -- Reads the cached bounds populated by `lpnNode` — O(1).
 subtreeRowRange : LPNode -> { minRow : Int, maxRow : Int }
@@ -1658,7 +1658,7 @@ firstRowInSubtree node =
         r =
             subtreeRowRange node
     in
-    if r.minRow == maxSafeInteger then
+    if r.minRow == beyondEveryRow then
         -1
 
     else
@@ -1670,3 +1670,16 @@ firstRowInSubtree node =
 lastRowInSubtree : LPNode -> Int
 lastRowInSubtree node =
     (subtreeRowRange node).maxRow
+
+
+{-| A row number no source has: the sentinel an empty range starts its `minRow`
+at, so that any real row is smaller.
+
+`Math.maxSafeInteger` until D2's flag day, which was 2^53 - 1 and stopped being
+an `Int` when an `Int` became 32 bits (`geng-lang/docs/m1b-int.md` §I20). The
+value is arbitrary as long as no source has that many rows; `Int`'s maximum is
+the one with nothing above it.
+-}
+beyondEveryRow : Int
+beyondEveryRow =
+    2147483647
