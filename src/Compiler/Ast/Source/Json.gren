@@ -460,11 +460,12 @@ encPattern_ pat =
                 , { key = "value", value = Json.string str }
                 ]
 
-        Src.PInt { text, isHex } ->
+        Src.PInt { text, isHex, suffix } ->
             Json.object
                 [ { key = "type", value = Json.string "int" }
                 , { key = "text", value = Json.string text }
                 , { key = "isHex", value = Json.bool isHex }
+                , { key = "suffix", value = encSuffix suffix }
                 ]
 
 
@@ -674,18 +675,31 @@ encNumberOutcome outcome =
         Number.Integer n ->
             Json.object
                 [ { key = "type", value = Json.string "int" }
-                , { key = "text", value = Json.string n }
+                , { key = "text", value = Json.string n.text }
+                , { key = "suffix", value = encSuffix n.suffix }
                 ]
 
-        Number.FloatingPoint { val = fval, text = ftext } ->
+        Number.FloatingPoint { val = fval, text = ftext, suffix = fsuffix } ->
             Json.object
                 [ { key = "type", value = Json.string "float" }
                 , { key = "value", value = Json.float fval }
                 , { key = "text", value = Json.string ftext }
+                , { key = "suffix", value = encSuffix fsuffix }
                 ]
 
         Number.Hex h ->
             Json.object
                 [ { key = "type", value = Json.string "hex" }
-                , { key = "text", value = Json.string h }
+                , { key = "text", value = Json.string h.text }
+                , { key = "suffix", value = encSuffix h.suffix }
                 ]
+
+
+encSuffix : Maybe Number.Suffix -> Json.Value
+encSuffix suffix =
+    when suffix is
+        Just s ->
+            Json.string (Number.suffixToString s)
+
+        Nothing ->
+            Json.null

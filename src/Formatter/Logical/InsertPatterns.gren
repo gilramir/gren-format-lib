@@ -27,6 +27,7 @@ import Formatter.Logical.LiteralFormat exposing
     ( charLiteralString
     , escapeStringContent
     , hexLiteral
+    , suffixText
     )
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
@@ -149,7 +150,7 @@ insertPattern locPat =
         Src.PStr s ->
             Ok [ lpnLeaf (mkText locPat.start ("\"" ++ escapeStringContent s ++ "\"")) ]
 
-        Src.PInt { text = written, isHex = isHex } ->
+        Src.PInt { text = written, isHex = isHex, suffix = suffix } ->
             let
                 text =
                     if isHex then
@@ -158,7 +159,7 @@ insertPattern locPat =
                     else
                         written
             in
-            Ok [ lpnLeaf (mkText locPat.start text) ]
+            Ok [ lpnLeaf (mkText locPat.start (text ++ suffixText suffix)) ]
 
 
 insertPatternAsItem : Src.Pattern -> Result String LPNode

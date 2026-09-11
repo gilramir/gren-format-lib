@@ -26,7 +26,7 @@ import Formatter.Logical.LPTHelpers exposing
     , syntheticParens
     , tryMapLastLeaf
     )
-import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral)
+import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral, suffixText)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
@@ -302,13 +302,13 @@ insertExpression locExpr =
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
-                    Ok [ lpnLeaf (mkText locExpr.start n) ]
+                    Ok [ lpnLeaf (mkText locExpr.start (n.text ++ suffixText n.suffix)) ]
 
                 PN.FloatingPoint n ->
-                    Ok [ lpnLeaf (mkText locExpr.start n.text) ]
+                    Ok [ lpnLeaf (mkText locExpr.start (n.text ++ suffixText n.suffix)) ]
 
                 PN.Hex n ->
-                    Ok [ lpnLeaf (mkText locExpr.start (hexLiteral n)) ]
+                    Ok [ lpnLeaf (mkText locExpr.start (hexLiteral n.text ++ suffixText n.suffix)) ]
 
         Src.CharLiteral c ->
             Ok [ lpnLeaf (mkText locExpr.start (charLiteralString c)) ]
@@ -983,13 +983,13 @@ simpleExprText locExpr =
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
-                    n
+                    n.text ++ suffixText n.suffix
 
                 PN.FloatingPoint n ->
-                    n.text
+                    n.text ++ suffixText n.suffix
 
                 PN.Hex n ->
-                    hexLiteral n
+                    hexLiteral n.text ++ suffixText n.suffix
 
         Src.Operator opString ->
             -- The parser wraps an operator-as-value (`(+)`) in a `Parens`

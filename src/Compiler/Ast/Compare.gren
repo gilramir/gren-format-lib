@@ -883,35 +883,44 @@ compareBool ctx a b =
 
 -- A pattern's integer literal, in the form the formatter would write it: the
 -- text as it stands for a decimal, normalised for a hex. See `compareNumber`.
-normalise : { text : String, isHex : Bool } -> String
+normalise : { text : String, isHex : Bool, suffix : Maybe Number.Suffix } -> String
 normalise lit =
-    if lit.isHex then
+    (if lit.isHex then
         LiteralFormat.hexLiteral lit.text
 
-    else
+     else
         lit.text
+    )
+        ++ LiteralFormat.suffixText lit.suffix
+
+
+-- A numeric literal as it was written, for an error message: the digits with
+-- the suffix back on the end of them.
+written : String -> Maybe Number.Suffix -> String
+written text suffix =
+    text ++ LiteralFormat.suffixText suffix
 
 
 compareNumber : String -> Number.Outcome -> Number.Outcome -> Result String {}
 compareNumber ctx a b =
     when { fst = a, snd = b } is
         { fst = Number.Integer ia, snd = Number.Integer ib } ->
-            if ia == ib then
+            if ia.text == ib.text && ia.suffix == ib.suffix then
                 Ok {}
 
             else
-                Err (ctx ++ ": " ++ ia ++ " vs " ++ ib)
+                Err (ctx ++ ": " ++ written ia.text ia.suffix ++ " vs " ++ written ib.text ib.suffix)
 
         { fst = Number.FloatingPoint fa, snd = Number.FloatingPoint fb } ->
             -- Compare both the parsed value and the original source text:
             -- the formatter preserves the author's representation (e.g. `1e5`
             -- vs `100000.0`), so AST equivalence should catch drift in either
             -- the numeric value or the visual form.
-            if fa.val == fb.val && fa.text == fb.text then
+            if fa.val == fb.val && fa.text == fb.text && fa.suffix == fb.suffix then
                 Ok {}
 
             else
-                Err (ctx ++ ": " ++ fa.text ++ " vs " ++ fb.text)
+                Err (ctx ++ ": " ++ written fa.text fa.suffix ++ " vs " ++ written fb.text fb.suffix)
 
         { fst = Number.Hex ha, snd = Number.Hex hb } ->
             -- Normalised rather than raw, and this is the one numeric literal
@@ -921,11 +930,11 @@ compareNumber ctx a b =
             -- would call the formatter's own output a bug. `hexLiteral` is a
             -- string operation, so this stays exact at a width no `Int` holds
             -- (`docs/m1b-int.md` §I16).
-            if LiteralFormat.hexLiteral ha == LiteralFormat.hexLiteral hb then
+            if LiteralFormat.hexLiteral ha.text == LiteralFormat.hexLiteral hb.text && ha.suffix == hb.suffix then
                 Ok {}
 
             else
-                Err (ctx ++ " (hex): " ++ ha ++ " vs " ++ hb)
+                Err (ctx ++ " (hex): " ++ written ha.text ha.suffix ++ " vs " ++ written hb.text hb.suffix)
 
         _ ->
             Err (ctx ++ ": number literal kinds differ (Int/Float/Hex)")

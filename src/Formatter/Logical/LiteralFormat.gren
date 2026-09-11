@@ -4,6 +4,7 @@ module Formatter.Logical.LiteralFormat exposing
     , escapeStringContent
     , hexLiteral
     , intToHex
+    , suffixText
     )
 
 {-|
@@ -17,12 +18,31 @@ reason to call these; it goes through `Formatter.prettyPrint`, which applies
 them for you.
 
 @docs escapeStringContent, escapeMultilineContent, charLiteralString
-@docs hexLiteral, intToHex
+@docs hexLiteral, intToHex, suffixText
 
 -}
 
 import Char
+import Compiler.Parse.Number as Number
 import Math
+
+
+{-| A numeric literal's suffix, as written, or the empty string when it has
+none.
+
+`syntax.md` S5's `42i64` is one token and the suffix is part of the literal, so
+it goes back out attached to it. It is kept out of the literal's *text* on
+purpose: a hex literal's digits are upper-cased on the way out
+([hexLiteral](#hexLiteral)), and `0xffu32` must not come back as `0xFFU32`.
+-}
+suffixText : Maybe Number.Suffix -> String
+suffixText suffix =
+    when suffix is
+        Just s ->
+            Number.suffixToString s
+
+        Nothing ->
+            ""
 
 
 {-| Escape content for embedding in a single-quoted `"..."` literal: tab,
