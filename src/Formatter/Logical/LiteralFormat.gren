@@ -409,6 +409,10 @@ hex. A negative reaching here still gets a `-` rather than a wrong digit.
 intToHex : Int -> String
 intToHex n =
     let
+        -- Annotated because a number pattern needs a known type (D172): without
+        -- it `hexDigit` generalizes to every numeric type, and `0 ->` would mean
+        -- a different value at each.
+        hexDigit : Int -> String
         hexDigit d =
             when d is
                 0 ->
