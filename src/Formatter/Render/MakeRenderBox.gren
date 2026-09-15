@@ -191,21 +191,22 @@ makeDeclBodyBox node stype children =
         StPrim ->
             -- `@prim("i32_add")` is a line of its own above the annotation, the
             -- same shape `@derive` has above a type, so it is peeled off and
-            -- stacked the same way. What is left is a signature and nothing
-            -- else: a primitive declaration has no equation.
+            -- stacked the same way. An extern declaration has one such line per
+            -- implementation language, so every leading attribute is peeled.
+            -- What is left is a signature and nothing else: neither declaration
+            -- has an equation.
             let
                 peeled =
-                    peelAttribute children
+                    peelAttributes children []
             in
             makeSignatureBox (rnTypeSegmentsBroken node) peeled.rest
                 |> Result.map
                     (\declBox ->
-                        when peeled.attribute is
-                            Just text ->
-                                B.stack1 [ B.line (B.literal text), declBox ]
+                        if Array.isEmpty peeled.attributes then
+                            declBox
 
-                            Nothing ->
-                                declBox
+                        else
+                            B.stack1 (Array.map (\text -> B.line (B.literal text)) peeled.attributes ++ [ declBox ])
                     )
 
         StTypeAlias ->
@@ -720,6 +721,21 @@ peelAttribute children =
 
         Nothing ->
             { attribute = Nothing, rest = children }
+
+
+{-| Every leading attribute leaf, in order, and the children after them. -}
+peelAttributes : Array RenderNode -> Array String -> { attributes : Array String, rest : Array RenderNode }
+peelAttributes children attributes =
+    let
+        peeled =
+            peelAttribute children
+    in
+    when peeled.attribute is
+        Just text ->
+            peelAttributes peeled.rest (Array.pushLast text attributes)
+
+        Nothing ->
+            { attributes = attributes, rest = children }
 
 
 {-| A `class` / `instance` body: one member per line, always.

@@ -37,6 +37,7 @@ compareModules a b =
         , compareArray "unions" compareUnionDecl a.unions b.unions
         , compareArray "aliases" compareAliasDecl a.aliases b.aliases
         , compareArray "prims" comparePrimDecl a.prims b.prims
+        , compareArray "externs" compareExternDecl a.externs b.externs
         , compareArray "binops" compareBinopDecl a.binops b.binops
         , compareEffects a.effects b.effects
         ]
@@ -111,6 +112,29 @@ comparePrimDecl la lb =
         [ compareStr "prim name" a.name.value b.name.value
         , compareStr ("prim '" ++ a.name.value ++ "' primitive") a.primName.value b.primName.value
         , compareType ("prim '" ++ a.name.value ++ "'") a.signature b.signature
+        ]
+
+
+compareExternDecl : Src.ModuleDeclaration Src.Extern -> Src.ModuleDeclaration Src.Extern -> Result String {}
+compareExternDecl la lb =
+    let
+        a =
+            la.value.value
+
+        b =
+            lb.value.value
+
+        describe impls =
+            String.join " "
+                (Array.map
+                    (\impl -> (if impl.pure then "pure " else "") ++ impl.language.value ++ "(" ++ String.join "," (Array.map .value impl.names) ++ ")")
+                    impls
+                )
+    in
+    chainAll
+        [ compareStr "extern name" a.name.value b.name.value
+        , compareStr ("extern '" ++ a.name.value ++ "' implementations") (describe a.impls) (describe b.impls)
+        , compareType ("extern '" ++ a.name.value ++ "'") a.signature b.signature
         ]
 
 

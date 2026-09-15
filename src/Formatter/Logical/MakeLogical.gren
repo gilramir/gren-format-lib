@@ -72,6 +72,7 @@ lptFromAst modAst =
         |> Result.andThen (\b -> resultFoldl processInstanceDecl b modAst.instances)
         |> Result.andThen (processPorts modAst)
         |> Result.andThen (\b -> resultFoldl processPrimDecl b modAst.prims)
+        |> Result.andThen (\b -> resultFoldl processExternDecl b modAst.externs)
         |> Result.andThen (processInfixDecls modAst)
         |> Result.map (\b -> lpnNode RootBox (Builder.toArray b))
         |> Result.map sortOriginalRows
@@ -723,6 +724,64 @@ processPrimDecl modDecl root =
                 in
                 addRootChild origRow rootWithDoc
             )
+
+
+{-| Emit one extern declaration: its `@extern` rows and the annotation under
+them (`ffi.md` F1).
+
+    @extern(js, "geng_time", "now")
+    @extern(c, "geng_time_now")
+    now : {} -> Task x Posix
+
+A primitive declaration with one attribute row per implementation language, so
+it is laid out as one and shares `StPrim`: every row is an unbreakable token on
+the row it was written on, and there is no blank line between them.
+-}
+processExternDecl : Src.ModuleDeclaration Src.Extern -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processExternDecl modDecl root =
+    let
+        extern =
+            modDecl.value.value
+
+        attributeNodes =
+            Array.map
+                (\impl -> lpnLeaf (mkText { row = impl.language.start.row, col = 1 } (externText impl)))
+                extern.impls
+
+        nameNode =
+            lpnLeaf (mkTextFromLocString extern.name)
+
+        colonNode =
+            lpnLeaf (mkZeroWidthText extern.name.end ":")
+
+        rootWithDoc =
+            processFunctionDoc modDecl.value.docs root
+    in
+    makeSignatureBranch extern.signature
+        |> Result.map
+            (\typeNodes ->
+                let
+                    allChildren =
+                        attributeNodes ++ [ nameNode, colonNode ] ++ typeNodes
+
+                    origRow =
+                        makeOrigRows modDecl.start.row StPrim allChildren
+                in
+                addRootChild origRow rootWithDoc
+            )
+
+
+externText : Src.ExternImpl -> String
+externText impl =
+    (if impl.pure then
+        "@externPure("
+
+     else
+        "@extern("
+    )
+        ++ impl.language.value
+        ++ String.join "" (Array.map (\name -> ", \"" ++ name.value ++ "\"") impl.names)
+        ++ ")"
 
 
 primText : Located String -> String

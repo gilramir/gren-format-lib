@@ -68,6 +68,7 @@ encodeModule mod =
         , { key = "unions", value = Json.array (encLocated (encModuleDecl encUnion)) mod.unions }
         , { key = "aliases", value = Json.array (encLocated (encModuleDecl encAlias)) mod.aliases }
         , { key = "prims", value = Json.array (encLocated (encModuleDecl encPrim)) mod.prims }
+        , { key = "externs", value = Json.array (encLocated (encModuleDecl encExtern)) mod.externs }
         , { key = "binops", value = Json.array (encLocated encInfix) mod.binops }
         , { key = "effects", value = encEffects mod.effects }
         ]
@@ -302,6 +303,24 @@ encPrim prim =
         [ { key = "name", value = encLocated Json.string prim.name }
         , { key = "primName", value = encLocated Json.string prim.primName }
         , { key = "signature", value = encType prim.signature }
+        ]
+
+
+encExtern : Src.Extern -> Json.Value
+encExtern extern =
+    Json.object
+        [ { key = "name", value = encLocated Json.string extern.name }
+        , { key = "impls", value = Json.array encExternImpl extern.impls }
+        , { key = "signature", value = encType extern.signature }
+        ]
+
+
+encExternImpl : Src.ExternImpl -> Json.Value
+encExternImpl impl =
+    Json.object
+        [ { key = "pure", value = Json.bool impl.pure }
+        , { key = "language", value = encLocated Json.string impl.language }
+        , { key = "names", value = Json.array (encLocated Json.string) impl.names }
         ]
 
 
