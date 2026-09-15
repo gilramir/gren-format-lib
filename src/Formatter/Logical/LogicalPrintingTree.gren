@@ -186,6 +186,9 @@ type SyntaxType
     | StInstance
     | StPort
     | StPrim
+      -- An extern declaration with a Geng body (D222): laid out as `StPrim`,
+      -- and followed by its definition as a signature is.
+    | StExternSignature
     | StInfixDecl
 
 
@@ -230,6 +233,9 @@ stypeToString st =
 
         StPrim ->
             "prim"
+
+        StExternSignature ->
+            "externSig"
 
         StInfixDecl ->
             "infixDecl"

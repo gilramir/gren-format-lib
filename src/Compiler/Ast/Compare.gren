@@ -135,6 +135,16 @@ compareExternDecl la lb =
         [ compareStr "extern name" a.name.value b.name.value
         , compareStr ("extern '" ++ a.name.value ++ "' implementations") (describe a.impls) (describe b.impls)
         , compareType ("extern '" ++ a.name.value ++ "'") a.signature b.signature
+        , compareMaybe
+            ("extern '" ++ a.name.value ++ "' definition")
+            (\da db ->
+                chainAll
+                    [ compareArray ("extern '" ++ a.name.value ++ "' args") comparePattern da.args db.args
+                    , compareExpr ("extern '" ++ a.name.value ++ "'") da.body db.body
+                    ]
+            )
+            a.definition
+            b.definition
         ]
 
 

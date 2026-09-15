@@ -312,6 +312,18 @@ encExtern extern =
         [ { key = "name", value = encLocated Json.string extern.name }
         , { key = "impls", value = Json.array encExternImpl extern.impls }
         , { key = "signature", value = encType extern.signature }
+        , { key = "definition"
+          , value =
+                encMaybe
+                    (\def ->
+                        Json.object
+                            [ { key = "name", value = encLocated Json.string def.name }
+                            , { key = "args", value = Json.array encPattern def.args }
+                            , { key = "body", value = encExpression def.body }
+                            ]
+                    )
+                    extern.definition
+          }
         ]
 
 

@@ -443,6 +443,9 @@ nodeDecisions decl node =
                 StPrim ->
                     [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
 
+                StExternSignature ->
+                    [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
+
                 _ ->
                     []
 

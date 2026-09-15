@@ -727,7 +727,7 @@ processPrimDecl modDecl root =
 
 
 {-| Emit one extern declaration: its `@extern` rows and the annotation under
-them (`ffi.md` F1).
+them (`ffi.md` F1), and its Geng body when it has one (D222).
 
     @extern(js, "geng_time", "now")
     @extern(c, "geng_time_now")
@@ -764,10 +764,29 @@ processExternDecl modDecl root =
                     allChildren =
                         attributeNodes ++ [ nameNode, colonNode ] ++ typeNodes
 
+                    stype =
+                        when extern.definition is
+                            Just _ ->
+                                StExternSignature
+
+                            Nothing ->
+                                StPrim
+
                     origRow =
-                        makeOrigRows modDecl.start.row StPrim allChildren
+                        makeOrigRows modDecl.start.row stype allChildren
                 in
                 addRootChild origRow rootWithDoc
+            )
+        |> Result.andThen
+            (\withSignature ->
+                -- A Geng body (D222) is an equation laid out as any other,
+                -- directly under the annotation.
+                when extern.definition is
+                    Just def ->
+                        processFunctionBody { name = def.name, signature = Nothing, args = def.args, body = def.body } withSignature
+
+                    Nothing ->
+                        Ok withSignature
             )
 
 

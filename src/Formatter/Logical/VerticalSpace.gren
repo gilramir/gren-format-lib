@@ -105,8 +105,12 @@ classifyChildren nodes =
                                         StPrim ->
                                             True
 
+                                        StExternSignature ->
+                                            True
+
                                         StFunctionDeclaration ->
                                             acc.lastNonComment /= Just StFunctionSignature
+                                                && acc.lastNonComment /= Just StExternSignature
 
                                         _ ->
                                             False
@@ -539,7 +543,7 @@ insertEmptyLines root =
                             -- signature let an author blank survive inside the
                             -- unit as soon as a comment sat between the two.
                             , sigPending =
-                                if info.stype == Just StFunctionSignature then
+                                if info.stype == Just StFunctionSignature || info.stype == Just StExternSignature then
                                     True
 
                                 else if info.isComment then

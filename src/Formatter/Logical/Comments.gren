@@ -1202,6 +1202,9 @@ isDeclStype st =
         StPrim ->
             True
 
+        StExternSignature ->
+            True
+
         StInfixDecl ->
             True
 

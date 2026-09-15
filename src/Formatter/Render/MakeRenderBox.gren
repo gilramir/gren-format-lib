@@ -189,25 +189,12 @@ makeDeclBodyBox node stype children =
             makeSignatureBox (rnTypeSegmentsBroken node) children
 
         StPrim ->
-            -- `@prim("i32_add")` is a line of its own above the annotation, the
-            -- same shape `@derive` has above a type, so it is peeled off and
-            -- stacked the same way. An extern declaration has one such line per
-            -- implementation language, so every leading attribute is peeled.
-            -- What is left is a signature and nothing else: neither declaration
-            -- has an equation.
-            let
-                peeled =
-                    peelAttributes children []
-            in
-            makeSignatureBox (rnTypeSegmentsBroken node) peeled.rest
-                |> Result.map
-                    (\declBox ->
-                        if Array.isEmpty peeled.attributes then
-                            declBox
+            renderAttributedSignature node children
 
-                        else
-                            B.stack1 (Array.map (\text -> B.line (B.literal text)) peeled.attributes ++ [ declBox ])
-                    )
+        StExternSignature ->
+            -- The same, for an extern with a Geng body (D222). Its equation is
+            -- a declaration of its own after this one.
+            renderAttributedSignature node children
 
         StTypeAlias ->
             renderHeaderIndentedBody makeTypeAliasBody children
@@ -4655,4 +4642,26 @@ assembleFlowImpl measure flowStart flowIndent items =
                             { box = B.stack1 ([ first ] ++ Array.map (applyIndent flowIndent) rest)
                             , measures = final.measures
                             }
+            )
+
+
+{-| `@prim("i32_add")` is a line of its own above the annotation, the same shape
+`@derive` has above a type, so it is peeled off and stacked the same way. An
+extern declaration has one such line per implementation language, so every
+leading attribute is peeled. What is left is a signature and nothing else.
+-}
+renderAttributedSignature : RenderNode -> Array RenderNode -> Result String Box
+renderAttributedSignature node children =
+    let
+        peeled =
+            peelAttributes children []
+    in
+    makeSignatureBox (rnTypeSegmentsBroken node) peeled.rest
+        |> Result.map
+            (\declBox ->
+                if Array.isEmpty peeled.attributes then
+                    declBox
+
+                else
+                    B.stack1 (Array.map (\text -> B.line (B.literal text)) peeled.attributes ++ [ declBox ])
             )
