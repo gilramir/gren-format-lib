@@ -1,8 +1,0 @@
-effect module Foo where { subscription = MySub } {- inline on the header row -} exposing (a)
-
-
-import Task
-
-
-a =
-    1

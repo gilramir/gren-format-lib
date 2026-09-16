@@ -236,11 +236,10 @@ on row N, so that the second run asks the same question of the same row. When
 the output fails to honour that, the fix goes to the output, not the rule.
 
 That handles the case where the *comment* moves. The nastier case is when the
-**code** moves. The Gren formatter rewrites the source in a few small ways: it sorts
-`exposing` lists and runs of `import`s, and it can add or drop a `port` keyword.
-Sorting imports moves the `import` a comment was anchored to. When we got that
-bookkeeping wrong, the comment stayed put while its anchor sailed away, and the
-second run classified it differently.
+**code** moves. The Gren formatter rewrites the source: it sorts `exposing` lists
+and runs of `import`s. Sorting imports moves the `import` a comment was anchored
+to. When we got that bookkeeping wrong, the comment stayed put while its anchor
+sailed away, and the second run classified it differently.
 
 Here's one of the bugs we hit. The comment is written *inside* an `import`,
 which is a place the tree has no room for a comment, so the formatter has to
@@ -573,10 +572,9 @@ bugs small enough to find.
   rendering the same subtree twice (exponential in nesting depth). The fixes
   were equally uniform: accumulate with a builder, and render each subtree
   once, up front.
-- **The formatter rewrites three things** that aren't layout: the order of an
-  `exposing` list, the order of a run of imports, and the `port` keyword on a
-  module header (plus whole imports, on request, under
-  `--remove-unused-imports`). A blank line is the only thing that splits an
+- **The formatter rewrites two things** that aren't layout: the order of an
+  `exposing` list and the order of a run of imports (plus whole imports, on
+  request, under `--remove-unused-imports`). A blank line is the only thing that splits an
   import run; a comment travels with the import it leads. Redundant parentheses
   in an expression or a type are never stripped — a pattern's parens are not in
   the tree at all, so those are re-synthesized where the meaning needs them.

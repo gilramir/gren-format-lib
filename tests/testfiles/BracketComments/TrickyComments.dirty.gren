@@ -1,14 +1,11 @@
-effect module TrickyComments where { {- c1 -} command = TrickyCmd {- c2 -}, subscription = TrickySub {- c3 -} } exposing (..)
+module TrickyComments exposing (..)
 
 
 {-| Accumulates one regression case per previously-mishandled comment
 placement, identified by the bug letters from broken.txt.
 
-Bug B — block comments inside an effect module's `where { ... }`
-block used to be evicted to trailing continuation lines after
-`exposing (..)`. Now they stay adjacent to their original slot:
-c1 lands just after `where`, c2 stays inside the first binding,
-c3 stays inside the second binding.
+Bug B, block comments inside an effect module's `where { ... }` block, went
+with effect modules (geng-lang `m1b-source.md` §SO20).
 -}
 
 

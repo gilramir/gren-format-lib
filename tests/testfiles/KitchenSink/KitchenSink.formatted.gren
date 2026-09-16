@@ -1,12 +1,10 @@
-port module KitchenSink exposing
+module KitchenSink exposing
     ( Configuration
     , Container
     , Result
     , Tree(..)
     , fold
     , initialContainer
-    , port_in_message
-    , port_out_message
     , processConfiguration
     , transform
     , traverseDeeply
@@ -25,9 +23,6 @@ port module KitchenSink exposing
 
 # Transformations
 @docs transform, fold, traverseDeeply
-
-# Ports
-@docs port_out_message, port_in_message
 -}
 
 import Array exposing (Array)
@@ -53,12 +48,6 @@ infix right 5 (<|) = apL
            y = 2
        in x + y
 -}
-
-
-port port_out_message : String -> Cmd msg
-
-
-port port_in_message : (String -> msg) -> Sub msg
 
 
 {-| A tree where each node carries a label, an array of attribute pairs, and an array of child trees. The Empty case represents a missing branch. -}

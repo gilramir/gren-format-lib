@@ -70,7 +70,6 @@ encodeModule mod =
         , { key = "prims", value = Json.array (encLocated (encModuleDecl encPrim)) mod.prims }
         , { key = "externs", value = Json.array (encLocated (encModuleDecl encExtern)) mod.externs }
         , { key = "binops", value = Json.array (encLocated encInfix) mod.binops }
-        , { key = "effects", value = encEffects mod.effects }
         ]
 
 
@@ -268,36 +267,6 @@ encAssociativity assoc =
             Json.string "right"
 
 
--- Effects
-
-
-encEffects : Src.Effects -> Json.Value
-encEffects effects =
-    when effects is
-        Src.NoEffects ->
-            Json.string "none"
-
-        Src.Ports ports ->
-            Json.object
-                [ { key = "type", value = Json.string "ports" }
-                , { key = "ports", value = Json.array (encLocated (encModuleDecl encPort)) ports }
-                ]
-
-        Src.Manager mgr ->
-            Json.object
-                [ { key = "type", value = Json.string "manager" }
-                , { key = "manager", value = encManager mgr }
-                ]
-
-
-encPort : Src.Port -> Json.Value
-encPort prt =
-    Json.object
-        [ { key = "name", value = encLocated Json.string prt.name }
-        , { key = "signature", value = encType prt.signature }
-        ]
-
-
 encPrim : Src.Prim -> Json.Value
 encPrim prim =
     Json.object
@@ -335,29 +304,6 @@ encExternImpl impl =
         , { key = "language", value = encLocated Json.string impl.language }
         , { key = "names", value = Json.array (encLocated Json.string) impl.names }
         ]
-
-
-encManager : Src.Manager -> Json.Value
-encManager mgr =
-    when mgr is
-        Src.Cmd loc ->
-            Json.object
-                [ { key = "type", value = Json.string "cmd" }
-                , { key = "name", value = encLocated Json.string loc }
-                ]
-
-        Src.Sub loc ->
-            Json.object
-                [ { key = "type", value = Json.string "sub" }
-                , { key = "name", value = encLocated Json.string loc }
-                ]
-
-        Src.Fx { cmd, sub } ->
-            Json.object
-                [ { key = "type", value = Json.string "fx" }
-                , { key = "cmd", value = encLocated Json.string cmd }
-                , { key = "sub", value = encLocated Json.string sub }
-                ]
 
 
 -- Type

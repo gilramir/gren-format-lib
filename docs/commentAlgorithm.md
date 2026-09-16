@@ -634,11 +634,6 @@ follow:
   to match. Without that, the **next** comment of a trailing run reads as past
   the declaration and detaches to column 1 while its neighbor stays put.
 
-An effect module's `where { … }` block has a second derived close, recomputed by
-`moduleWhereCloseRow` for the same reason. It is deliberately *not* elastic:
-"anything reaching this container is inside it" is true of the exposing list
-(nothing follows it) and false here, because `exposing (..)` does.
-
 ### 4.4 Phase 3 — which gap?
 
 `insertAmongChildren containerShape commentNode row col children`
@@ -892,17 +887,18 @@ of leading whatever is below.
 #### The header's position-less tail
 
 One branch deserves its own note because it looks like a special case and is
-not: `headerTailGlue`. An effect module's header renders tokens — the `where
-{ … }` block's `}`, the `exposing (..)` after it — that carry **no position at
-all**, because their real column depends on the untracked width of the block. A
-comment the author wrote on those rows has no recorded token anywhere on its
-row, so the ordinary rule reads it as own-line while the format that produced
-that row had glued it.
+not: `headerTailGlue`. A header can render tokens that carry **no position at
+all**. A comment the author wrote on those rows has no recorded token anywhere
+on its row, so the ordinary rule reads it as own-line while the format that
+produced that row had glued it. The case that found it was an effect module's
+`where { … }` block and the `exposing (..)` after it, whose real column depended
+on the untracked width of the block; the parser refuses effect modules now
+(geng-lang `m1b-source.md` §SO20).
 
 The fix widens the fallback from one row to the header's whole position-less
 tail, under three conditions, each of which is necessary (the container is the
-module line; nothing recorded follows except the exposing list; the row is at or
-past the last recorded content and inside the declaration). It is scoped to
+module line; nothing recorded follows; the row is at or past the last recorded
+content and inside the declaration). It is scoped to
 single-line comments, since only those can ride a header row at all.
 
 The general lesson: **wherever the renderer emits a token the parser did not
@@ -1815,7 +1811,7 @@ fixed-point obligation §2.2 localizes onto `f` is really *two* obligations, and
 > **(ii)** the second run *is given the same* `code`.
 
 **(ii) is not free.** It holds exactly insofar as formatting does not rewrite
-concrete syntax — and this one does, in three ways that delete, insert or reorder
+concrete syntax — and this one does, in two ways that delete, insert or reorder
 a token:
 
 - `SortSymbols` **reorders** exposing lists and import groups ([sorting.md](sorting.md));
@@ -1823,10 +1819,7 @@ a token:
   `Src.Pattern_` has no paren constructor for the parser to record one in, so a
   redundant paren the author wrote around a pattern disappears
   ([SD4b](settledDecisions.md#sd4b-pattern-parens-are-synthesized-not-preserved) —
-  note that expressions and types are the opposite, SD4, and keep every paren);
-- the `port` keyword is **added or dropped** on the module header to match whether
-  the module declares ports
-  ([rule](formatterRules.md#the-port-in-port-module-follows-the-ports)).
+  note that expressions and types are the opposite, SD4, and keep every paren).
 
 Two further rewrites — uppercasing hex digits, normalizing string escapes — change
 bytes only *inside* a token, so they cannot move an anchor and are not in scope
@@ -1837,7 +1830,7 @@ here.
 Until 2026-08-23 every comment-gap sweep in this repo ran against the
 **already-formatted** half of the corpus. On a `.formatted.gren` no rewrite
 occurs by construction: the imports are already sorted, the pattern parens
-already synthesized, the `port` keyword already correct. **The rewrite that can
+already synthesized. **The rewrite that can
 move an anchor cannot happen on a fixed point.** The instrument was exhaustive,
 correct, and pointed at an input class that excluded the bug.
 
@@ -2146,12 +2139,12 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 | `classifyCommentKind` | the `CommentRole` | everything downstream; a role that is not a reparse fixed point oscillates for ever |
 | `prevLineGlueRow` / `prevBlockGlueRow` | per-shape-kind glue rows | a comment alternating between glued and own-line |
 | `flowEndsAtBracketClose` | does this flow end in a closing bracket, i.e. is there a glue row at all | a comment gluing onto a row the output does not have (a lambda whose *pattern* ends in a `]`) |
-| `headerTailGlue` | the effect header's position-less tail | a comment on a row with no recorded token on it; scoped away from comments, whose own positions already answer |
+| `headerTailGlue` | the module header's position-less tail | a comment on a row with no recorded token on it; scoped away from comments, whose own positions already answer |
 | `chainedRefRow` / `bracketItemRow` | run chaining (§7 R1) | the second comment of a run dropping below the construct |
 | `gapRunCrossesTogether` + `repairTornGapRun` | whether a whole run crosses an unrecorded separator (§7 R2) | a mixed run torn in half, sometimes with the author's order reversed |
 | `detachOwnLineTrailer` + `peelOwnLineTrailingRun` + `firstRowOfItsOwn` + `descendsForTrailingRun` + `hostsOwnLineTrailer` | lifting the *suffix* of a run that renders below its declaration | §1.3's oscillation, exactly; and, if asked of the leader instead of per member, a run kept glued behind a leader that glues |
 | `rehomePipelineStepTrailers` | which step owns a trailing run | two owners that render alike but group differently |
-| `applyCommentToOrigRow` / `lpnExtendElasticBracket` / `moduleWhereCloseRow` | growing derived closes as comments land | the *next* comment of a run escapes the declaration |
+| `applyCommentToOrigRow` / `lpnExtendElasticBracket` | growing derived closes as comments land | the *next* comment of a run escapes the declaration |
 | `tryLeadingGluedAttach` | `LeadsInline` | a comment that fails to travel with its import, splitting an import run |
 
 ### Ownership — `SortSymbols.gren`, `VerticalSpace.gren`
@@ -2160,7 +2153,7 @@ has a large blast radius. The right-hand column is what breaks when it is wrong
 |---|---|---|
 | `takeSameRowTrailing` / `takeSameRowTrailingIdx` | which name a run belongs to through a sort | two author orders, two outputs |
 | `unfoldLastTrailing` | the closing-`)` pinning | a comment attached to a list instead of to its last name |
-| `hoistBracketLeadingComments` + `hoistedTailRole` | a comment before the first item, and the role it gets in its **new** slot | it sorts to the wrong place, hoists when it should not, or keeps the old slot's role — which is a role the reparse does not assign |
+| `hoistBracketLeadingComments` | a comment before the first item | it sorts to the wrong place, or hoists when it should not |
 | `computeGroupStarts` / `computeDetachedBelow` | blank lines around runs | one blank vs two, alternating |
 
 ### Rendering — `Render/*`
@@ -2284,17 +2277,13 @@ Four hard-won habits:
 
 ## 13. Where the rules genuinely run out
 
-Three places cannot be decided well, because the information is not there. All
-three are documented with examples in
+Two places cannot be decided well, because the information is not there. Both
+are documented with examples in
 **[Known limitations](knownLimitations.md)**:
 
 - **A comment after the last `let` binding** goes below the `in`. `in` has no
   recorded position, so before-`in` and after-`in` are the same input, and below
   is the only stable choice (§4.4a).
-- **A `--` inside an effect module's `where { … }` block** can escape the block:
-  the parser hands back byte-identical AST *and* Context for both layouts.
-  Proven undecidable for `{- -}` too; the elastic-close workaround was measured
-  and disproven. Do not retry it.
 - **A comment after the last name of a flat, one-line `exposing ( … )` list** is
   read as the list's rather than the name's, because the closing `)` has no
   recorded position to measure against. Write the list across several lines and

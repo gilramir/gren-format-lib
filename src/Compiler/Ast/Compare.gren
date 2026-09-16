@@ -12,7 +12,7 @@ import Formatter.Logical.LiteralFormat as LiteralFormat
 
 
 {-| Compare two parsed modules for semantic equivalence. Returns `Ok {}` when
-the modules agree on name, exports, imports, declarations, and effects
+the modules agree on name, exports, imports and declarations
 (ignoring source positions and parse-context comments), or `Err` with a
 description of the first difference encountered.
 
@@ -39,64 +39,10 @@ compareModules a b =
         , compareArray "prims" comparePrimDecl a.prims b.prims
         , compareArray "externs" compareExternDecl a.externs b.externs
         , compareArray "binops" compareBinopDecl a.binops b.binops
-        , compareEffects a.effects b.effects
         ]
 
 
--- EFFECTS
-
-
-compareEffects : Src.Effects -> Src.Effects -> Result String {}
-compareEffects a b =
-    when { fst = a, snd = b } is
-        { fst = Src.NoEffects, snd = Src.NoEffects } ->
-            Ok {}
-
-        { fst = Src.Ports ap, snd = Src.Ports bp } ->
-            compareArray "ports" comparePortDecl ap bp
-
-        { fst = Src.Manager am, snd = Src.Manager bm } ->
-            compareManager am bm
-
-        _ ->
-            Err "effects: different kinds (NoEffects vs Ports vs Manager)"
-
-
-compareManager : Src.Manager -> Src.Manager -> Result String {}
-compareManager a b =
-    when { fst = a, snd = b } is
-        { fst = Src.Cmd ac, snd = Src.Cmd bc } ->
-            compareStr "manager Cmd" ac.value bc.value
-
-        { fst = Src.Sub as_, snd = Src.Sub bs } ->
-            compareStr "manager Sub" as_.value bs.value
-
-        { fst = Src.Fx af, snd = Src.Fx bf } ->
-            chainAll
-                [ compareStr "manager Fx cmd" af.cmd.value bf.cmd.value
-                , compareStr "manager Fx sub" af.sub.value bf.sub.value
-                ]
-
-        _ ->
-            Err "manager: different kinds"
-
-
--- PORTS
-
-
-comparePortDecl : Src.ModuleDeclaration Src.Port -> Src.ModuleDeclaration Src.Port -> Result String {}
-comparePortDecl la lb =
-    let
-        a =
-            la.value.value
-
-        b =
-            lb.value.value
-    in
-    chainAll
-        [ compareStr "port name" a.name.value b.name.value
-        , compareType ("port '" ++ a.name.value ++ "'") a.signature b.signature
-        ]
+-- PRIMITIVES AND EXTERNS
 
 
 comparePrimDecl : Src.ModuleDeclaration Src.Prim -> Src.ModuleDeclaration Src.Prim -> Result String {}

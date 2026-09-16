@@ -581,8 +581,9 @@ has no keyword column a leading comment can pair with, and it is not a
 declaration a later comment can trail into.
 
 But for a comment written past the header's last token it behaves exactly like
-any other top-level node: an effect module's `where { … }` block makes the
-header multi-line, so a trailing multi-line `{- … -}` finds no glue row,
+any other top-level node: a header made multi-line (an effect module's
+`where { … }` block did it, until the parser refused those) leaves a trailing
+multi-line `{- … -}` no glue row, so it
 classifies `LeadsLine`, and renders on a fresh row *underneath* the header —
 which the reparse then re-homes to a column-1 `Standalone`, the same
 disagreement `detachOwnLineTrailer` exists to remove. elm-format detaches this
@@ -746,16 +747,9 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
     in
     when lpnShape updatedOrigRow is
         OriginalRows rowInfo ->
-            let
-                -- The header's other derived close moves for the same reason,
-                -- and is recomputed rather than grown because it is derived from
-                -- the block's contents, which this comment has just changed.
-                covered =
-                    max coveredRow (moduleWhereCloseRow rowInfo.stype updatedOrigRow)
-            in
-            if covered > rowInfo.last then
+            if coveredRow > rowInfo.last then
                 lpnNode
-                    (OriginalRows { rowInfo | last = covered })
+                    (OriginalRows { rowInfo | last = coveredRow })
                     (lpnChildren updatedOrigRow)
 
             else
@@ -763,54 +757,6 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
 
         _ ->
             updatedOrigRow
-
-
-{-| The row an effect module's wrapped `where { … }` block renders its `}` on:
-one below everything the block now holds, or `-1` when there is no such block or
-it still fits on one row.
-
-Both that `}` and the `exposing` after it are position-less, so nothing in the
-header records this row. `MakeLogical.moduleLineClosesBelow` bumps the header's
-`OriginalRows` range by it at build time — from the FIELD rows alone, because
-that is all there is before comments are placed. A comment landing inside the
-block pushes the block's contents down and the `}` with them, so the bump has to
-move too; otherwise a comment the author wrote on the `}` row falls past the
-header's range, detaches to column 1, and disagrees with the format that
-produced that row and glued it there.
-
-Exactly the job `elasticEnd` does for the `exposing ( … )` list's derived `)`,
-asked of the header's one other derived close. It is *recomputed* rather than
-grown, because it is derived from the block's contents — which the comment just
-being placed may have changed. The block is deliberately **not** an
-`lpnElasticBracketNode`: that says "anything reaching this container is inside
-it", which is true of the exposing list (nothing follows it) and false here —
-`exposing (..)` does.
--}
-moduleWhereCloseRow : SyntaxType -> LPNode -> Int
-moduleWhereCloseRow stype node =
-    if stype /= StModule then
-        -1
-
-    else
-        Array.foldl
-            (\child acc ->
-                when lpnShape child is
-                    AllAcrossOrAllVertical (ListCurly _) ->
-                        let
-                            lastRow =
-                                lastRowInSubtree child
-                        in
-                        if lastRow > firstRowInSubtree child then
-                            max acc (lastRow + 1)
-
-                        else
-                            acc
-
-                    _ ->
-                        acc
-            )
-            -1
-            (lpnChildren node)
 
 
 addCommentGeneric : Located Ctx.Comment -> CommentState -> CommentState
@@ -1194,9 +1140,6 @@ isDeclStype st =
             True
 
         StInstance ->
-            True
-
-        StPort ->
             True
 
         StPrim ->
@@ -2274,26 +2217,6 @@ subtreeStartsAfter node row col =
 -- True for the bracket container shape kinds whose interior comments render via
 -- the bracket-list path: a comment that is a child of one of these is classified
 -- by `classifyCommentKind`'s bracket branch (its permissive same-row rule).
-{-| The module line's `exposing ( … )` list. `ListParen` is exclusively an
-exposing list (see `SortSymbols.gren`), so this identifies it exactly.
-
-Used by `headerTailGlue` to tell the header's position-less TAIL from its middle.
-The module line is built as `[ keyword, name, where…, exposing, exports ]`
-(`MakeLogical.processModuleLine`), so a comment with nothing but the `exposing`
-keyword and this list after it is on the tail — whatever rows anything is on. -}
-isExposingListNode : LPNode -> Bool
-isExposingListNode node =
-    when lpnShape node is
-        AllAcrossOrAllVertical (ListParen ParenExposing) ->
-            True
-
-        AlwaysVertical (ListParen ParenExposing) ->
-            True
-
-        _ ->
-            False
-
-
 isBracketContainerShape : LPShape -> Bool
 isBracketContainerShape shape =
     when shape is
@@ -3161,75 +3084,31 @@ classifyCommentKind containerShape commentNode before after row =
         -- leads its own line. A `--` can never ride inline.
         --
         -- On a top-level declaration line whose trailing tokens are position-less
-        -- synthesized text, the immediate `prev` yields no glue row (-1). The one
-        -- case is an effect module's `exposing (..)`: its real column depends on
-        -- the untracked `where { … }` contents, so `(..)`/`exposing` stay
-        -- position-less `SynthesizedText`. Without a glue row a same-row trailing
-        -- `-- c` classifies `LeadsLine` and drops to its own line, oscillating
-        -- indented↔col-0 on reparse. Fall back to the last real content row on
-        -- the line (`refRow`) so it glues onto the header row (`TrailsPrevious`)
-        -- instead. (A block trailer already renders inline from `LeadsLine`,
-        -- so this only needs to cover the `--` case.)
+        -- synthesized text, the immediate `prev` yields no glue row (-1). Without
+        -- a glue row a same-row trailing `-- c` classifies `LeadsLine` and drops
+        -- to its own line, oscillating indented↔col-0 on reparse, so this falls
+        -- back to the last real content row on the line (`refRow`) and the
+        -- comment glues onto it (`TrailsPrevious`). (A block trailer already
+        -- renders inline from `LeadsLine`, so this only needs to cover `--`.)
+        -- The case that found it was an effect module's `exposing (..)`, whose
+        -- column depended on its `where { … }` block; the parser refuses those
+        -- now (geng-lang `m1b-source.md` §SO20).
         --
-        -- That tail is position-less over a RANGE of rows, not just one.
-        -- `refRow` is the last row the parser recorded anywhere in the header,
-        -- and when an effect module's `where { … }` block wraps, the `}` — and
-        -- the `exposing (..)` after it — render on the row *below* that, a row
-        -- `MakeLogical.moduleLineClosesBelow` puts in the header's
-        -- `OriginalRows` range precisely because nothing else records it. A `--`
-        -- the author wrote there has no recorded token anywhere on its row, so
-        -- `refRow` alone reads it as own-line — and the two formats then
-        -- disagree, because the FIRST format's input still had the block's last
-        -- field on that row and glued it. Every row from the last recorded
-        -- content through the header's last row is the same position-less tail,
-        -- so a comment on any of them trails the header. Three conditions, and
-        -- each is load-bearing:
+        -- `headerTailGlue` extends the fallback over the module line's range:
+        -- a comment on a row at or past the header's last recorded content, and
+        -- inside the header's `OriginalRows`, with nothing recorded after it,
+        -- trails the header. Each condition is load-bearing:
         --
         --   - the container is the module line. `info.last` grows past `refRow`
-        --     only where a synthesized tail or an elastic close put it there,
-        --     which is a module-line fact.
-        --   - nothing recorded follows the comment EXCEPT the `exposing` list.
-        --     Otherwise a comment the author wrote *before* the `where { … }`
-        --     block — on a row of its own, with the whole header still to
-        --     come — would read as the tail and glue onto the name above it.
-        --     The exposing list is the exception because it is the LAST child
-        --     (`[ keyword, name, where…, exposing, exports ]`), so a comment
-        --     with only it and the position-less `exposing` keyword after it is
-        --     on the tail by construction, whatever rows anything is on. Rows
-        --     cannot make that call: both the comment-before-`where` case and
-        --     the tail case have recorded content BELOW the comment, so a
-        --     row test reads them the same. Without the exception a `{- c -}`
-        --     written after a wrapped `where { … }` block's `}` reads as
-        --     own-line while the format that produced that row had glued it.
+        --     only where an elastic close put it there, which is a module-line
+        --     fact.
+        --   - nothing recorded follows the comment. Otherwise a comment the
+        --     author wrote on a row of its own, with the rest of the header
+        --     still to come, would read as the tail and glue onto the name above
+        --     it.
         --   - the row is at or past the last recorded content, and inside the
         --     declaration. Below the header's last row the comment never gets
         --     here: `findOrCreateOrigRow` detaches it to column 1.
-        -- The comment sits past an `exposing` keyword that carries NO position —
-        -- which `MakeLogical.processModuleLine` emits for an effect module and
-        -- only for one: a plain module anchors `exposing` at the end of its
-        -- name, an effect module cannot, because the real column depends on the
-        -- untracked width of the `where { … }` block.
-        --
-        -- This is what separates the header's position-less tail from the two
-        -- shapes that look identical to it. A `SortSymbols` hoist puts a
-        -- sort-to-first comment between `exposing` and `(` with only the list
-        -- after it, exactly like a tail comment — but on a PLAIN module, where
-        -- the keyword is positioned, so this is False and the hoist keeps its
-        -- own line (`ExposingSortCommentToFront`, `SortingCommentZoo`,
-        -- `ModuleExposingInlineAndHoistedComment`, `KitchenComments` — all four
-        -- broke when the exposing-list exception was added without this).
-        pastSynthesizedExposing =
-            Array.any
-                (\n ->
-                    when lpnShape n is
-                        SynthesizedText v ->
-                            v == "exposing"
-
-                        _ ->
-                            False
-                )
-                before
-
         --   - the predecessor is not itself a COMMENT. This is a fallback for
         --     the header's position-less *tokens*, and a comment is not one of
         --     them: it carries an exact position, so `prevBlockGlueRow` /
@@ -3249,12 +3128,7 @@ classifyCommentKind containerShape commentNode before after row =
                         && refRow >= 0
                         && row >= refRow
                         && row <= info.last
-                        && Array.all
-                            (\n ->
-                                lpnFirstPos n == Nothing
-                                    || (isExposingListNode n && pastSynthesizedExposing)
-                            )
-                            after
+                        && Array.all (\n -> lpnFirstPos n == Nothing) after
 
                 _ ->
                     False
@@ -3291,26 +3165,16 @@ classifyCommentKind containerShape commentNode before after row =
         -- distinction need not consider the *next* neighbour.
         --
         -- A position-less `SynthesizedText` predecessor yields no glue row, the
-        -- same gap `classifyLine` covers for `--`: an effect module's `exposing`
-        -- is synthesized (its real column depends on the untracked `where { … }`
-        -- contents), so a `{- c -}` the author wrote on the header row got
-        -- `LeadsLine` and rendered on a fresh row below `exposing`. That makes
-        -- a FLAT exposing list start below the header, which reparses as a
-        -- vertical list — non-idempotent. Fall back to the last real content row
-        -- on the line (`refRow`), exactly as the `--` case does.
+        -- same gap `classifyLine` covers for `--`, and the same fallback to
+        -- `refRow` applies. Otherwise a `{- c -}` the author wrote on that row
+        -- gets `LeadsLine` and renders on a fresh row, which can make a flat
+        -- list read back as a vertical one — non-idempotent.
         --
         -- Scoped to a SINGLE-line comment — the only kind that can actually ride
-        -- the header row. A multi-line `{- … -}` breaks the line wherever it
-        -- lands, so the fallback would merely move it from its own row onto the
-        -- keyword's: `KitchenSink`'s fixture-verified `effect module M where` ⏎
-        -- `{- a⏎b⏎c -}` ⏎ `{ command = … }` keeps it own-line.
-        --
-        -- `headerTailGlue` widens that same fallback from the one row `refRow`
-        -- names to the header's whole position-less tail, for the same reason
-        -- and under the same single-line scope: a `{- c -}` past a wrapped
-        -- `where { … }` block's `}` is on a row nothing records, so `refRow`
-        -- alone reads it as own-line while the format that produced that row
-        -- had glued it.
+        -- the row. A multi-line `{- … -}` breaks the line wherever it lands, so
+        -- the fallback would merely move it from its own row onto the one
+        -- above. `headerTailGlue` widens the fallback over the header's range,
+        -- under the same single-line scope.
         classifyBlock p multiline =
             let
                 g =

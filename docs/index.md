@@ -229,7 +229,7 @@ Each rule, with a "you write / gren-format writes" example for every case, is in
 * a `when` pattern shape the Haskell-based compiler can reject
 * a bracketed pattern broken across rows that the Haskell-base compiler rejects
 * several comment-placement choices forced by a token (`=`,
-    `:`, `|`, `in`, a bracket's closing paren, an effect module's `where` block)
+    `:`, `|`, `in`, a bracket's closing paren)
     that the parser doesn't record a position for
 * and a stack-depth limit on extreme lambda/unary-minus nesting (hundreds of levels deep, well past
     anything real code hits).

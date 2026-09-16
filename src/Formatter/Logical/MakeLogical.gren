@@ -70,7 +70,6 @@ lptFromAst modAst =
         |> Result.andThen (\b -> resultFoldl processUnionDecl b modAst.unions)
         |> Result.andThen (\b -> resultFoldl processClassDecl b modAst.classes)
         |> Result.andThen (\b -> resultFoldl processInstanceDecl b modAst.instances)
-        |> Result.andThen (processPorts modAst)
         |> Result.andThen (\b -> resultFoldl processPrimDecl b modAst.prims)
         |> Result.andThen (\b -> resultFoldl processExternDecl b modAst.externs)
         |> Result.andThen (processInfixDecls modAst)
@@ -121,67 +120,38 @@ addRootChild child builder =
 
 
 {-| Emit the `module ... exposing (...)` line as a single `StModule`
-`OriginalRows` child of the root. Handles all three module kinds:
+`OriginalRows` child of the root.
 
     module Foo exposing (a, b)
-    port module Foo exposing (..)
-    effect module Foo where { command = MyCmd, subscription = MySub } exposing (..)
+
+`port module` and `effect module` were the other two kinds, and the parser
+refuses both now (geng-lang `m1b-source.md` §SO20).
 -}
 processModuleLine : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processModuleLine modAst root =
     let
-        keyword =
-            when modAst.effects is
-                Src.Ports _ ->
-                    "port module"
-
-                Src.Manager _ ->
-                    "effect module"
-
-                Src.NoEffects ->
-                    "module"
-
-        -- Zero-width: `port module` / `effect module` are rendered as one
-        -- multi-word token, but a real width would let a comment written
-        -- *between* the words (`port {- c -} module`) fall inside the token's
-        -- span and sort before it, escaping to before the module keyword —
-        -- which does not parse. Anchored zero-width at column 1, any header
-        -- comment sorts after it instead.
-        --
-        -- Row 1, NOT the module name's row: the keyword always renders on the
-        -- module's first output row, but a header comment that itself forces
-        -- a break (multi-line, or a `--` line comment) pushes the name onto a
-        -- continuation row (`effect module {- … -}⏎    Name …`). A comment's
-        -- *length* alone never does this — layout is author-driven, not
-        -- width-driven. Anchoring at the name's row would then place the
-        -- keyword *below* a comment on row 1, so the comment would sort
-        -- before the keyword and escape ahead of it on reparse
-        -- (non-idempotent, and unparseable).
+        -- Zero-width, anchored at row 1 column 1, NOT at the module name's row:
+        -- the keyword always renders on the module's first output row, but a
+        -- header comment that itself forces a break (multi-line, or a `--`
+        -- line comment) pushes the name onto a continuation row. Anchoring at
+        -- the name's row would then place the keyword *below* a comment on row
+        -- 1, so the comment would sort before the keyword and escape ahead of it
+        -- on reparse (non-idempotent, and unparseable). The width is zero for the
+        -- same reason: a real one would let a comment inside the keyword's span
+        -- sort before it.
         keywordNode =
-            lpnLeaf (mkZeroWidthText { row = 1, col = 1 } keyword)
+            lpnLeaf (mkZeroWidthText { row = 1, col = 1 } "module")
 
         nameNode =
             lpnLeaf (mkTextFromLocString modAst.name)
-
-        whereNodes =
-            buildWhereBlock modAst.effects
 
         exposingPos =
             endOfToken modAst.name.start modAst.name.value
 
         -- `exposing` has no position in the AST, so it is anchored at the end of
         -- the module name per the standard rule (see `mkZeroWidthText`).
-        --
-        -- For `effect module … where { … } exposing` the real column depends on
-        -- the where-block's contents and is not tracked, so there is no honest
-        -- anchor and this falls back to a position-less `SynthesizedText`.
         exposingNode =
-            when modAst.effects is
-                Src.Manager _ ->
-                    lpnLeaf (SynthesizedText "exposing")
-
-                _ ->
-                    lpnLeaf (mkZeroWidthText exposingPos "exposing")
+            lpnLeaf (mkZeroWidthText exposingPos "exposing")
 
         exportsNode =
             when modAst.exports is
@@ -191,17 +161,8 @@ processModuleLine modAst root =
                     -- so a trailing `-- c` on the header's row glues onto that row
                     -- (`TrailsPrevious`) instead of dropping to its own line, which
                     -- oscillated indented↔col-0 on reparse — a bare position-less
-                    -- `SynthesizedText` gave the trailing `--` no glue row. For an
-                    -- effect module the exposing area's real column depends on the
-                    -- where-block contents and isn't tracked, so `exposing` itself
-                    -- falls back to `SynthesizedText`; keep `(..)` position-less
-                    -- there too.
-                    when modAst.effects is
-                        Src.Manager _ ->
-                            lpnLeaf (SynthesizedText "(..)")
-
-                        _ ->
-                            lpnLeaf (mkZeroWidthText exposingPos "(..)")
+                    -- `SynthesizedText` gave the trailing `--` no glue row.
+                    lpnLeaf (mkZeroWidthText exposingPos "(..)")
 
                 Src.Explicit exposed ->
                     let
@@ -214,27 +175,10 @@ processModuleLine modAst root =
                         -- which have to agree or a pinned comment escapes.
                         --
                         -- "Below the header" is measured against the header's
-                        -- LAST row, not the module name's. An effect module's
-                        -- `where { … }` block can wrap, putting a list the
-                        -- author wrote flat several rows below the name; calling
-                        -- that vertical loses the flat list's comment pinning
-                        -- and the header goes back to depending on the order the
-                        -- names were written in.
-                        -- `+ 1` for the same untracked row `moduleLineClosesBelow`
-                        -- exists for: a wrapped `where { … }` puts its `}` — and
-                        -- the `exposing` after it — one row below the last field,
-                        -- and neither carries a position.
+                        -- last row, which is the module name's now that no
+                        -- `where { … }` block can follow it.
                         headerLastRow =
-                            Array.foldl
-                                (\n acc -> max acc (lastRowInSubtree n))
-                                modAst.name.start.row
-                                ([ nameNode ] ++ whereNodes)
-                                + (if moduleLineClosesBelow modAst then
-                                    1
-
-                                   else
-                                    0
-                                  )
+                            lastRowInSubtree nameNode
 
                         vertical =
                             exposedSpansRows exposed
@@ -260,92 +204,9 @@ processModuleLine modAst root =
         -- line's range and be re-attached as a top-level comment *ahead* of the
         -- module keyword on reparse — which does not parse (non-idempotent).
         base =
-            makeOrigRows 1 StModule ([ keywordNode, nameNode ] ++ whereNodes ++ [ exposingNode, exportsNode ])
-
-        -- A vertical `exposing ( … )` or `where { … }` puts its closing bracket
-        -- one row below the last positioned item, so extend the module line's
-        -- range to cover it (see `moduleLineClosesBelow`).
-        origRow =
-            if moduleLineClosesBelow modAst then
-                when lpnShape base is
-                    OriginalRows r ->
-                        lpnNode (OriginalRows { r | last = r.last + 1 }) (lpnChildren base)
-
-                    _ ->
-                        base
-
-            else
-                base
+            makeOrigRows 1 StModule [ keywordNode, nameNode, exposingNode, exportsNode ]
     in
-    Ok (addRootChild origRow root)
-
-
-{-| For effect modules, the `where { command = …, subscription = … }` block
-between the module name and `exposing`; empty for non-effect modules. The block
-lists which constructors handle `command` and/or `subscription` effects; Cmd/Sub/Fx
-correspond to "only commands", "only subscriptions", and "both" respectively.
--}
-buildWhereBlock : Src.Effects -> Array LPNode
-buildWhereBlock effects =
-    when effects is
-        Src.Manager manager ->
-            let
-                -- Each "field" of the `where { ... }` block is one
-                -- list item (an AcrossOrVertical containing the
-                -- `name = Ctor` tokens) so the surrounding list
-                -- joins items with commas, not the inner tokens.
-                --
-                -- The label keyword ("command" / "subscription") and
-                -- the `=` are not separate tokens in the AST, and
-                -- nothing before them is either — the `where`, the
-                -- `{` and the comma carry no position — so there is
-                -- no real token to anchor them to. They are therefore
-                -- position-less `SynthesizedText`, which is what
-                -- `mkZeroWidthText`'s anchoring policy prescribes for
-                -- exactly this case.
-                --
-                -- They used to be anchored by counting BACKWARDS from
-                -- the constructor (`ctorCol - 3 - String.count label`),
-                -- which is the one thing that policy forbids: it is an
-                -- anchor derived from the token that FOLLOWS, so it is
-                -- only correct when the author wrote `label = Ctor`
-                -- with single spaces. Put a comment in that gap and the
-                -- derived columns land *inside the comment's own text*,
-                -- which handed a comment run one member on each side of
-                -- the `{` and made the header non-idempotent (a run of
-                -- two block comments in the `=` gap of every effect
-                -- header in the corpus). Without positions, every
-                -- comment written left of the constructor sorts before
-                -- the block and collapses to the one slot between
-                -- `where` and `{`, which is the rendering
-                -- `AmbiguousEffectModule` already documents as
-                -- canonical for this header.
-                binding label locName =
-                    plainAcross
-                        [ lpnLeaf (SynthesizedText label)
-                        , lpnLeaf (SynthesizedText "=")
-                        , lpnLeaf (mkTextFromLocString locName)
-                        ]
-
-                fields =
-                    when manager is
-                        Src.Cmd locName ->
-                            [ binding "command" locName ]
-
-                        Src.Sub locName ->
-                            [ binding "subscription" locName ]
-
-                        Src.Fx { cmd = cmd, sub = sub } ->
-                            [ binding "command" cmd
-                            , binding "subscription" sub
-                            ]
-            in
-            [ lpnLeaf (SynthesizedText "where")
-            , lpnNode (AllAcrossOrAllVertical (ListCurly RecordValue)) fields
-            ]
-
-        _ ->
-            []
+    Ok (addRootChild base root)
 
 
 {-| The synthesized closing-bracket position of a module header's
@@ -401,35 +262,6 @@ moduleExposingClose vertical exposed =
         -- are indistinguishable, and treating both as inside is the choice
         -- that does not depend on the order the names were written in.
         Just { row = lastItemRow, col = beyondEveryRow }
-
-
-{-| True when the module line's closing bracket sits one row below its last
-positioned item, so its `OriginalRows` range must be bumped by a row.
-
-This covers the vertical effect-module `where { … }` block (only `Fx` has two
-fields and can wrap): the closing `}` — and the `exposing` after it — drop below
-the last field, and neither has an AST position. (The other such bracket, a
-vertical `exposing ( … )` list, no longer needs the bump: `moduleExposingClose`
-gives it a synthesized closing position, and `lpnBracketNode` already widens the
-node's row range to cover it.)
-
-Without the bump, VerticalSpace sees a spurious one-row gap to the first
-declaration and inserts a blank line on reparse (non-idempotent). -}
-moduleLineClosesBelow : Src.Module -> Bool
-moduleLineClosesBelow modAst =
-    when modAst.effects is
-        Src.Manager (Src.Fx { cmd = cmd, sub = sub }) ->
-            -- The two fields on DIFFERENT rows is the whole test — the block was
-            -- written vertically, so its `}` is on a row of its own below them.
-            -- Asking `sub.start.row > cmd.start.row` instead only recognised the
-            -- command-first spelling: written `{ subscription = …` ⏎ `, command =
-            -- …` ⏎ `}` the header's row range stopped one row short of the `}`,
-            -- and a comment written after `exposing (..)` on that row fell
-            -- outside the header and was re-homed to a line of its own.
-            sub.start.row /= cmd.start.row
-
-        _ ->
-            False
 
 
 {-| Render a single item in an `exposing (...)` list.
@@ -629,65 +461,15 @@ processImport locImport root =
     addRootChild origRow root
 
 
-processPorts : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
-processPorts modAst root =
-    when modAst.effects is
-        Src.NoEffects ->
-            Ok root
-
-        Src.Ports ports ->
-            resultFoldl processPortDecl root ports
-
-        Src.Manager _ ->
-            Ok root
-
-
-{-| Emit one `port name : Signature` declaration as an `StPort`
-`OriginalRows`, preceded by its doc comment if any.
-
-    port someCmd : (String -> msg) -> Sub msg
--}
-processPortDecl : Src.ModuleDeclaration Src.Port -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
-processPortDecl modDecl root =
-    let
-        port_ =
-            modDecl.value.value
-
-        portNode =
-            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "port")
-
-        nameNode =
-            lpnLeaf (mkTextFromLocString port_.name)
-
-        colonNode =
-            lpnLeaf (mkZeroWidthText port_.name.end ":")
-
-        rootWithDoc =
-            processFunctionDoc modDecl.value.docs root
-    in
-    makeSignatureBranch port_.signature
-        |> Result.map
-            (\typeNodes ->
-                let
-                    allChildren =
-                        [ portNode, nameNode, colonNode ] ++ typeNodes
-
-                    origRow =
-                        makeOrigRows modDecl.start.row StPort allChildren
-                in
-                addRootChild origRow rootWithDoc
-            )
-
-
 {-| Emit one `@prim("i32_add")` declaration as an `StPrim` `OriginalRows`,
 preceded by its doc comment if any.
 
     @prim("i32_add")
     addInt : Int -> Int -> Int
 
-A port's shape without the `port` keyword and with an attribute row above it,
-which is the two halves this borrows: `processPortDecl` for the signature and
-`processUnionDecl` for the attribute. The attribute is one unbreakable token --
+An annotation with an attribute row above it, which is the two halves this
+borrows: the signature shape a `port` declaration had until ports left
+(geng-lang `m1b-source.md` §SO20), and `processUnionDecl` for the attribute. The attribute is one unbreakable token --
 a primitive's name is a single string literal and there is no second shape for
 it in the grammar -- and it lives inside the declaration's own `OriginalRows`,
 so `VerticalSpace` puts no blank line between the two rows.

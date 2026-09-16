@@ -82,10 +82,10 @@ either side across reformats — the oscillation class this rule exists to
 prevent. The visible trade-off is that a gap comment always renders after the
 elided token; that is the deliberate canonical placement (rule C2).
 
-Where the real column is not recoverable — an effect module's
-`where { … } exposing`, whose column depends on the block's contents — there is
-no honest anchor, and the site falls back to a position-less `SynthesizedText`
-instead of inventing one.
+Where the real column is not recoverable, there is no honest anchor, and the
+site falls back to a position-less `SynthesizedText` instead of inventing one.
+An effect module's `where { … } exposing` was the case that needed it, until the
+parser refused effect modules (geng-lang `m1b-source.md` §SO20).
 -}
 mkZeroWidthText : Position -> String -> LPShape
 mkZeroWidthText pos text =

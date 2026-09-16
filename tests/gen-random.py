@@ -405,7 +405,7 @@ class Decl:
         self.sig_lead_spaced = sig_lead_spaced
 
 
-# Type-alias / custom-type / port declarations. Unlike Decl (function), these
+# Type-alias / custom-type declarations. Unlike Decl (function), these
 # carry no expression body, so the shrinker's expr/list machinery (which walks
 # `.body`) must skip them — only the "drop this whole decl" step applies.
 
@@ -431,14 +431,6 @@ class UnionDecl:
     def __init__(self, name, params, variants, broken=False, doc=None, lead=None, trailing=None):
         self.name, self.params, self.variants, self.broken = name, params, variants, broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
-
-
-class PortDecl:
-    def __init__(self, name, type_, broken=False, doc=None, lead=None,
-                 trailing=None, arrow_comment=None):
-        self.name, self.type_, self.broken = name, type_, broken
-        self.doc, self.lead, self.trailing = doc, lead, trailing
-        self.arrow_comment = arrow_comment
 
 
 # `infix left 6 (+++) = add0` — a fixity declaration. Parsed by a dedicated
@@ -525,9 +517,9 @@ class Import:
 
 class Module:
     def __init__(self, name, imports, decls, infixes=None, doc=None, exposing="(..)",
-                 effect=None, imports_tail=None, exposing_broken=False,
+                 imports_tail=None, exposing_broken=False,
                  exposing_item_lead=None, exposing_item_trailing=None,
-                 header_trailing=None, port_mismatch=False):
+                 header_trailing=None):
         self.name, self.imports, self.decls, self.doc = name, imports, decls, doc
         self.infixes = infixes if infixes is not None else []
         # The header export list: the literal string "(..)", or a list of item
@@ -548,17 +540,6 @@ class Module:
         self.exposing_item_lead = exposing_item_lead
         self.exposing_item_trailing = exposing_item_trailing
         self.header_trailing = header_trailing
-        # None, or an effect module's `where { ... }` clause: a list of
-        # (field, name, comment|None) in emission order — see `Gen.effect_header`.
-        self.effect = effect
-        # Emit a module keyword that DISAGREES with the body: `port module` on a
-        # module with no ports, or plain `module` on one that declares a port.
-        # Both are legal input, and the formatter deliberately rewrites the
-        # keyword to match the body (README, "The `port` in `port module`
-        # follows the ports" — decided 2026-07-26, compiler-common#33), so this
-        # is the only way to exercise that rewrite. Never set on an effect
-        # module, whose keyword is `effect module` either way.
-        self.port_mismatch = port_mismatch
         # Own-line comments emitted after the LAST import, before the blank
         # lines that separate the import block from the declarations. Such a
         # comment leads no import, so it stays at the end of the block while
@@ -1267,7 +1248,7 @@ def broken_patterns(m):
 # emit_type renders a type as ONE line — used for nested/inner types (record
 # fields, app args, a paren'd atom) which are never author-broken on their
 # own. emit_type_multiline is the top-level entry point for a signature / type
-# alias RHS / port type, where the author's flat-vs-broken choice is baked in.
+# alias RHS, where the author's flat-vs-broken choice is baked in.
 
 def emit_type(t):
     # t is a small tuple-based type IR built by gen_type
@@ -1367,7 +1348,7 @@ def emit_record_type(kind, base, fields):
 
 
 def emit_type_multiline(t, broken, arrow_comment=None):
-    """Emit a top-level signature/alias/port type. Per README "Type
+    """Emit a top-level signature/alias type. Per README "Type
     signatures": written across rows, the canonical shape puts each `->`
     segment on its own line, `->` leading each continuation — so this only
     ever applies when `t` is an arrow chain; a non-arrow RHS (record, con,
@@ -1405,7 +1386,7 @@ def emit_type_multiline(t, broken, arrow_comment=None):
     return lines
 
 
-# ───────────────────────── type alias / union / port emission ─────────────
+# ───────────────────────── type alias / union emission ─────────────────────
 # Per README: a `type alias` RHS and a custom type's variant list ALWAYS drop
 # to their own line(s) below the header, indented 4 — never glued to `=`, even
 # when they'd fit on one line.
@@ -1447,26 +1428,6 @@ def emit_union(d):
             lines.append(pad(INDENT) + s)
     return lines
 
-
-def emit_port(d):
-    if d.broken and d.type_[0] == "arrow":
-        return ["port " + d.name + " :"] + \
-               [pad(INDENT) + l
-                for l in emit_type_multiline(d.type_, True, d.arrow_comment)]
-    return ["port " + d.name + " : " + emit_type(d.type_)]
-
-
-def emit_where(effect):
-    """The `where { command = MyCmd, subscription = MySub }` clause. Always
-    inline (like `emit_infix`, it collapses to one line regardless of input
-    layout, so there's no broken variant to model — see `effect_header`)."""
-    parts = []
-    for field, name, cmt in effect:
-        s = field + " = " + name
-        if cmt is not None:
-            s += " " + comment_text(cmt)
-        parts.append(s)
-    return "where { " + ", ".join(parts) + " }"
 
 
 def emit_infix(d):
@@ -1588,21 +1549,9 @@ def emit_header_exposing(m, head):
 
 
 def emit_module(m):
-    if m.effect is not None:
-        kw = "effect module "
-    else:
-        # The keyword the body implies — which is also the one the formatter
-        # writes. `port_mismatch` flips it, emitting the disagreeing header the
-        # formatter is expected to rewrite (see `Module.port_mismatch`). The
-        # flip stays legal after shrinking: dropping the module's last port
-        # just swaps which side of the disagreement is which.
-        has_ports = any(isinstance(d, PortDecl) for d in m.decls)
-        if m.port_mismatch:
-            has_ports = not has_ports
-        kw = "port module " if has_ports else "module "
-    head = kw + m.name
-    if m.effect is not None:
-        head += " " + emit_where(m.effect)
+    # Always plain `module`: Geng refuses `port module` and `effect module`
+    # headers (geng-lang m1b-source.md §SO20, D280).
+    head = "module " + m.name
     header = emit_header_exposing(m, head)
     if m.doc is not None:
         # Module doc: exactly one blank line after the header, verified
@@ -1643,8 +1592,6 @@ def emit_decl(d):
         core = emit_type_alias(d)
     elif isinstance(d, UnionDecl):
         core = emit_union(d)
-    elif isinstance(d, PortDecl):
-        core = emit_port(d)
     else:
         return emit_function_decl(d)
     out = emit_leading(d)
@@ -2619,7 +2566,7 @@ class Gen:
         (`Maybe.Maybe`, `Maybe.Int`) — reusing the same fake-module pool
         `Qual`/qualified constructor patterns already draw from (arbitrary
         pairing, since gren-format never type-checks). Verified directly
-        against the app as a signature/alias-RHS/record-field/port/variant-
+        against the app as a signature/alias-RHS/record-field/variant-
         arg type, both as a bare `con` and as an `app` head."""
         if self.chance(0.3):
             return self.pick(self.mods) + "." + name
@@ -2857,70 +2804,6 @@ class Gen:
         return UnionDecl(name, params, variants, broken=broken, doc=doc,
                          lead=lead, trailing=trailing)
 
-    def port(self, i):
-        name = "port%d" % i
-        if self.chance(0.5):
-            # outgoing: Type -> ... -> Cmd msg
-            k = self.rng.randint(1, 2)
-            segs = [self.gen_type(1) for _ in range(k)] + [("app", "Cmd", [("var", "msg")])]
-            t = ("arrow", segs) if len(segs) > 1 else segs[0]
-        else:
-            # incoming: (Type -> msg) -> Sub msg
-            inner = ("arrow", [self.gen_type(1), ("var", "msg")])
-            t = ("arrow", [("paren", inner), ("app", "Sub", [("var", "msg")])])
-        broken = t[0] == "arrow" and self.chance(0.5)
-        arrow_comment = self.maybe_arrow_comment(t, broken)
-        doc = self.doc_comment()
-        lead = None
-        if doc is None and self.chance(self.crate):
-            lead = [self.comment() or ("line", "k%d" % self.next_cid())]
-        trailing = self.comment()
-        return PortDecl(name, t, broken=broken, doc=doc, lead=lead, trailing=trailing,
-                        arrow_comment=arrow_comment)
-
-    def manager_type(self, name):
-        """The `command`/`subscription` handler type an effect module's
-        `where { ... }` clause names — a union with a single `msg` type
-        param, matching the real convention (`type MyCmd msg = ...` in
-        core/src/Task.gren, core/src/Time.gren) though the parser does not
-        check the name or its shape at all."""
-        return self.union(0, name=name, params=["msg"])
-
-    def effect_header(self):
-        """Bake an effect module's manager declaration: which of
-        `command`/`subscription` are present (never neither — the parser has
-        no such shape), each naming a fresh `manager_type`, plus an optional
-        short block comment on one handler. Always emitted command-first —
-        verified directly against the app that gren-format canonicalizes the
-        clause to that order unconditionally, so a subscription-first input
-        both gets reordered AND (if it carried the comment) has the comment
-        relocated by that reordering; baking canonical order sidesteps
-        exercising that already-covered renormalization path (`AmbiguousEffectModule`)
-        redundantly and keeps the comment-placement coverage clean. Returns
-        `(effect, manager_decls)` — `effect` is `None` or a list of
-        `(field, name, comment|None)` in emission order; `manager_decls` are
-        the `UnionDecl`s to splice into the module's declarations."""
-        r = self.rng.random()
-        if r < 0.4:
-            has_cmd, has_sub = True, False
-        elif r < 0.7:
-            has_cmd, has_sub = False, True
-        else:
-            has_cmd, has_sub = True, True
-        entries = []
-        decls = []
-        if has_cmd:
-            cname = "EffCmd%d" % self.rng.randint(0, 9999)
-            cmt = self.comment(kinds=("block",))
-            entries.append(("command", cname, cmt))
-            decls.append(self.manager_type(cname))
-        if has_sub:
-            sname = "EffSub%d" % self.rng.randint(0, 9999)
-            cmt = self.comment(kinds=("block",))
-            entries.append(("subscription", sname, cmt))
-            decls.append(self.manager_type(sname))
-        return entries, decls
-
     def infix_decl(self, i):
         assoc = self.pick(["left", "right", "non"])
         prec = self.rng.randint(0, 9)
@@ -3025,36 +2908,27 @@ class Gen:
                             self.forced_comments(self.rng.randint(1, 2))]
         ninfix = self.rng.randint(0, 2) if self.chance(0.4) else 0
         infixes = [self.infix_decl(i) for i in range(ninfix)]
-        # `effect module`/`port module` are mutually exclusive header
-        # keywords (the parser has no combined form — see `GENERATOR.md`),
-        # so an effect module never generates a `port` declaration below;
-        # its manager types are spliced into `decls` up front instead.
-        effect, manager_decls = (None, [])
-        if self.chance(0.2):
-            effect, manager_decls = self.effect_header()
+        # No effect module headers, `port` declarations or `port module`
+        # keyword flips: Geng removed all three from the language (geng-lang
+        # m1b-source.md §SO20, D279-D280). The slice ports had is a union.
         ndecls = self.rng.randint(1, 4)
-        decls = list(manager_decls)
+        decls = []
         for i in range(ndecls):
             r = self.rng.random()
             if r < 0.65:
                 decls.append(self.decl(i))
             elif r < 0.8:
                 decls.append(self.type_alias(i))
-            elif r < 0.95:
-                decls.append(self.union(i))
-            elif effect is not None:
-                decls.append(self.union(i))
             else:
-                decls.append(self.port(i))
+                decls.append(self.union(i))
         exposing = self.module_exposing(decls)
-        hdr = self.header_exposing_comments(exposing, effect)
+        hdr = self.header_exposing_comments(exposing)
         return Module(name, imports, decls, infixes=infixes, doc=self.doc_comment(),
-                      exposing=exposing, effect=effect,
+                      exposing=exposing,
                       imports_tail=imports_tail,
-                      port_mismatch=(effect is None and self.chance(0.12)),
                       **hdr)
 
-    def header_exposing_comments(self, exposing, effect):
+    def header_exposing_comments(self, exposing):
         """Layout and comments for the module header's export list.
 
         The header obeys the same rules as an import's `exposing`
@@ -3075,21 +2949,7 @@ class Gen:
                     item_trailing = (idx, chain)
         header_trailing = None
         if self.chance(0.2):
-            # KNOWN FORMATTER GAP — an `effect module`'s `exposing (..)` is the
-            # one header shape that still oscillates (indented ↔ column 0) with
-            # a trailing comment on it. `MakeLogical.processModuleLine` says why
-            # and does it on purpose: the Bug A fix anchored `(..)` at a real
-            # position for plain modules (`exposingPos`) and imports
-            # (`locImport.end`), but an effect module's exposing column depends
-            # on the untracked `where { … }` contents, so `exposing` and `(..)`
-            # both stay position-less there and a trailing `--` gets no glue row.
-            # Generating it would rediscover a documented, deliberate limitation
-            # on every sweep rather than tell anyone anything new. Every OTHER
-            # header shape below is generated, including this same comment on a
-            # plain module's `(..)` and on an effect module's EXPLICIT list.
-            known_gap = effect is not None and not isinstance(exposing, list)
-            if not known_gap:
-                header_trailing = self.comment_chain(forced=True)
+            header_trailing = self.comment_chain(forced=True)
         return {"exposing_broken": broken,
                 "exposing_item_lead": item_lead,
                 "exposing_item_trailing": item_trailing,
@@ -4080,12 +3940,6 @@ def comment_clearers(m):
         yield clear_attr(m, "exposing_item_trailing")
         if len(m.exposing_item_trailing[1]) > 1:
             yield indexed_chain_pop(m, "exposing_item_trailing")
-    if getattr(m, "effect", None):
-        for idx, (field, ename, cmt) in enumerate(m.effect):
-            if cmt is not None:
-                def clr(entries=m.effect, i=idx):
-                    entries[i] = (entries[i][0], entries[i][1], None)
-                yield clr
     for d in m.infixes:
         if d.lead:
             yield clear_attr(d, "lead")
@@ -4235,7 +4089,6 @@ def variants(m):
     if len(m.decls) > 1:
         for i in range(len(m.decls)):
             c = copy.deepcopy(m)
-            dropped_name = c.decls[i].name
             del c.decls[i]
             # An explicit header export list names the declared decls; once one
             # is gone, fall back to `(..)` so the shrunk module never exposes a
@@ -4243,26 +4096,10 @@ def variants(m):
             # The item-comment fields index INTO that list, so they have to go
             # with it or they dangle past the end of a list that no longer
             # exists; `(..)` has no items to hang a comment on either way.
-            # `header_trailing` has to go too, not just the item-comment
-            # fields: for an EFFECT module, `exposing (..)` + a trailing
-            # comment is the one known, deliberately-exempted gap
-            # (`header_exposing_comments`'s `known_gap`, never generated on
-            # purpose) — leaving a stale `header_trailing` attached across
-            # this reset let the shrinker "minimize" a real bug into that
-            # already-known gap instead, a confusing and wrong repro
-            # (found via GENERATOR.md v1.25's sweep, seed 700046).
             c.exposing = "(..)"
             c.exposing_broken = False
             c.exposing_item_lead = None
             c.exposing_item_trailing = None
-            c.header_trailing = None
-            # Likewise, if the dropped decl was an effect module's manager
-            # type, drop its entry from the where-clause too (and the whole
-            # clause if that empties it — an effect module can't have
-            # neither `command` nor `subscription`).
-            if c.effect is not None:
-                remaining = [e for e in c.effect if e[1] != dropped_name]
-                c.effect = remaining if remaining else None
             yield c
     # 2. drop a list item
     base = copy.deepcopy(m)

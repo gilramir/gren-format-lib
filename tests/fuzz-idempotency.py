@@ -340,9 +340,8 @@ def known_upstream_issue(workdir, source):
     **compiler-common#25** — a top-level declaration's `Located.start` is built
     as `{row = name.start.row, col = 1}`, so when the keyword and the name are on
     different rows the recorded "start of the declaration" is neither the keyword
-    nor the name. A comment run spliced into a `type ⟨here⟩ alias` /
-    `port ⟨here⟩ name` gap pushes the name onto the next row and does exactly
-    that; the run is then partitioned by that fabricated point, one member
+    nor the name. A comment run spliced into a `type ⟨here⟩ alias` gap pushes
+    the name onto the next row and does exactly that; the run is then partitioned by that fabricated point, one member
     hoisted out of the declaration and one kept inside, and the blank-line count
     above the torn run differs between the two formats. Not fixable here — the
     keyword's true row is simply not in the AST. Write-up in
@@ -350,7 +349,7 @@ def known_upstream_issue(workdir, source):
 
     Its two signals:
 
-      1. some top-level `import` / `type alias` / `type` / `port` has a recorded
+      1. some top-level `import` / `type alias` / `type` has a recorded
          start row whose source line **does not contain that declaration's
          keyword at all**. In any file where the bug is dormant the keyword sits
          at column 1 of that very row, so its absence is the fabricated position
@@ -459,26 +458,17 @@ def known_upstream_issue(workdir, source):
 
 def keyword_declarations(ast):
     """Yield `(keyword, declaration)` for every top-level declaration that is
-    introduced by one — the four compiler-common#25 names.
+    introduced by one — the compiler-common#25 names. (`port` was a fourth
+    until Geng removed port declarations, geng-lang m1b-source.md §SO20.)
 
     `type alias` and a union both lead with `type`, which is all the caller
     needs: it asks only whether the recorded row holds the keyword, never which
-    one it is.
-
-    **A port is not `module["ports"]`** — it lives under `module["effects"]`,
-    whose own `type` says whether this module has ports at all. Reading it off
-    the top level silently yielded nothing, so the one `port` finding stayed
-    unlabelled while the seven `type` ones were named."""
+    one it is."""
     module = ast.get("module", ast)
     for field, keyword in (("imports", "import"), ("aliases", "type"), ("unions", "type")):
         for decl in module.get(field) or []:
             if isinstance(decl, dict):
                 yield keyword, decl
-    effects = module.get("effects")
-    if isinstance(effects, dict):
-        for decl in effects.get("ports") or []:
-            if isinstance(decl, dict):
-                yield "port", decl
 
 
 def diff_is_whitespace_only(blob):

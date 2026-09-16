@@ -401,7 +401,7 @@ def classify(r, base):
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 LIT_RE = re.compile(r"\d+\.?\d*|'[^']*'|\"[^\"]*\"")
 KEEP = {"if", "then", "else", "when", "is", "case", "of", "let", "in", "as",
-        "module", "exposing", "type", "alias", "port"}
+        "module", "exposing", "type", "alias"}
 
 
 def shape(text):

@@ -184,7 +184,6 @@ type SyntaxType
     | StTypeUnion
     | StClass
     | StInstance
-    | StPort
     | StPrim
       -- An extern declaration with a Geng body (D222): laid out as `StPrim`,
       -- and followed by its definition as a signature is.
@@ -227,9 +226,6 @@ stypeToString st =
 
         StInstance ->
             "instance"
-
-        StPort ->
-            "port"
 
         StPrim ->
             "prim"

@@ -168,10 +168,8 @@ GREN_JSON = """{
 }
 """
 
-# `module Foo exposing (..)`, and the `port`/`effect` spellings of it. Only the
-# NAME is rewritten -- an effect module's `where { .. }` clause sits between the
-# name and `exposing` and has to survive untouched.
-MODULE_HEADER = re.compile(r"^((?:port |effect )?module\s+)([A-Za-z0-9_.]+)", re.M)
+# `module Foo exposing (..)`. Only the NAME is rewritten.
+MODULE_HEADER = re.compile(r"^(module\s+)([A-Za-z0-9_.]+)", re.M)
 
 
 def run_app(args, cwd=None, timeout=120):

@@ -1,4 +1,4 @@
-port module ForcedDeclBlankLines exposing (..)
+module ForcedDeclBlankLines exposing (..)
 
 import Array
 import Dict
@@ -27,6 +27,3 @@ sansSignature n =
 docced : Int
 docced =
     3
-
-
-port save : String -> Cmd msg

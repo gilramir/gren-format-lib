@@ -169,7 +169,6 @@ type alias Module =
     , unions  : Array (ModuleDeclaration Union)  -- custom types
     , aliases : Array (ModuleDeclaration Alias)
     , binops  : Array (Located Infix)
-    , effects : Effects                          -- NoEffects | Ports … | Manager …
     }
 ```
 
@@ -348,7 +347,7 @@ Layout shapes (have children):
 
 - `IndentedBlock` / `BodyBlock` — a body on its own (indented) line, hard
   break. `SoftIndentedBlock` is the soft variant that may stay inline (lambda
-  bodies, port payloads).
+  bodies).
 
   ```gren
   foo x =
@@ -839,7 +838,7 @@ brackets the parser consumes without recording a position).
 Add/extend the right converter:
 
 - **Top-level declaration kind** → a `process*` function in
-  `Formatter.Logical.MakeLogical` (mirror `processUnionDecl` / `processPorts`). Wrap the
+  `Formatter.Logical.MakeLogical` (mirror `processUnionDecl`). Wrap the
   result in `makeOrigRows firstRow stype children` with a new or existing
   `SyntaxType`. `firstRow` = the **keyword** row.
 - **Expression** → `Formatter.Logical.InsertExpressions.insertExpression`.

@@ -1,4 +1,4 @@
-port module SignatureArrowCommentKeepsRow exposing (..)
+module SignatureArrowCommentKeepsRow exposing (..)
 
 -- Rule C2's line-leading-separator exception at a type's `->`. A broken
 -- signature renders the arrow line-leading, so a `--` (or a multi-line
@@ -74,8 +74,8 @@ blockFitsAfter n =
 
 
 
--- The same exception inside a type alias body, at a nested arrow under parens,
--- and in a port.
+-- The same exception inside a type alias body, and at a nested arrow under
+-- parens. (It was checked in a port too, until ports left.)
 
 
 type alias Handler =
@@ -84,7 +84,3 @@ type alias Handler =
         -> String)
     -- the result
     -> Bool
-
-
-port send : Int -- the payload
-    -> Cmd msg

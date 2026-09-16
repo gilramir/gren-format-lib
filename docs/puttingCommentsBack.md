@@ -814,10 +814,9 @@ an argument too, so we must worry about both code and comments, requiring:
 > **(ii)** the second run *is given the same* `code`.
 
 (ii) holds exactly as far as formatting does not rewrite the concrete syntax. Ours
-does, in three ways that delete, insert or reorder a token: it **sorts** exposing
-lists and import groups, it strips redundant parentheses from patterns, and it
-adds or drops the `port` keyword on a module header (and a fourth on request:
-`--remove-unused-imports` deletes whole imports).
+does, in two ways that delete, insert or reorder a token: it **sorts** exposing
+lists and import groups, and it strips redundant parentheses from patterns (and a
+third on request: `--remove-unused-imports` deletes whole imports).
 
 > **Any formatter that rewrites tokens at all — sorts imports, removes
 > redundant syntax, normalizes a keyword — carries obligation (ii), and an

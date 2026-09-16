@@ -430,11 +430,11 @@ What the emitter can produce today. The generation-by-generation history — wha
 each shape was added for and what it found — is
 [`docs/llm/generator-log.md`](../docs/llm/generator-log.md).
 
-**Module and declarations.** A module header (plain, `port module`, or
-`effect module … where { command =, subscription = }`), and one that deliberately
-disagrees with its body's contents. `import`, with `exposing` and `as`. Function
-declarations with an optional signature, `type alias`, custom types, ports, and
-`infix` fixity declarations.
+**Module and declarations.** A plain `module` header. `import`, with `exposing`
+and `as`. Function declarations with an optional signature, `type alias`, custom
+types, and `infix` fixity declarations. Geng refuses `port module` and
+`effect module` headers and has no `port` declarations (geng-lang
+`m1b-source.md` §SO20, D279-D280), so the generator no longer emits them.
 
 **Types.** Constructors, variables, application, records, extensible records and
 arrows; qualified type names; nested application beyond one argument; comments

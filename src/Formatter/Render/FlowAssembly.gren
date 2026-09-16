@@ -77,8 +77,7 @@ import Formatter.Results exposing (traverseResult)
 -- `exposing` stays glued to the header. Inline list: `header (a, b, c)` on one
 -- line. Vertical list: header on line 1, list indented +4 beneath it. The
 -- header is pre-rendered by the caller: a plain leaf line for a `module` /
--- `import` header, or the flowed `effect module … where { … } exposing` line for
--- an effect module.
+-- `import` header, or a flowed line when a comment sits inside the header.
 --
 -- Only the INLINE form needs the header to be one line, because there the list
 -- has to join the header's own row. The vertical form merely stacks. Refusing a

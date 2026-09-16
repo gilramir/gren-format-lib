@@ -22,8 +22,6 @@ main README; for how the formatter arrives at these decisions internally, see
 - [Blank lines between declarations](#blank-lines-between-declarations)
 - [Type aliases](#type-aliases)
 - [Custom types](#custom-types)
-- [Ports](#ports)
-  - [The `port` in `port module` follows the ports](#the-port-in-port-module-follows-the-ports)
 - [Infix operator declarations](#infix-operator-declarations)
 - [Records](#records)
   - [Record values](#record-values)
@@ -47,7 +45,6 @@ main README; for how the formatter arrives at these decisions internally, see
   - [Where you put a comment is meaningful](#where-you-put-a-comment-is-meaningful)
   - [Single-line comments (`--`)](#single-line-comments---)
   - [Block comments (`{- ... -}`)](#block-comments-----)
-    - [Comments in an effect module's header](#comments-in-an-effect-modules-header)
   - [Doc comments (`{-| ... -}`)](#doc-comments-----)
   - [Blank lines around comments](#blank-lines-around-comments)
   - [A comment on its own line below a declaration](#a-comment-on-its-own-line-below-a-declaration)
@@ -687,7 +684,7 @@ reshuffles the line where the body sits.
 ## Blank lines between declarations
 
 Two blank lines always appear before every top-level declaration — functions,
-type aliases, custom types, and ports alike. This is unconditional: whether you
+type aliases, and custom types alike. This is unconditional: whether you
 wrote zero blank lines or five, you get exactly two.
 
 ```gren
@@ -858,96 +855,6 @@ type Color
 
 Only a comment that can't share the line (a `--` comment, a `{- … -}` spread
 over several lines, or one on a row of its own) splits the variants apart.
-
----
-
-## Ports
-
-A port stays on one line when you wrote it that way:
-
-```gren
-port outgoing : String -> Cmd msg
-
-port incoming : (String -> msg) -> Sub msg
-```
-
-When the type is written across rows, it follows the same layout as a
-multi-line type signature — each `->` segment on its own line:
-
-```gren
-port sendThings :
-    VeryLongArgumentType
-    -> AnotherArgumentType
-    -> Cmd msg
-```
-
-### The `port` in `port module` follows the ports
-
-The module keyword is written from what the module *contains*, not from what
-you typed on the header line: a module that declares at least one port is
-written `port module`, and one that declares none is written `module`. When the
-two already agree — the usual case — nothing changes. When they disagree, the
-header is rewritten to match the body.
-
-Write `port module` and declare no ports, and the `port` is dropped:
-
-```gren
-port module Foo exposing (a, b)
-
-
-a =
-    1
-
-
-b =
-    2
-```
-
-becomes
-
-```gren
-module Foo exposing (a, b)
-
-
-a =
-    1
-
-
-b =
-    2
-```
-
-Write plain `module` and declare a port, and `port` is added:
-
-```gren
-module Foo exposing (a)
-
-
-port a : String -> Cmd msg
-```
-
-becomes
-
-```gren
-port module Foo exposing (a)
-
-
-port a : String -> Cmd msg
-```
-
-Neither rewrite changes what your code does — a module with no ports doesn't
-need the keyword, and one with ports isn't valid without it.
-
-This is deliberate. The parser doesn't record which keyword you wrote; it works
-the keyword out from the body, and the formatter prints what the parsed module
-says. Deriving it is also the direction the language is heading: the `port`
-keyword on the module line may become optional, or go away entirely, and a
-formatter that derived it all along keeps working when it does. The trade-off
-accepted here is that dropping `port` from a file with no ports is a change you
-didn't ask for, and one you'll meet again when you add a port to that file — so
-until the keyword becomes optional, expect the formatter to keep the header and
-the ports in agreement for you. (The discussion is
-[gren-lang/compiler-common#33](https://github.com/gren-lang/compiler-common/issues/33).)
 
 ---
 
@@ -2249,110 +2156,6 @@ config =
 
 This matches elm-format, which re-indents block comment bodies the same way.
 
-#### Comments in an effect module's header
-
-An effect module's `where { … }` block — the `where`, the braces, the field
-name, the `=` — carries no position information from the parser. Only the
-handler name (e.g. `MyCmd`) has a known position. A comment's placement is
-therefore judged by how close it sits to that name: is it close enough to
-still be "inside" the block, given that the block's own boundaries aren't
-really known?
-
-The `where { … }` block always collapses to one line, regardless of how the
-author broke it across rows — like any other comment-free construct, it isn't
-forced open just because it once spanned multiple rows.
-
-A short `{- … -}` comment right next to the name rides that one line, exactly
-where it was written:
-
-```gren
--- you wrote (and the formatter keeps):
-effect module MyModule where { command = MyCmd {- note -} } exposing (..)
-```
-
-A comment that *can't* share a line does force the block open, one field per
-line, with the closing `}` and `exposing (..)` lined up under the first field's
-column. A `{- … -}` spread over several lines is the case you can actually hit
-here — a `--` comment inside the braces has its own problem, described in
-[Comments near an effect module's `where` block](knownLimitations.md#comments-near-an-effect-modules-where-block):
-
-```gren
--- you wrote:
-effect module MyModule where { command = MyCmd {- a longer
-                                                  note -} } exposing (..)
-
--- formats to:
-effect module MyModule where { command = MyCmd {- a longer
-                                                  note -}
-                             } exposing (..)
-```
-
-Once the block is open like that, the `}` and the `exposing (..)` after it sit
-on a row of their own that the parser records nothing about. A comment written
-on that row still belongs to the module line and stays on it:
-
-```gren
--- you wrote:
-effect module MyModule where { command = MyCmd {- a longer
-                                                  note -} } exposing (..) -- trailing note
-
--- formats to:
-effect module MyModule where { command = MyCmd {- a longer
-                                                  note -}
-                             } exposing (..) -- trailing note
-```
-
-Concretely, "close enough" means within a couple of columns of where the
-handler name ends — just enough room for a single space plus the closing `}`
-that has no position of its own to check against. A comment that close is
-treated as attached to the handler name and travels with it.
-
-Wider spacing pushes the comment past that margin, so it no longer reads as
-attached to the handler name. Once that link is gone, the comment falls back
-to the same rule used for a comment trailing the module line in general: it
-stays glued to the end of the line instead of to the handler name:
-
-```gren
--- you wrote (only more spaces before the comment):
-effect module MyModule where { command = MyCmd      {- note -} } exposing (..)
-
--- formats to:
-effect module MyModule where { command = MyCmd } exposing (..) {- note -}
-```
-
-Everything *left* of the handler name goes the other way. The `where`, the `{`,
-the field name and the `=` all have no position, and neither does anything
-before them, so there is no token to measure a comment against — every comment
-written left of the name collapses to the one slot between `where` and `{`,
-whichever of those gaps you wrote it in. A run of them travels there together
-and keeps its order:
-
-```gren
--- all of these:
-effect module MyModule where {- a -} { command = MyCmd } exposing (..)
-effect module MyModule where { {- a -} command = MyCmd } exposing (..)
-effect module MyModule where { command {- a -} = MyCmd } exposing (..)
-effect module MyModule where { command = {- a -} MyCmd } exposing (..)
-
--- format to:
-effect module MyModule where {- a -} { command = MyCmd } exposing (..)
-```
-
-A comment past the *first* handler's name in a two-field block still has a
-position to sort against — the name it follows — so it stays inside the block,
-between the two fields:
-
-```gren
--- you wrote (and the formatter keeps):
-effect module MyModule where { command = MyCmd, {- b -} subscription = MySub } exposing (..)
-```
-
-Whatever follows the module line always gets exactly one blank line before
-it, regardless of how tight or loose the original spacing was — otherwise the
-same file could format differently depending on how close together the
-author happened to type the module line and the next line, which would work
-against [idempotent formatting](#background).
-
 ### Doc comments (`{-| ... -}`)
 
 A doc comment sits directly above the declaration it documents with no blank
@@ -2404,6 +2207,12 @@ lines:
 foo =
     1
 ```
+
+Whatever follows the module line always gets exactly one blank line before
+it, regardless of how tight or loose the original spacing was — otherwise the
+same file could format differently depending on how close together the
+author happened to type the module line and the next line, which would work
+against [idempotent formatting](#background).
 
 ### A comment on its own line below a declaration
 

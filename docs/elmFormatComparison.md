@@ -27,7 +27,7 @@ code, and why the places they *don't* look the way they do.
   - [#5 Single-line comment after `->` in a signature](#divergence-5)
   - [#6 Union variants one-per-line (elm)](#divergence-6)
   - [#7 Record/array patterns aren't author-driven (elm)](#divergence-7)
-  - [#8 `--` comment inside effect `where { }`](#divergence-8)
+  - #8 Retired
   - [#9 Verbatim literals vs normalization](#divergence-9)
   - [#10 Redundant parens kept](#divergence-10)
   - [#11 Doc-comment body contents](#divergence-11)
@@ -162,11 +162,12 @@ at all but an upstream parser bug
 kept here because it is real today and a fixture pins it. It says so at the top
 of the entry, and it retires when the fix ships.
 
-**Every entry has a fixture**, in `tests/testfiles/Divergence/`, built from that
-entry's own example: the `.dirty.gren` is what the entry says you wrote
-and the `.formatted.gren` is what it says gren-format produces. The mapping is
-1:1 in both directions and `tests/check-divergence-index.py` fails the test run
-if it stops being — an entry with no fixture, or a fixture with no entry.
+**Every entry has a fixture** except retired #8, in
+`tests/testfiles/Divergence/`, built from that entry's own example: the
+`.dirty.gren` is what the entry says you wrote and the `.formatted.gren` is what
+it says gren-format produces. The mapping is 1:1 in both directions and
+`tests/check-divergence-index.py` fails the test run if it stops being — an
+entry with no fixture, or a fixture with no entry.
 
 | # | fixture | # | fixture |
 |---|---|---|---|
@@ -177,7 +178,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 | 5 | `D05SignatureArrowComment` | 18 | `D18InlineCommentInContainer` |
 | 6 | `D06UnionOnOneLine` | 19 | `D19PipelineAlignment` |
 | 7 | `D07RecordPatternAuthorDriven` | 20 | `D20LetLastBindingComment` |
-| 8 | `D08EffectWhereLineComment` | 21 | `D21SingleItemCollapse` |
+| 8 | retired | 21 | `D21SingleItemCollapse` |
 | 9 | `D09VerbatimLiterals` | 22 | `D22UnrecordedPunctuation` |
 | 10 | `D10RedundantParens` | 23 | `D23CommentDoesNotOpen` |
 | 11 | `D11DocCommentBody` | 24 | `D24RecordUpdateOwnLineComment` |
@@ -373,45 +374,9 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
    case isn't a divergence.) Same reasoning as #6: gren-format's consistent
    author-driven layout is preferred.
 
-8. <a id="divergence-8"></a>**A `--` comment inside an effect module's `where { ... }` block escapes it**
-   Both tools collapse a `where { ... }` clause to one line regardless of how
-   the author wrote it, and both keep a short `{- … -}` comment on that line (see
-   [Comments in an effect module's header](formatterRules.md#comments-in-an-effect-modules-header)).
-   They part company on a `--` comment written inside the braces. elm-format
-   breaks the whole module header apart to give the comment a line:
-
-   ```gren
-   -- you wrote:
-   effect module MyModule where { command = MyCmd
-                                -- line note
-                                } exposing (..)
-
-   -- elm-format:
-   effect module MyModule
-       where
-           { command =
-               MyCmd
-               -- line note
-           }
-       exposing
-       (..)
-
-   -- gren-format (the comment leaves the block, and lands under the header at
-   -- column 1 — it is a top-level comment now, not part of the header):
-   effect module MyModule where { command = MyCmd } exposing (..)
-
-   -- line note
-   ```
-
-   Fixture: `Divergence/D08EffectWhereLineComment`.
-
-   This one is not a preference. gren-format cannot reproduce either shape,
-   because the two files it would have to tell apart are byte-identical as far
-   as the parser reports them — see
-   [Comments near an effect module's `where` block](knownLimitations.md#comments-near-an-effect-modules-where-block).
-   That elm-format can still place the comment inside the block shows its parser
-   keeps something about the block's extent that Gren's does not. Fixing this is
-   a matter of recording that information, not of choosing a layout.
+8. **Retired: a `--` comment inside an effect module's `where { ... }` block.**
+   Effect modules are refused by the parser now (geng-lang `m1b-source.md`
+   §SO20), so there is no header to format. The number is not reused.
 
 9. <a id="divergence-9"></a>**Float literals keep the spelling you gave them; elm-format
    normalizes them.** elm-format rewrites scientific notation (`1e5` → `1.0e5`,
@@ -1699,10 +1664,10 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     deliberate choice. It is an upstream parser bug,
     [compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37),
     and it goes away when that ships. It is catalogued anyway because the
-    behaviour is real today and a fixture pins it, and because — like
-    [#8](#divergence-8) — it is a syntax-*acceptance* difference rather than a
-    layout one: elm-format never gets as far as formatting, so there is no Elm
-    rendering of the program to agree or disagree with.
+    behaviour is real today and a fixture pins it, and because it is a
+    syntax-*acceptance* difference rather than a layout one: elm-format never
+    gets as far as formatting, so there is no Elm rendering of the program to
+    agree or disagree with.
 
     ```gren
     foo : a

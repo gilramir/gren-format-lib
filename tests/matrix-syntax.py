@@ -903,17 +903,15 @@ def comment_variant(src, gap, kind, position):
 
 Construct = collections.namedtuple("Construct", "name atom flat broken paren_wrapped")
 
-# name, template, flat, value_position, kind, header
+# name, template, flat, value_position, kind
 #   kind    "expr" -- `{x}` is an EXPRESSION and the template is a `v = <body>`
 #           body; "type" -- `{x}` is a TYPE and the template is a whole
 #           declaration. The two axes have disjoint vocabularies: an expression
 #           cannot stand in a signature and a type cannot stand in a call
 #           argument, so constructs and contexts are paired by `kind`.
-#   header  the module line (+ `v = ` for expression contexts), or None for the
-#           kind's default. A `port` context needs `port module`.
 Context = collections.namedtuple(
-    "Context", "name template flat value_position kind header",
-    defaults=("expr", None),
+    "Context", "name template flat value_position kind",
+    defaults=("expr",),
 )
 
 # name, atom, flat, broken, paren_wrapped
@@ -1070,7 +1068,7 @@ CONTEXTS = [
 # The TYPE axis: type constructs in declaration contexts.
 #
 # Everything above embeds an EXPRESSION in an expression context, so the whole
-# of Gren's declaration syntax -- signatures, type aliases, unions, ports, a
+# of Gren's declaration syntax -- signatures, type aliases, unions, a
 # `let` binding's annotation -- had no cell here at all. That is one half of
 # what hid the signature-`->` comment rule (the other half was
 # `fuzz-idempotency.py` sweeping only one comment kind); see
@@ -1121,10 +1119,6 @@ TYPE_CONTEXTS = [
     Context("unionPayload2",  "type U\n    = A {x}\n    | B Int",              False, False, "type"),
     Context("letSig",         "v =\n    let\n        bnd : {x}\n        bnd =\n            one\n    in\n    bnd",
                                                                                True,  True,  "type"),
-    Context("portArg",        "port send : {x} -> Cmd msg",                    True,  False, "type",
-            "port module M exposing (..)\n\n\n"),
-    Context("portResult",     "port send : Int -> {x}",                        True,  True,  "type",
-            "port module M exposing (..)\n\n\n"),
 ]
 
 # The four layout variants. `flat_input` variants keep oracle 1 (the flat/break
@@ -1199,12 +1193,8 @@ HEADER = MODULE_LINE + "v = "
 
 
 def context_header(context):
-    """The text a context's template is appended to. Explicit when the context
-    sets one (a `port` declaration needs `port module`), otherwise the kind's
-    default: expression templates are a `v = ` body, type templates are whole
-    declarations."""
-    if context.header is not None:
-        return context.header
+    """The text a context's template is appended to: expression templates are
+    a `v = ` body, type templates are whole declarations."""
     return HEADER if context.kind == "expr" else MODULE_LINE
 
 
@@ -1517,8 +1507,7 @@ def enumerate_comment_cells(cells, kinds, positions):
         atom = variant_atom(construct, variant)
         source, (lo, hi) = source_and_atom_span(atom, context)
         is_rep = (construct.name, variant) == reps[context.kind]
-        # The module line, whose length varies: a `port` context's header is
-        # `port module …`.
+        # The module line (without an expression context's `v = `).
         header_end = len(context_header(context)) - (4 if context.kind == "expr" else 0)
         for ordinal, gap in enumerate(gap_indices(source)):
             if gap < header_end:

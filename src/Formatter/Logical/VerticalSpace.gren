@@ -99,9 +99,6 @@ classifyChildren nodes =
                                         StInstance ->
                                             True
 
-                                        StPort ->
-                                            True
-
                                         StPrim ->
                                             True
 

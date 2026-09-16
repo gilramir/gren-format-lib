@@ -470,9 +470,9 @@ def union_layout_fingerprint(src):
 
 
 def _signature_segments_span_rows(block):
-    """Within one top-level signature block (`name : TYPE` or `port name :
-    TYPE`), whether the `->`-delimited segments of the type are broken at a
-    segment *boundary* — i.e. some segment starts on a row strictly below the
+    """Within one top-level signature block (`name : TYPE`), whether the
+    `->`-delimited segments of the type are broken at a segment *boundary* —
+    i.e. some segment starts on a row strictly below the
     previous segment's last row (signal B for signatures). Mirrors
     `segmentsBrokenAtBoundary` in `makeSignaturePrettyDoc`: only a break
     *between* `->` parts counts. A newline right after the `:`
@@ -554,7 +554,7 @@ def _signature_segments_span_rows(block):
             i += 1
             continue
         if not seen_colon:
-            # Skip the header (`name` / `port name`) up to its depth-0 `:`.
+            # Skip the header (`name`) up to its depth-0 `:`.
             if c in "([{":
                 depth += 1
             elif c in ")]}":
@@ -587,7 +587,7 @@ def _signature_segments_span_rows(block):
 
 
 def signature_layout_fingerprint(src):
-    """For each top-level function/port signature, whether its `->`-segments span
+    """For each top-level function signature, whether its `->`-segments span
     rows. Signatures now follow the author's layout — inline `name : A -> B` when
     written on one line and it fits, one-segment-per-line otherwise (each `->`
     leading its line) — so a whitespace perturbation that flips this is intended
@@ -615,7 +615,7 @@ def signature_layout_fingerprint(src):
 
 def _has_depth0_colon_no_eq(block):
     """True if `block` has a `:` at bracket depth 0 occurring before any depth-0
-    `=` — the shape of a signature (`name : …` / `port name : …`), not a
+    `=` — the shape of a signature (`name : …`), not a
     definition / alias / union (which carry a depth-0 `=`)."""
     i, n = 0, len(block)
     depth = 0
@@ -870,7 +870,7 @@ def binop_layout_fingerprint(src):
 
 def layout_fingerprint(src):
     """Combined author-layout signature: bracket containers (lists, records,
-    record updates, record types, patterns), union variant lists, function/port
+    record updates, record types, patterns), union variant lists, function
     type signatures, `|>`/`<|` pipelines, and non-pipeline binop chains. A
     perturbation that leaves this unchanged is not an intended layout flip."""
     return (
@@ -1030,7 +1030,7 @@ def format_diff_class(base_fmt, vf):
       * comment placement only — identical code skeleton and identical set of
         comment texts, so only a comment's home (and blank lines) moved. This
         is the documented residue where a comment anchored to a position-less
-        header token (`exposing`, the `port`/effect `where` keywords) re-homes
+        header token (`exposing`) re-homes
         when nearby spacing shifts the token's row — same upstream-position gap
         as above. The comment-multiset check still fails a real comment
         loss/duplication; the skeleton check still fails real code reflow."""

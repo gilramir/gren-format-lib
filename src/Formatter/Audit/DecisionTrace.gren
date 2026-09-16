@@ -437,9 +437,6 @@ nodeDecisions decl node =
                     -- says why those do not follow a rename.
                     [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
 
-                StPort ->
-                    [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
-
                 StPrim ->
                     [ flag "Signature.signatureForceVertical" (rnTypeSegmentsBroken node) ]
 

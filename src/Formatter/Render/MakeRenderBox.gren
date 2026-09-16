@@ -185,9 +185,6 @@ makeDeclBodyBox node stype children =
         StFunctionSignature ->
             makeSignatureBox (rnTypeSegmentsBroken node) children
 
-        StPort ->
-            makeSignatureBox (rnTypeSegmentsBroken node) children
-
         StPrim ->
             renderAttributedSignature node children
 
@@ -2667,11 +2664,8 @@ makeExposingLineBox stype children =
                 headerAllLeaves =
                     Array.all (\n -> leafValue n /= Nothing) headerNodes
 
-                -- An effect module's `where { … }` block is a non-leaf header
-                -- node, so `headerAllLeaves` is False and the plain leaf-line
-                -- header doesn't apply; flow it instead. A header comment also
-                -- trips `headerAllLeaves`, but its placement is owned by the flow
-                -- path, so it stays there (below).
+                -- A header comment trips `headerAllLeaves`, and its placement is
+                -- owned by the flow path, so it stays there (below).
                 headerHasComment =
                     Array.any nodeIsComment headerNodes
 

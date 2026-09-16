@@ -1,9 +1,0 @@
-effect module MultilineEffectModule where { command {- a
-   b
-   c -} = MyCmd } exposing (..)
-
-import Task
-
-
-type MyCmd a
-    = MyCmd (Task.Task Never a)

@@ -1,4 +1,4 @@
-port module MultilineBlockComments exposing
+module MultilineBlockComments exposing
     {- 1 a
        1 b
        1 c -}
@@ -58,14 +58,6 @@ type Shape
                 9 b
                 9 c -}
         Int Int
-
-
-port output : {- 45 a
-                 45 b
-                 45 c -} {- 46 a
-                            46 b
-                            46 c -}
-    String -> Cmd msg
 
 
 sig :

@@ -15,7 +15,7 @@ the test gates — read [The comment algorithm](commentAlgorithm.md) instead. It
 this same story in full, at four times the length.
 
 For comment rules that belong to one particular construct (block-comment body
-re-indentation, doc comments, an effect module's `where` block), see the
+re-indentation, doc comments), see the
 [Comments section of the rule reference](formatterRules.md#comments). For places
 where gren-format and elm-format disagree about comments, see the
 [divergence catalogue](elmFormatComparison.md).
@@ -1338,10 +1338,6 @@ the same input. Keeping the comment with the bindings *looks* right and is not
 stable — it oscillates. Below is the only choice that is both stable and
 defensible. elm-format keeps it with the bindings, so this is a difference you
 may notice.
-
-**A `--` inside an effect module's `where { … }` block** can escape the block.
-The parser hands back byte-identical information for both layouts, so there is
-nothing to decide from.
 
 **A comment after the last name of a flat, one-line `exposing ( … )` list** is
 read as the list's rather than that name's, because the closing `)` has no
