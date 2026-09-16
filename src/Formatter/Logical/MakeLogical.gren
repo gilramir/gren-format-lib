@@ -783,7 +783,7 @@ processExternDecl modDecl root =
                 -- directly under the annotation.
                 when extern.definition is
                     Just def ->
-                        processFunctionBody { name = def.name, signature = Nothing, args = def.args, body = def.body } withSignature
+                        processFunctionBody { name = def.name, capability = False, signature = Nothing, args = def.args, body = def.body } withSignature
 
                     Nothing ->
                         Ok withSignature
@@ -1137,7 +1137,7 @@ processModDecl modDecl root =
         rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
-    processFunctionSignature modDecl.value.value.name modDecl.value.value.signature rootWithDoc
+    processFunctionSignature (capabilityStart modDecl) modDecl.value.value.name modDecl.value.value.signature rootWithDoc
         |> Result.andThen (processFunctionBody modDecl.value.value)
 
 
@@ -1202,10 +1202,28 @@ processFunctionDoc maybeLocString root =
             root
 
 
-{-| Maybe or maybe not insert a FunctionSignature for this function
+{-| Where a value's `@capability` attribute is (D258), if it has one. The
+declaration's `start` is after its doc comment and before the attribute, so it
+is the `@`.
 -}
-processFunctionSignature : Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
-processFunctionSignature locName maybeType root =
+capabilityStart : Src.ModuleDeclaration Src.Value -> Maybe Position
+capabilityStart modDecl =
+    if modDecl.value.value.capability then
+        Just modDecl.start
+
+    else
+        Nothing
+
+
+{-| Maybe or maybe not insert a FunctionSignature for this function.
+
+A value under `@capability` (D258) always has one, since both parsers demand
+it, and the attribute is a line of its own above it — laid out as an extern
+with a Geng body is, an attribute row, the annotation and then the equation, so
+it shares `StExternSignature`.
+-}
+processFunctionSignature : Maybe Position -> Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processFunctionSignature capability locName maybeType root =
     when maybeType is
         Nothing ->
             Ok root
@@ -1232,8 +1250,16 @@ processFunctionSignature locName maybeType root =
                             colonNode =
                                 lpnLeaf (mkZeroWidthText sigNameEnd ":")
 
+                            attributeNodes =
+                                when capability is
+                                    Just at ->
+                                        [ lpnLeaf (mkText at "@capability") ]
+
+                                    Nothing ->
+                                        []
+
                             allChildren =
-                                [ nameNode, colonNode ] ++ typeNodes
+                                attributeNodes ++ [ nameNode, colonNode ] ++ typeNodes
 
                             -- The signature's row range starts at the name
                             -- (`sigStart`), not the type. For a multi-line
@@ -1256,9 +1282,21 @@ processFunctionSignature locName maybeType root =
                             origRow =
                                 lpnNode
                                     (OriginalRows
-                                        { first = sigStart.row
+                                        { first =
+                                            when capability is
+                                                Just at ->
+                                                    at.row
+
+                                                Nothing ->
+                                                    sigStart.row
                                         , last = max childrenLast locType.end.row
-                                        , stype = StFunctionSignature
+                                        , stype =
+                                            when capability is
+                                                Just _ ->
+                                                    StExternSignature
+
+                                                Nothing ->
+                                                    StFunctionSignature
                                         }
                                     )
                                     allChildren

@@ -269,6 +269,7 @@ compareValueDecl la lb =
     in
     chainAll
         [ compareStr "function name" a.name.value b.name.value
+        , compareStr (ctx ++ " @capability") (if a.capability then "yes" else "no") (if b.capability then "yes" else "no")
         , compareMaybeDocStr (ctx ++ " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareMaybe (ctx ++ " signature") (\sa sb -> compareType_ ctx sa.value sb.value) (Maybe.map .type_ a.signature) (Maybe.map .type_ b.signature)
         , compareArray (ctx ++ " constraints") compareConstraint (constraintsOf a.signature) (constraintsOf b.signature)

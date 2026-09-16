@@ -147,6 +147,7 @@ encValue : Src.Value -> Json.Value
 encValue v =
     Json.object
         [ { key = "name", value = encLocated Json.string v.name }
+        , { key = "capability", value = Json.bool v.capability }
         , { key = "signature", value = encMaybe encValueSig v.signature }
         , { key = "args", value = Json.array encPattern v.args }
         , { key = "body", value = encExpression v.body }
