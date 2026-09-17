@@ -1,7 +1,7 @@
 {
     "type": "package",
     "platform": "common",
-    "name": "gilramir/gren-format-lib",
+    "name": "github.com/gilramir/gren-format-lib",
     "summary": "The Gren Formatter Library",
     "license": "BSD-3-Clause",
     "version": "1.1.1",
@@ -21,7 +21,6 @@
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {
-        "gren-lang/compiler-common": "3.0.0 <= v < 4.0.0",
-        "gren-lang/core": "7.4.0 <= v < 8.0.0"
+        "github.com/geng-language/compiler-common": "3.0.0 <= v < 4.0.0"
     }
 }
