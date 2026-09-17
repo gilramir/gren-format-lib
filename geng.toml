@@ -1,0 +1,28 @@
+[package]
+name = "github.com/gilramir/gren-format-lib"
+version = "1.1.1"
+summary = "The Gren Formatter Library"
+license = "BSD-3-Clause"
+geng = "0.6.0 <= v < 0.7.0"
+
+[platform]
+runtime = "any"
+
+[modules]
+exposed = [
+    "Compiler.Ast.Compare",
+    "Compiler.Ast.Source.Json",
+    "Compiler.Parse.Context.Json",
+    "Formatter",
+    "Formatter.Audit.DecisionTrace",
+    "Formatter.Audit.PredicateAgreement",
+    "Formatter.Logical",
+    "Formatter.Logical.LPTJson",
+    "Formatter.Logical.LiteralFormat",
+    "Formatter.Render",
+    "Formatter.RenderTree",
+    "Formatter.RenderTree.Json",
+]
+
+[dependencies]
+"github.com/geng-language/compiler-common" = "3.0.0 <= v < 4.0.0"
