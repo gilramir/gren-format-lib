@@ -36,7 +36,7 @@ module Foo exposing
     )
 ```
 
-**Pinned by.** `tests/testfiles/HeaderComments/ModuleExposingClosePinned.formatted.gren`
+**Pinned by.** `tests/testfiles/HeaderComments/ModuleExposingClosePinned.formatted.geng`
 (and every other multi-line header fixture in that suite). See also
 [Module declaration](formatterRules.md#module-declaration).
 
@@ -60,7 +60,7 @@ instead of two. This is also where gren-format parts company with elm-format,
 which drops `exposing` onto a row of its own at +4 and the list at +8 —
 [divergence #4](elmFormatComparison.md#divergence-4).
 
-**Pinned by.** `tests/testfiles/Divergence/D04ImportExposingWrap.formatted.gren`.
+**Pinned by.** `tests/testfiles/Divergence/D04ImportExposingWrap.formatted.geng`.
 See also [Import statements](formatterRules.md#import-statements).
 
 ## SD3. Open and close brackets align vertically
@@ -93,8 +93,8 @@ arrayExample =
         value
 ```
 
-**Pinned by.** `tests/testfiles/Divergence/D14BackPipeMultilineSeed.formatted.gren`
-and `tests/testfiles/PipelineComments/BackwardPipeMultilineSeed.formatted.gren`.
+**Pinned by.** `tests/testfiles/Divergence/D14BackPipeMultilineSeed.formatted.geng`
+and `tests/testfiles/PipelineComments/BackwardPipeMultilineSeed.formatted.geng`.
 
 ## SD4. Redundant parens are never stripped
 
@@ -145,7 +145,7 @@ Note that the resulting indentation is not a second difference from elm-format
 own. Take the paren away and the block simply starts the line. You cannot keep
 the parens *and* get elm-format's columns; it is one difference, not two.
 
-**Pinned by.** `tests/testfiles/Divergence/D10RedundantParens.formatted.gren`.
+**Pinned by.** `tests/testfiles/Divergence/D10RedundantParens.formatted.geng`.
 
 ---
 
@@ -180,8 +180,8 @@ survives — `(Just y) as whole` keeps its parens (compiler-common#31, see
 can move a comment's anchor. That is the one rewrite class the fixed-point
 argument does not cover; see the paper draft's §5.6.
 
-**Pinned by.** `tests/testfiles/HeaderComments/Ambiguous.formatted.gren` and
-`tests/testfiles/PatternsAndLiterals/CtorAppNestedPattern.formatted.gren`.
+**Pinned by.** `tests/testfiles/HeaderComments/Ambiguous.formatted.geng` and
+`tests/testfiles/PatternsAndLiterals/CtorAppNestedPattern.formatted.geng`.
 This is [divergence #10](elmFormatComparison.md#divergence-10), the most common
 difference between the two formatters on real code; that entry has the full
 side-by-side table of what each formatter strips. See also

@@ -1828,7 +1828,7 @@ here.
 #### Why every comment sweep was blind to this
 
 Until 2026-08-23 every comment-gap sweep in this repo ran against the
-**already-formatted** half of the corpus. On a `.formatted.gren` no rewrite
+**already-formatted** half of the corpus. On a `.formatted.geng` no rewrite
 occurs by construction: the imports are already sorted, the pattern parens
 already synthesized. **The rewrite that can
 move an anchor cannot happen on a fixed point.** The instrument was exhaustive,
@@ -2006,7 +2006,7 @@ exists for.
 
 | gate | what it varies | what it proves | blind to |
 |---|---|---|---|
-| **Fixture suite** (`run-tests.sh`, 368 `.formatted.gren` across 12 suites) | hand-written cases | exact bytes, AST equivalence, idempotency, per fixture | anything nobody thought to write |
+| **Fixture suite** (`run-tests.sh`, 368 `.formatted.geng` across 12 suites) | hand-written cases | exact bytes, AST equivalence, idempotency, per fixture | anything nobody thought to write |
 | **`fuzz-idempotency.py`** | inserts a comment into **every** inter-token gap of every fixture (and, in a second pass, past every declaration's end), formats twice — over **both** halves of the corpus (`--corpus both`, the default since 2026-08-23) | the fixed point, and — via a marker count — that the comment survives exactly once | only says *whether* something moved; and nothing at all about a wrong answer that is **stable** (§8.7) |
 | ⤷ `--run N` | the same, with a **run of N** in each gap | the rules whose neighbor is another comment (§8.4) | a run whose members are all one kind has one neighbor shape |
 | ⤷ `--mix-pairs` / `--mix-triples` | run **composition** — every ordered pair, then all 24 non-uniform triples | the boundaries between *different* kinds | — (triples found nothing pairs had not; §8.4) |
@@ -2055,9 +2055,9 @@ the *shape* of the result, which has been stable:
 
 - The fixture suite and `check-decision-stability.py` are green over the corpus.
 - **The corpus has two halves and they are not interchangeable.** A
-  `.formatted.gren` is already a fixed point, so formatting it performs no
+  `.formatted.geng` is already a fixed point, so formatting it performs no
   rewrite and any instability comes from the spliced probe alone; a
-  `.dirty.gren` is rewritten for real, so the probe interacts with that rewrite
+  `.dirty.geng` is rewritten for real, so the probe interacts with that rewrite
   — which is the only way to reach a rule keyed on an author row the formatting
   itself moves (§8.7). `corpus.py` owns the `--corpus {formatted,dirty,both}`
   axis and every gate wires it identically. The dirty half had never been swept
@@ -2231,7 +2231,7 @@ node gren-format/app --decisions MyFile.gren
 
 # 4. Reproduce a gate's finding (`<fixture>[<kind>]@<gap>`) exactly:
 cd gren-format-lib/tests
-./repro.py TrickyComments.formatted.gren multi 100   # both passes + diff
+./repro.py TrickyComments.formatted.geng multi 100   # both passes + diff
 ./repro.py <fixture> <kind> <gap> --input            # the spliced source
 ./repro.py <fixture> <kind> <gap> --lpt1             # the tree pass 1 rendered from
 ./repro.py <fixture> <kind> <gap> --lpt2             # …and pass 2

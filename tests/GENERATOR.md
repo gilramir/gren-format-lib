@@ -394,10 +394,10 @@ The payoff loop, matching how this repo already works. Once a bug is fixed:
 ./gen-random.py --promote <seed> --name SomeDescriptiveName --dir SuiteDirName
 ```
 
-copies `input.min.gren` → `testfiles/SuiteDirName/SomeDescriptiveName.dirty.gren`
+copies `input.min.gren` → `testfiles/SuiteDirName/SomeDescriptiveName.dirty.geng`
 (the fixture corpus is one directory per suite — `--dir` names which suite this
 find belongs to, e.g. `BracketComments`), runs `--show` to produce the
-`.formatted.gren`, and prints the exact `assertPrettyIn` line to paste into
+`.formatted.geng`, and prints the exact `assertPrettyIn` line to paste into
 `tests/src/Test/Formatter/Format.gren`. A random find becomes a frozen
 regression fixture: the generator's job is *discovery*, the fixture suite's job
 is *preventing recurrence*.

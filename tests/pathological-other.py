@@ -311,7 +311,7 @@ def scenario_unicode_strings():
     }
     # Also a multiline (triple-quoted) variant of the richest case, since the
     # multiline-string path has its own escape/whitespace handling
-    # (see MultilineStringControlChars.formatted.gren for the control-char
+    # (see MultilineStringControlChars.formatted.geng for the control-char
     # analogue this doesn't duplicate).
     cases["multiline-mixed-scripts"] = (
         'module Fuzz exposing (x)\n\nx =\n    """\n    %s %s %s %s\n    """\n'
@@ -337,7 +337,7 @@ def scenario_crlf_corpus():
     crash": it also catches a CRLF byte leaking into output, or column/row
     math going wrong once "\\r\\n" replaces "\\n" as the line separator."""
     results = []
-    fixtures = corpus_files(".formatted.gren")
+    fixtures = corpus_files(".formatted.geng")
     for fixture in fixtures:
         name = os.path.basename(fixture)
         with open(fixture, "rb") as f:

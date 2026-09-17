@@ -1042,21 +1042,21 @@ attached and what each node's row range is.
 cd gren-format-lib/tests && ./run-tests.sh
 ```
 
-1. **formatting** — `format(<name>.dirty.gren)` is byte-equal to
-   `<name>.formatted.gren`.
+1. **formatting** — `format(<name>.dirty.geng)` is byte-equal to
+   `<name>.formatted.geng`.
 2. **AST equivalence** — re-parsing the output yields a semantically equal
    `Module` (catches formatting that changes meaning).
 3. **idempotency** — re-formatting the `.formatted` file changes neither the
    `Module` nor the comment/blank-line `Context` (formatting is a fixed point).
 
-Add a test by writing both `testfiles/<SuiteDir>/<Name>.dirty.gren` (deliberately
-messy input) and `<Name>.formatted.gren` (the canonical output) under the
+Add a test by writing both `testfiles/<SuiteDir>/<Name>.dirty.geng` (deliberately
+messy input) and `<Name>.formatted.geng` (the canonical output) under the
 appropriate suite's directory, then an
 `assertPrettyIn fsPerm "<SuiteDir>" "description" "<Name>"` line in
 `tests/src/Test/Formatter/Format.gren`. Generate the `.formatted` with:
 
 ```bash
-node ../../gren-format/app --show <Name>.dirty.gren > testfiles/<SuiteDir>/<Name>.formatted.gren
+node ../../gren-format/app --show <Name>.dirty.geng > testfiles/<SuiteDir>/<Name>.formatted.geng
 ```
 
 **Read it** to confirm it is actually canonical before trusting it.

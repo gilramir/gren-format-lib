@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure how formatting time scales with the number of injected block comments.
 
-Inserts N evenly-spaced {- ¤ -} block comments into KitchenSink.formatted.gren
+Inserts N evenly-spaced {- ¤ -} block comments into KitchenSink.formatted.geng
 (or a specified file), runs the formatter, and records wall-clock time.
 N is varied from 0 to max_gaps by STEP.
 
@@ -24,7 +24,7 @@ with empty stdout; those data points are marked FAIL in the table.  Use --stage 
 or --stage lpt to cover the full N range without that limitation.
 
 Usage:
-    ./bench-scaling.py                            # show stage, KitchenSink.formatted.gren
+    ./bench-scaling.py                            # show stage, KitchenSink.formatted.geng
     ./bench-scaling.py --stage lpt                # LPT-only timing, full range
     ./bench-scaling.py --stage pex                # Doc-construction timing, full range
     ./bench-scaling.py --stage show               # full pipeline (limited range)
@@ -49,7 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GREN_FORMAT = os.path.join(HERE, "..", "..", "gren-format", "gren-format.sh")
 MARKER = "{- ¤ -}"
 
-DEFAULT_FILE = os.path.join(HERE, "testfiles", "KitchenSink", "KitchenSink.formatted.gren")
+DEFAULT_FILE = os.path.join(HERE, "testfiles", "KitchenSink", "KitchenSink.formatted.geng")
 
 STAGES = ("lpt", "pex", "show")
 
@@ -235,7 +235,7 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("file", nargs="?", default=DEFAULT_FILE,
-                    help="Gren source file to benchmark (default: KitchenSink.formatted.gren)")
+                    help="Gren source file to benchmark (default: KitchenSink.formatted.geng)")
     ap.add_argument("--stage", choices=STAGES, default="show",
                     help="pipeline stage to time: lpt | pex | show (default: show)")
     ap.add_argument("--all-stages", action="store_true",

@@ -9,14 +9,14 @@ added, instead of the day somebody remembers to widen four globs.
 
 # The two halves
 
-Each fixture is a PAIR: `<Name>.dirty.gren` (the input the suite formats) and
-`<Name>.formatted.gren` (what it must produce). They are not interchangeable
+Each fixture is a PAIR: `<Name>.dirty.geng` (the input the suite formats) and
+`<Name>.formatted.geng` (what it must produce). They are not interchangeable
 inputs, and the difference is exactly what the gates need to be told about:
 
-  - a `.formatted.gren` is already a fixed point, so a gate that formats it is
+  - a `.formatted.geng` is already a fixed point, so a gate that formats it is
     asking the formatter to *perform no rewrite*, and any instability it finds
     comes from the probe the gate spliced in;
-  - a `.dirty.gren` is not, so the formatter performs a real rewrite, and the
+  - a `.dirty.geng` is not, so the formatter performs a real rewrite, and the
     probe interacts with that rewrite. Whole rule families — anything keyed on
     the author's rows that the formatting itself moves — are only reachable from
     this half.
@@ -37,9 +37,9 @@ TESTFILES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testfiles"
 
 #: The corpus halves a gate can sweep, and the suffixes each selects.
 HALVES = {
-    "formatted": (".formatted.gren",),
-    "dirty": (".dirty.gren",),
-    "both": (".formatted.gren", ".dirty.gren"),
+    "formatted": (".formatted.geng",),
+    "dirty": (".dirty.geng",),
+    "both": (".formatted.geng", ".dirty.geng"),
 }
 
 
@@ -52,7 +52,7 @@ def corpus_dirs():
     )
 
 
-def corpus_files(suffix=".formatted.gren"):
+def corpus_files(suffix=".formatted.geng"):
     """Every fixture with the given suffix, across all fixture directories.
 
     `suffix` may be one suffix or an iterable of them (see `HALVES`); the

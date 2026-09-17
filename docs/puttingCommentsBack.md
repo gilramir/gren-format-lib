@@ -845,7 +845,7 @@ we changed the code incorrectly.
 That is the oscillating face of the class, and it was fixed as one. Our
 comment-gap sweeps could have found it, but there we made a mistake too:
 they all ran over the **already-formatted** half of the corpus, not the
-**dirty** corpus, and a `.formatted.gren` has nothing left to sort. Once we
+**dirty** corpus, and a `.formatted.geng` has nothing left to sort. Once we
 realized that mistake, running the test over the 391 *unformatted* halves of
 the corpus at the time, 66,252 probe sites, found **24 findings** on the first
 sweep, 22 of them this class. `--corpus both` is now the default

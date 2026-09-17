@@ -51,14 +51,14 @@ one rather than replacing it.
 Each fixture runs through `assertPrettyIn fsPerm "<dir>" "description" "FileBaseName"`,
 which performs three independent checks on one dirty/formatted pair:
 
-1. **Formatting** — format `testfiles/<dir>/<FileBaseName>.dirty.gren` and
-   diff the bytes against `testfiles/<dir>/<FileBaseName>.formatted.gren`.
-   This is the suite's one genuine oracle check: the `.formatted.gren` file is
+1. **Formatting** — format `testfiles/<dir>/<FileBaseName>.dirty.geng` and
+   diff the bytes against `testfiles/<dir>/<FileBaseName>.formatted.geng`.
+   This is the suite's one genuine oracle check: the `.formatted.geng` file is
    a hand-verified expected output, not something derived from the formatter.
 2. **AST equivalence** (self-consistency) — re-parse the formatted output and
    check with `Compiler.Ast.Compare` that it is semantically equal to the
    original AST. Catches formatting that silently changes meaning.
-3. **Idempotency** (self-consistency) — re-format the `.formatted.gren` file
+3. **Idempotency** (self-consistency) — re-format the `.formatted.geng` file
    and require both the `Module` AST *and* the parse `Context` (every comment
    position, every blank line) to come back unchanged. This is stronger than
    the fuzzer's byte-diff below — it fails on `Context` drift even when the
@@ -85,8 +85,8 @@ One directory per suite under `tests/testfiles/`, each named for the
 source-tree twin: one fixture per entry in the
 [divergence catalogue](elmFormatComparison.md#divergence-catalogue), named for
 its entry (`D17PrecedenceSplit` is #17) and built from that entry's own worked
-example. This suite tests the **documentation**: the `.dirty.gren` is what the
-entry says you wrote, the `.formatted.gren` is what it says gren-format
+example. This suite tests the **documentation**: the `.dirty.geng` is what the
+entry says you wrote, the `.formatted.geng` is what it says gren-format
 produces, so a divergence that gets fixed — or reshaped by an unrelated fix —
 breaks its own catalogue entry instead of leaving a false claim behind.
 Writing it found six such claims, three of them one day old. Nothing else goes
@@ -96,20 +96,20 @@ the mapping stops being 1:1 in either direction.
 Every fixture, in any directory, is asserted with `assertPrettyIn fsPerm "<dir>"`.
 Every check is identical regardless of which suite directory it lives in.
 
-Note that a `.dirty.gren` byte-identical to its `.formatted.gren` is normal and
+Note that a `.dirty.geng` byte-identical to its `.formatted.geng` is normal and
 sometimes the whole point — "gren-format keeps what you wrote" is a claim about
 a fixed point. `find-identical-fixtures.py` lists them; it is an inventory, not
 a gate.
 
 ### Adding a fixture
 
-Add both `<FileBaseName>.dirty.gren` and `<FileBaseName>.formatted.gren` under
+Add both `<FileBaseName>.dirty.geng` and `<FileBaseName>.formatted.geng` under
 the suite's directory (`testfiles/<SuiteDir>/`), then add an `assertPrettyIn`
 line in `tests/src/Test/Formatter/Format.gren`. Generate the candidate
-`.formatted.gren` with:
+`.formatted.geng` with:
 
 ```bash
-node ../../gren-format/app --show <FileBaseName>.dirty.gren > testfiles/<SuiteDir>/<FileBaseName>.formatted.gren
+node ../../gren-format/app --show <FileBaseName>.dirty.geng > testfiles/<SuiteDir>/<FileBaseName>.formatted.geng
 ```
 
 then read it before trusting it — nothing checks that the generated output is
@@ -122,7 +122,7 @@ wrong and it is not always the fixture.
 
 - **`tests/src/Test/Formatter/Format.gren`** — the fixture list, one
   `assertPrettyIn` call per case.
-- **`tests/testfiles/*/*.dirty.gren` / `*.formatted.gren`** — the fixture pairs;
+- **`tests/testfiles/*/*.dirty.geng` / `*.formatted.geng`** — the fixture pairs;
   both halves also double as the corpus every other gate (matrix, both fuzzers,
   the audit) walks. `tests/corpus.py` is where those gates ask which directories
   exist *and which half to sweep*, so a new suite directory is swept the day it
@@ -156,10 +156,10 @@ and second format.
 sweep walks. The default is `both`, and the two halves are genuinely different
 questions:
 
-- a `.formatted.gren` is already a fixed point, so formatting it performs **no
+- a `.formatted.geng` is already a fixed point, so formatting it performs **no
   rewrite** — every byte the second format could move is a byte the spliced
   probe put in motion;
-- a `.dirty.gren` is not, so the probe interacts with a **real rewrite**. Rules
+- a `.dirty.geng` is not, so the probe interacts with a **real rewrite**. Rules
   keyed on a source row that the formatting itself invalidates — the single
   largest family of idempotency bugs in this formatter — can only be reached
   from this half, because on the formatted half those rows are already the
@@ -184,7 +184,7 @@ asked a smaller question.
 cd gren-format-lib/tests
 python3 fuzz-idempotency.py -j 12                                      # whole corpus, both halves
 python3 fuzz-idempotency.py --corpus dirty -j 12                       # just the rewritten half
-python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.gren  # one file, with the format¹/format² diff per gap
+python3 fuzz-idempotency.py -v testfiles/<SuiteDir>/Foo.formatted.geng  # one file, with the format¹/format² diff per gap
 python3 fuzz-idempotency.py --pairs -j 12                              # the PAIR axis (slow; see below)
 python3 fuzz-idempotency.py --update-known-baseline -j 12              # re-register the upstream findings
 ```
@@ -257,7 +257,7 @@ container, anything whose layout a nested comment can decide.
 
 The axis has been swept over the corpus with every finding classified upstream,
 so it is green. Its non-vacuity does not rest on that count: with the `if`/`when`
-header fix reverted it reports findings on `IfExpression.formatted.gren`, a
+header fix reverted it reports findings on `IfExpression.formatted.geng`, a
 fixture the single-gap pass calls clean in every kind.
 
 ### Where the code lives
@@ -329,7 +329,7 @@ what this codebase spent a refactor deleting.
 cd gren-format-lib/tests
 ./check-decision-stability.py -j 12          # the corpus as written — the gate proper, green
 ./check-decision-stability.py -j 12 --gaps   # a comment in every gap — the instrument, red
-./check-decision-stability.py --gaps --kind line -v testfiles/<SuiteDir>/Foo.formatted.gren
+./check-decision-stability.py --gaps --kind line -v testfiles/<SuiteDir>/Foo.formatted.geng
 ```
 
 The plain mode is a real gate and passes over the whole fixture corpus. The
@@ -385,7 +385,7 @@ answer is usually visible only in the roles the tree gave it.
 
 ```bash
 cd gren-format-lib/tests
-./repro.py TrickyComments.formatted.gren multi 100        # both passes + the diff
+./repro.py TrickyComments.formatted.geng multi 100        # both passes + the diff
 ./repro.py <fixture> <kind> <gap> --input                 # just the spliced source
 ./repro.py <fixture> <kind> <gap> --lpt1 / --lpt2         # the tree each pass rendered from
 ./repro.py <fixture> <kind> <gap> --decisions             # which decisions differed
@@ -437,7 +437,7 @@ python3 fuzz-whitespace.py -j 12           # parallelise
 ### Where the code lives
 
 - **`tests/fuzz-whitespace.py`** — the driver; walks the same fixture corpus
-  (via `corpus.py`, all `testfiles/*/*.formatted.gren`) as the idempotency fuzzer.
+  (via `corpus.py`, all `testfiles/*/*.formatted.geng`) as the idempotency fuzzer.
 
 ## Construct × context syntax matrix (`matrix-syntax.py`)
 
@@ -1143,12 +1143,12 @@ would itself be worth investigating.
 cd gren-format-lib/tests
 ./audit-predicates.py -j 12                              # whole corpus
 ./audit-predicates.py -v                                 # list every finding, not just the summary
-./audit-predicates.py -v testfiles/<SuiteDir>/Foo.formatted.gren   # one file
+./audit-predicates.py -v testfiles/<SuiteDir>/Foo.formatted.geng   # one file
 ```
 
 Exit status is non-zero if any finding is reported.
 
-The corpus it walks is both halves of `testfiles/*/*.gren` (via `corpus.py`,
+The corpus it walks is both halves of `testfiles/*/*.geng` (via `corpus.py`,
 `--corpus` to narrow it) — the same fixture set the effectful suite uses, on
 both sides of the rewrite. See
 [The two corpus halves](#the-two-corpus-halves). The matrix (`matrix-syntax.py`) additionally runs

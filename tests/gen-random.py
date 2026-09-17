@@ -4460,14 +4460,14 @@ def promote(out_root, seed, name, suite_dir):
         if os.path.exists(minf):
             dest = os.path.join(TESTFILES, suite_dir)
             os.makedirs(dest, exist_ok=True)
-            dirty = os.path.join(dest, name + ".dirty.gren")
+            dirty = os.path.join(dest, name + ".dirty.geng")
             shutil.copy(minf, dirty)
             r = subprocess.run(["node", APP, "--show", dirty],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 print("WARNING: --show still fails on the promoted case:")
                 print(r.stdout + r.stderr)
-            formatted = os.path.join(dest, name + ".formatted.gren")
+            formatted = os.path.join(dest, name + ".formatted.geng")
             with open(formatted, "w") as f:
                 f.write(r.stdout)
             print("Wrote:")

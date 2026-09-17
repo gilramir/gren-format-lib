@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find *.dirty.gren / *.formatted.gren fixture pairs that are byte-identical.
+"""Find *.dirty.geng / *.formatted.geng fixture pairs that are byte-identical.
 
 Every dirty fixture is supposed to differ from its formatted counterpart
 (otherwise the test doesn't exercise any formatting change). This scans
@@ -19,18 +19,18 @@ def md5_of(path: Path) -> str:
 
 
 def main() -> int:
-    dirty_files = [Path(p) for p in corpus_files(".dirty.gren")]
+    dirty_files = [Path(p) for p in corpus_files(".dirty.geng")]
     if not dirty_files:
-        print("error: no *.dirty.gren fixtures found under testfiles/", file=sys.stderr)
+        print("error: no *.dirty.geng fixtures found under testfiles/", file=sys.stderr)
         return 1
 
     identical = []
     missing_pair = []
 
     for dirty_path in dirty_files:
-        base = dirty_path.name[: -len(".dirty.gren")]
+        base = dirty_path.name[: -len(".dirty.geng")]
         label = f"{dirty_path.parent.name}/{base}"
-        formatted_path = dirty_path.parent / f"{base}.formatted.gren"
+        formatted_path = dirty_path.parent / f"{base}.formatted.geng"
 
         if not formatted_path.is_file():
             missing_pair.append(label)
@@ -45,7 +45,7 @@ def main() -> int:
     print(f"Scanned {len(dirty_files)} dirty fixtures under testfiles/\n")
 
     if missing_pair:
-        print(f"Missing .formatted.gren pair ({len(missing_pair)}):")
+        print(f"Missing .formatted.geng pair ({len(missing_pair)}):")
         for base in missing_pair:
             print(f"  {base}")
         print()

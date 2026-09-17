@@ -28,7 +28,7 @@ cd gren-format-lib/tests && ./run-tests.sh
 
 It recompiles against `src/` directly, so editing formatter source and re-running
 it is enough. Fixtures live one directory per suite under `tests/testfiles/`;
-add `<Name>.dirty.gren` + `<Name>.formatted.gren`, then an
+add `<Name>.dirty.geng` + `<Name>.formatted.geng`, then an
 `assertPrettyIn fsPerm "<SuiteDir>"` line in `tests/src/Test/Formatter/Format.gren`.
 
 The other gates (all in `tests/`, all documented in
@@ -52,9 +52,9 @@ where its code lives):
 Pass `-j 12` — this machine has 16 cores and the fuzzers default to `-j 2`.
 
 **The corpus has two halves, and `--corpus` picks them.** Every fixture is a
-pair: a `.formatted.gren` is already a fixed point, so a gate that formats it
+pair: a `.formatted.geng` is already a fixed point, so a gate that formats it
 asks the formatter to perform *no rewrite* and any instability comes from the
-probe; a `.dirty.gren` is not, so the probe interacts with a real rewrite, and
+probe; a `.dirty.geng` is not, so the probe interacts with a real rewrite, and
 rule families keyed on author rows that the formatting itself moves are only
 reachable from that half. `fuzz-idempotency.py`, `check-decision-stability.py`
 and `audit-predicates.py` sweep **both** by default; `fuzz-whitespace.py`

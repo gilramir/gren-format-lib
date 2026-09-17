@@ -31,7 +31,7 @@ not parse the probe is skipped and **counted** — a high skip rate means thin
 coverage, so it is reported per file rather than swallowed.
 
 Usage:
-    ./fuzz-idempotency.py                       # all testfiles/*/*.formatted.gren, both passes
+    ./fuzz-idempotency.py                       # all testfiles/*/*.formatted.geng, both passes
     ./fuzz-idempotency.py path/to/File.gren ... # specific files
     ./fuzz-idempotency.py -j 4                   # run 4 `gren format`s at a time
     ./fuzz-idempotency.py --decl-ends            # only the end-of-declaration pass

@@ -27,7 +27,7 @@ mode was testing the wrong thing.
 
 Usage:
     ./fuzz-whitespace.py [--mode stretch|indent] [--corpus HALF] [-v] [FILE ...]
-Defaults to mode=stretch over all testfiles/*/*.dirty.gren. `--corpus` picks the
+Defaults to mode=stretch over all testfiles/*/*.dirty.geng. `--corpus` picks the
 half (see `corpus.py`); this gate defaults to `dirty` rather than `both` because
 perturbing an input's whitespace is its whole probe, and the formatted half is
 the one input whose whitespace is already the formatter's own — so the

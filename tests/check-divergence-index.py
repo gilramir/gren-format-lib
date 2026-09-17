@@ -26,9 +26,9 @@ def main():
 
     fixtures = {}
     for name in os.listdir(FIXTURES):
-        if not name.endswith(".dirty.gren"):
+        if not name.endswith(".dirty.geng"):
             continue
-        base = name[: -len(".dirty.gren")]
+        base = name[: -len(".dirty.geng")]
         m = re.match(r"D(\d{2})[A-Z]", base)
         if not m:
             sys.exit(f"{base}: fixture name must start with D<nn> and a capital")
@@ -44,8 +44,8 @@ def main():
             problems.append(f"#{n} has {len(names)} fixtures: {', '.join(sorted(names))}")
     for n in sorted(entries & set(fixtures)):
         base = fixtures[n][0]
-        if not os.path.isfile(os.path.join(FIXTURES, base + ".formatted.gren")):
-            problems.append(f"{base} has no .formatted.gren")
+        if not os.path.isfile(os.path.join(FIXTURES, base + ".formatted.geng")):
+            problems.append(f"{base} has no .formatted.geng")
 
     if problems:
         print("divergence catalogue / fixture suite out of step:", file=sys.stderr)

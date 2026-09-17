@@ -42,7 +42,7 @@ states custom-type variants are limited to 0 or 1 parameter (`type Person =
 Person String Int` is no longer valid; use a record: `Person { name : String,
 age : Int }`). An early version of this generator instead allowed 2-3 bare
 arguments per variant (`Circle Int`, `Rectangle Int Int` — the shape the
-existing `TypeUnion.formatted.gren` / `UnionLayoutByAuthor.formatted.gren`
+existing `TypeUnion.formatted.geng` / `UnionLayoutByAuthor.formatted.geng`
 fixtures already use) and found that **this repo's parser does not actually
 enforce the 0-or-1 rule**: `Ctor Int Int` (2 bare constructor names) parses
 fine, but `Ctor b Int` or `Ctor (Array a) Int` (a var/paren'd/app type in a
@@ -192,7 +192,7 @@ first time via the RNG shift a new generator feature always causes:
    by a first attempt at this fix, which the checked-in `KitchenComments`
    fixture caught: two comments flanking `|` merged onto one line that should
    have stayed separate). Fixture `RecordUpdateFieldTrailingComment`;
-   `KitchenComments.formatted.gren` regenerated (3 lines changed — exactly the
+   `KitchenComments.formatted.geng` regenerated (3 lines changed — exactly the
    comments that directly trail a real field value; everything else
    unchanged).
 2. **`EmptyBracketed` (`[]`/`{}`) built via plain `lpnLeaf` instead of

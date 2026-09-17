@@ -388,7 +388,7 @@ Classification again follows the `{-`'s start row:
 `SortingCommentZoo` is the fixture that carries every comment shape an exposing
 list or an import run can hold, in one module. It is registered in the test
 suite (`tests/src/Test/Formatter/Format.gren`), so a change to any rule on this
-page shows up as a diff in `SortingCommentZoo.formatted.gren` — read that diff
+page shows up as a diff in `SortingCommentZoo.formatted.geng` — read that diff
 before deciding a rule change was intended.
 
 `gen-random.py` generates import runs and `exposing` lists with comments in

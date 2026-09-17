@@ -164,7 +164,7 @@ of the entry, and it retires when the fix ships.
 
 **Every entry has a fixture** except retired #8, in
 `tests/testfiles/Divergence/`, built from that entry's own example: the
-`.dirty.gren` is what the entry says you wrote and the `.formatted.gren` is what
+`.dirty.geng` is what the entry says you wrote and the `.formatted.geng` is what
 it says gren-format produces. The mapping is 1:1 in both directions and
 `tests/check-divergence-index.py` fails the test run if it stops being — an
 entry with no fixture, or a fixture with no entry.

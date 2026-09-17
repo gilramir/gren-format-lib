@@ -374,9 +374,9 @@ right. For that class the only defense is an expected answer, meaning the test
 fixtures and the elm-format comparison.
 
 **A green gate on the wrong axis.** For months every fuzzer swept the
-`.formatted.gren` half of the corpus, because those are known-good fixed
+`.formatted.geng` half of the corpus, because those are known-good fixed
 points. But a formatted file has nothing left to sort, so the import-sorting
-bug in section 4 was unreachable from it. The first sweep of the `.dirty.gren`
+bug in section 4 was unreachable from it. The first sweep of the `.dirty.geng`
 half found 24 findings in 66,252 probe sites, 22 of them that one bug. Before
 you trust a green gate, check what it varies, not whether it passed.
 

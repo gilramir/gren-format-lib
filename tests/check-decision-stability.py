@@ -20,7 +20,7 @@ Two modes:
     ./check-decision-stability.py --gaps --run 2      # a RUN of two per gap
     ./check-decision-stability.py --gaps --mix-pairs  # runs of MIXED kinds
 
-The first is the gate proper and should be green: every `.formatted.gren` is a
+The first is the gate proper and should be green: every `.formatted.geng` is a
 fixed point, so nothing may move.
 
 **`--run` / `--mix` reach this gate 2026-08-08, and until then `--gaps` had
@@ -238,7 +238,7 @@ class Findings:
                     for fixture, n in by_file.most_common():
                         mine = [m for m in self.members[names] if m.startswith(fixture)]
                         probes = " ".join(
-                            m.split(".formatted.gren", 1)[1] for m in mine
+                            m.split(".formatted.geng", 1)[1] for m in mine
                         )
                         known = {
                             self.issue_of[m] for m in mine if m in self.known_labels

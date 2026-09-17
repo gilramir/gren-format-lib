@@ -42,7 +42,7 @@ suites fsPerm =
 catalogue, built from that entry's own worked example.
 
 Every other suite here tests the formatter. This one tests the **documentation**:
-each `.dirty.gren` is the entry's "you wrote" input and each `.formatted.gren` is
+each `.dirty.geng` is the entry's "you wrote" input and each `.formatted.geng` is
 the output the entry prints as gren-format's. A divergence that gets fixed, or
 whose shape changes under an unrelated fix, breaks its own catalogue entry here
 instead of leaving a false claim in the docs — which has happened: #14 described
@@ -219,7 +219,7 @@ assertPrettyIn : FileSystem.Permission -> String -> String -> String -> U.Test {
 assertPrettyIn fsPerm dir testDescription filenameBase =
     U.test testDescription <|
         \_ ->
-            runPrettyPrinter fsPerm dir (filenameBase ++ ".dirty.gren")
+            runPrettyPrinter fsPerm dir (filenameBase ++ ".dirty.geng")
                 |> Task.andThen
                     (\formatResult ->
                         when formatResult is
@@ -227,7 +227,7 @@ assertPrettyIn fsPerm dir testDescription filenameBase =
                                 Task.succeed (Expect.fail message)
 
                             Ok { ast = ast1, context = context1, rendered = rendered } ->
-                                readTestFile fsPerm dir (filenameBase ++ ".formatted.gren")
+                                readTestFile fsPerm dir (filenameBase ++ ".formatted.geng")
                                     |> Task.map
                                         (\expectedFormatting ->
                                             Expect.all

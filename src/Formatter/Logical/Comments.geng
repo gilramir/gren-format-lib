@@ -228,7 +228,7 @@ only the ridable `{- c -}` and glued it onto the `|>`'s row; the reparse, seeing
 both comments in one run, refused — because one of them is a multi-line
 `{- … -}` that cannot ride — and stacked it instead. Same comment, same role,
 same rendering rule, different answer, for ever
-(`KitchenComments.formatted.gren[multi]@2121`).
+(`KitchenComments.formatted.geng[multi]@2121`).
 
 The LAST step keeps its own trailing run: there is no following step to give it
 to, and what happens to it there is `detachOwnLineTrailer`'s question, already

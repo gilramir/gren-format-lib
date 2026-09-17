@@ -36,8 +36,8 @@ spliced into the one gap — or two or more joined with `+` (`block+multi`,
 passes, a run of DIFFERENT kinds in that order. `<fixture>` may be a path or a
 bare basename, which is searched for under `testfiles/`.
 
-    # a finding reported as  TrickyComments.formatted.gren[multi]@100
-    ./repro.py TrickyComments.formatted.gren multi 100
+    # a finding reported as  TrickyComments.formatted.geng[multi]@100
+    ./repro.py TrickyComments.formatted.geng multi 100
 
 Exit status is 0 when the two passes agree (STABLE) and 1 when they do not
 (MOVED) -- so it composes into a bisect. Anything else is 2: a bad argument, or

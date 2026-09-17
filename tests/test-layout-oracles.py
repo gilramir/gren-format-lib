@@ -30,9 +30,9 @@ def want(label, cond):
     if not cond: fails += 1
 
 print("Oracle 7  stranded-operator  (299c912)")
-pre  = git_show("299c912^", FX+"PipelineBareLambdaOperand.formatted.gren")
-mid  = git_show("299c912",  FX+"PipelineBareLambdaOperand.formatted.gren")
-post = git_show("HEAD",     FX+"PipelineBareLambdaOperand.formatted.gren")
+pre  = git_show("299c912^", FX+"PipelineBareLambdaOperand.formatted.geng")
+mid  = git_show("299c912",  FX+"PipelineBareLambdaOperand.formatted.geng")
+post = git_show("HEAD",     FX+"PipelineBareLambdaOperand.formatted.geng")
 b, d = gr._check_stranded_operator(pre)
 want("fires on the pre-fix output: %s" % (d or {}).get("msg"), b == "stranded-operator")
 # At 299c912 itself the fixture STILL held one dangle -- the bare `if`/`when`/
@@ -45,15 +45,15 @@ b, _ = gr._check_stranded_operator(post)
 want("silent at HEAD, once e1322bd closed that one too", b is None)
 
 print("Oracle 8  spontaneous-break  (5fff8cc)")
-pre = git_show("5fff8cc^", FX+"PipelineMixedOps.formatted.gren")
-dirty = git_show("5fff8cc^", FX+"PipelineMixedOps.dirty.gren")
+pre = git_show("5fff8cc^", FX+"PipelineMixedOps.formatted.geng")
+dirty = git_show("5fff8cc^", FX+"PipelineMixedOps.dirty.geng")
 assert "oneLine y =\n    y |> f |> g <| 0" in dirty, "the author wrote it flat"
 body = gr.Binop([gr.Var("y"), gr.Var("f"), gr.Var("g"), gr.Int(0)],
                 ["|>", "|>", "<|"], broken=False)
 m = types.SimpleNamespace(decls=[gr.Decl("oneLine", [gr.PVar("y")], body)])
 b, d = gr._check_spontaneous_break(m, pre)
 want("fires on the pre-fix output: %s" % (d or {}).get("msg"), b == "spontaneous-break")
-post = git_show("5fff8cc", FX+"PipelineMixedOps.formatted.gren")
+post = git_show("5fff8cc", FX+"PipelineMixedOps.formatted.geng")
 b, _ = gr._check_spontaneous_break(m, post)
 want("silent on the post-fix output", b is None)
 

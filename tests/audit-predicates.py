@@ -44,7 +44,7 @@ so the reparse reads the break as the author's and the file oscillates.
 comments are in scope and why the leading and paired ones are not.
 
 Usage:
-    ./audit-predicates.py                       # all testfiles/*/*.formatted.gren
+    ./audit-predicates.py                       # all testfiles/*/*.formatted.geng
     ./audit-predicates.py path/to/File.gren ... # specific files
     ./audit-predicates.py -j 12                 # 12 audits at a time
     ./audit-predicates.py -v                    # list every finding, not just the summary
