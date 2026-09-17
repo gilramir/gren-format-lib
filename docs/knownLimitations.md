@@ -653,32 +653,19 @@ differently. See [divergence #22](elmFormatComparison.md#divergence-22).
 
 ## A line break inside a declaration's head
 
-A line break *inside* a declaration's keyword (e.g. `import` on one line,
-the module name on the next) can cause a blank line to appear between a
-comment and that declaration. The root cause is a parser bug that records the
-wrong line number for keyword-led declarations:
-[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
+**Fixed by the parser this branch builds with.** Stock's parser recorded a
+keyword-led declaration at its *name's* row, column 1, rather than at the
+keyword
+([compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25)),
+so `-- a comment` / `import` / `    String` formatted with a spurious blank
+line under the comment. Geng's copy of the parser records the keyword, and the
+same input formats to `-- a comment` / `import String`.
 
-```gren
--- a comment
-import
-    String
-```
-
-formats to:
-
-```gren
--- a comment
-
-import String
-```
-
-with a spurious blank line pushed between the comment and the import it was
-written directly above — even though writing the same import on one line
-(`-- a comment` / `import String`) formats with no blank line at all. The
-parser records the position of `String` (the name) rather than `import` (the
-keyword), so the formatter sees a bigger gap between the comment and the
-declaration than the author actually left.
+A comment written between the keyword and the name is inside the declaration
+now. After `import` it keeps its place, since the keyword is a real token. In
+`type alias` it leads the declaration, since `alias` has no position to put it
+on either side of. `ImportInnerMultilineComment` and `AliasKeywordComment` pin
+the two.
 
 ## A comment right after `exposing` doesn't sort with the first name
 

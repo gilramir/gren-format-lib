@@ -27,7 +27,12 @@ cd gren-format-lib/tests && ./run-tests.sh
 ```
 
 It recompiles against `src/` directly, so editing formatter source and re-running
-it is enough. Fixtures live one directory per suite under `tests/testfiles/`;
+it is enough.
+
+The same pairs are held to `geng fmt`, which reads them with the fork's parser,
+by geng-lang's `harness/fmt.py` (`-f fixtures/` for them alone, after `devbox run
+build` in the fork's checkout). That is the check the fork's formatter ships
+against (geng-lang `m1b-manifest.md` §MF10.7). Fixtures live one directory per suite under `tests/testfiles/`;
 add `<Name>.dirty.geng` + `<Name>.formatted.geng`, then an
 `assertPrettyIn fsPerm "<SuiteDir>"` line in `tests/src/Test/Formatter/Format.gren`.
 

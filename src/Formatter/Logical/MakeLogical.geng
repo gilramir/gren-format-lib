@@ -871,8 +871,28 @@ processAliasDecl modDecl root =
         alias_ =
             modDecl.value.value
 
+        -- `alias` has no position, so a comment between `type` and the name
+        -- cannot be placed on either side of it and leads the declaration
+        -- instead: the one token claims every column up to the name. On one
+        -- row that is what its own width already does for `type {- c -} alias
+        -- U`. Across rows it has to be said, since `modDecl.start` is the
+        -- `type` keyword's row: until the parser recorded that (compiler-common#25)
+        -- it was the name's row and such a comment preceded the declaration.
+        typeAliasStart =
+            { row = modDecl.start.row, col = 1 }
+
         typeAliasNode =
-            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type alias")
+            if alias_.name.start.row > typeAliasStart.row then
+                lpnLeaf
+                    (UnbreakableText
+                        { start = typeAliasStart
+                        , end = alias_.name.start
+                        , value = "type alias"
+                        }
+                    )
+
+            else
+                lpnLeaf (mkText typeAliasStart "type alias")
 
         nameNode =
             lpnLeaf (mkTextFromLocString alias_.name)

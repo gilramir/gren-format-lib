@@ -6,8 +6,6 @@ type alias T =
 
 
 {- own row -}
-
-
 type alias S =
     Int
 

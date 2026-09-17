@@ -20,6 +20,11 @@ module ImportInnerAndTrailingMultiline exposing (v)
 -- This order happened to be the one that worked: it pins the sorter's row rule.
 -- `ImportInnerCommentSortsEitherOrder` pins the same two imports written the
 -- OTHER way round, which needed the unit's row EXTENT as well.
+--
+-- The straddling span was an artifact of the parser recording an import at
+-- its module name's row. The fork's parser records it at `import`
+-- (compiler-common#25), so both comments lie inside the import and keep their
+-- places, and the sort has nothing to split.
 
 
 import Qux0

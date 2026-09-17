@@ -18,11 +18,16 @@ module ImportInnerCommentSortsEitherOrder exposing (v)
 -- Both row tests had to move together. Correcting only the blank-line pass left
 -- `collectRun` still splitting the run: the first format then failed to sort
 -- while the second, reading the hoisted comment back at column 1, succeeded.
+--
+-- The straddling span was an artifact of the parser recording an import at
+-- its module name's row. The fork's parser records it at `import`
+-- (compiler-common#25), so both comments lie inside the import and keep their
+-- places; the two orders must still format to the same bytes.
 
-{- k1
-   bravo -} {- k2
-               tango -}
-import Foo2
+import {- k1
+          bravo -}
+    Foo2 {- k2
+            tango -}
 import Qux0
 
 
