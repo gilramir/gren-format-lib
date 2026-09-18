@@ -1708,6 +1708,16 @@ entry with no fixture, or a fixture with no entry.
     amount, so the problem may be that this new definition has too many spaces in
     front of it."
 
+    *On the `geng` branch, `geng fmt` refuses it too* (geng-lang D352,
+    `m1a-fmt.md` §F13). What ended `deeplyIndentedBody` early was
+    [compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14):
+    a call's arguments were held to the column its line began at, so
+    `noCommentAnywhere` could not be one and was left for the declaration
+    loop. Geng's parser holds them to the enclosing indentation, as the Haskell
+    parser does, so the name is `one`'s argument and the `=` after it is an
+    error in both. The fixture keeps only the commented half, which #37 alone
+    still lets through.
+
     So the difference is about what the two *parsers* accept, and the comment is
     only what makes the accepted shape survive into the output. In a `let` the
     comment takes a row of its own, so the binding name normalizes and only the

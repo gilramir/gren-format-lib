@@ -273,6 +273,11 @@ That is benign in itself, but it means `gren-format --show` exiting 0 is **not**
 evidence that the file you handed it would build. Nothing in the pipeline asks
 the real compiler.
 
+*`geng fmt` refuses this file* (geng-lang D352): its parser holds a call's
+arguments to the enclosing indentation, as the Haskell parser does, so `b` is
+`one`'s argument and the `=` after it is an error. The commented case below is
+#37 alone and is unchanged.
+
 **With a comment in front of the name, the output is refused too.** Because
 gren-format never moves a comment off the row it was written on
 ([C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart)),

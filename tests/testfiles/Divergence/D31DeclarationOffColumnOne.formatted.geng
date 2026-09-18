@@ -14,11 +14,3 @@ letBinding =
             one
     in
     bnd
-
-
-deeplyIndentedBody =
-    one
-
-
-noCommentAnywhere =
-    two
