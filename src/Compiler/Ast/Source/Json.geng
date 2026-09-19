@@ -592,6 +592,13 @@ encExpression_ expr =
                 , { key = "inner", value = encExpression inner }
                 ]
 
+        Src.Annotated { expression, annotation } ->
+            Json.object
+                [ { key = "type", value = Json.string "annotated" }
+                , { key = "expression", value = encExpression expression }
+                , { key = "annotation", value = encType annotation }
+                ]
+
 
 encRecordField : Src.RecordField -> Json.Value
 encRecordField fld =

@@ -584,6 +584,12 @@ compareExpr_ ctx a b =
                 , compareStr (ctx ++ " .field") aa.accessor ab_.accessor
                 ]
 
+        { fst = Src.Annotated aa, snd = Src.Annotated ab_ } ->
+            chainAll
+                [ compareExpr (ctx ++ " annotated") aa.expression ab_.expression
+                , compareType (ctx ++ " annotation") aa.annotation ab_.annotation
+                ]
+
         { fst = Src.ArrayLiteral la, snd = Src.ArrayLiteral lb } ->
             compareArray (ctx ++ " []") (compareExpr ctx) la lb
 

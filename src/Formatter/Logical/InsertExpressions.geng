@@ -347,6 +347,9 @@ insertExpression locExpr =
         Src.Parens expression ->
             insertParens locExpr expression
 
+        Src.Annotated payload ->
+            insertAnnotated payload
+
         Src.ArrayLiteral exprArray ->
             -- The author's layout decides the list shape (see `authoredBracketList`):
             -- items across rows stay one-per-line, items on one row stay inline —
@@ -472,6 +475,36 @@ insertParens locExpr expression =
                                 locExpr.end
                                 nodes
                             ]
+            )
+
+
+{-| `Src.Annotated` — `e : T`, the inside of an annotated parenthesized
+expression (D358). The parser only ever puts one inside a `Src.Parens`, which
+lays out the brackets; this is the expression, a colon and the type, flowing
+across like a signature's `name : Type`. The colon is anchored where the
+expression ends, so a comment written after the colon sorts after it.
+
+The author's rows decide the layout, as they do for a lambda's body: a type
+written on a later row than the expression ends on drops to its own indented
+line, colon first, the way a broken binop chain puts its operator first. -}
+insertAnnotated : { expression : Src.Expression, annotation : Src.Type } -> Result String (Array LPNode)
+insertAnnotated { expression, annotation } =
+    insertExpression expression
+        |> Result.andThen
+            (\exprNodes ->
+                makeSignatureBranch annotation
+                    |> Result.map
+                        (\typeNodes ->
+                            let
+                                colonNode =
+                                    lpnLeaf (mkZeroWidthText expression.end ":")
+                            in
+                            if annotation.start.row /= expression.end.row then
+                                exprNodes ++ [ lpnNode IndentedBlock [ plainAcross ([ colonNode ] ++ typeNodes) ] ]
+
+                            else
+                                [ plainAcross (exprNodes ++ [ colonNode ] ++ typeNodes) ]
+                        )
             )
 
 
@@ -1310,6 +1343,9 @@ valueAlwaysBreaks expr =
         Src.Parens inner ->
             valueAlwaysBreaks inner
 
+        Src.Annotated { expression = inner } ->
+            valueAlwaysBreaks inner
+
         _ ->
             False
 
@@ -1355,6 +1391,9 @@ exprAlwaysBreaks expr =
             True
 
         Src.Parens inner ->
+            exprAlwaysBreaks inner
+
+        Src.Annotated { expression = inner } ->
             exprAlwaysBreaks inner
 
         Src.Negate inner ->
