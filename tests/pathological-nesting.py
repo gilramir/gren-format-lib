@@ -49,6 +49,7 @@ import argparse
 import os
 import subprocess
 import sys
+from appcmd import NODE
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "..", "..", "gren-format", "app")
@@ -202,7 +203,7 @@ def classify(stdout, stderr, code, timed_out):
 
 def run_app(flag, path, timeout):
     try:
-        r = subprocess.run(["node", APP, flag, path],
+        r = subprocess.run([NODE, APP, flag, path],
                            capture_output=True, text=True, timeout=timeout)
         return classify(r.stdout, r.stderr, r.returncode, False), r.stdout + r.stderr
     except subprocess.TimeoutExpired:

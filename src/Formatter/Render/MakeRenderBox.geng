@@ -833,12 +833,20 @@ buildBlockBody spaced bodyNode =
                     (\acc ->
                         if nodeIsComment child then
                             if commentRole (rnShape child) |> Maybe.map roleGlues |> Maybe.withDefault False then
-                                    when Array.popLast acc.groups is
-                                        Just { last, initial } ->
+                                    -- It glues onto whatever came just before it:
+                                    -- a comment still waiting to lead the next
+                                    -- member when there is one, and the member
+                                    -- before otherwise.
+                                    when { leading = Array.popLast acc.leading, groups = Array.popLast acc.groups } is
+                                        { leading = Just { last, initial } } ->
+                                            glueTrailingComments last [ child ]
+                                                |> Result.map (\glued -> { acc | leading = Array.pushLast glued initial })
+
+                                        { groups = Just { last, initial } } ->
                                             glueTrailingComments last [ child ]
                                                 |> Result.map (\glued -> { acc | groups = Array.pushLast glued initial })
 
-                                        Nothing ->
+                                        _ ->
                                             commentNodeBox child
                                                 |> Result.map (\box -> { acc | leading = Array.pushLast box acc.leading })
 

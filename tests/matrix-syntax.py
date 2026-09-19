@@ -129,6 +129,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from appcmd import NODE
 
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
@@ -1004,6 +1005,11 @@ CONSTRUCTS = [
     Construct("whenExpr",      "(when sel is Just w -> w)",    False, None,                 True),
     Construct("ifExpr",        "(if cond then one else two)",  False, None,                 True),
     Construct("letExpr",       "(let q = one in q)",           False, None,                 True),
+    # Geng's `(e : T)` (D358). Never paren_wrapped: without its parentheses
+    # it is not an expression, so it has no bare form.
+    Construct("annotated",     "(one : Int)",                  True,  "(one\n: Int)",       False),
+    Construct("annotatedCall", "(fn one two : Int)",           True,  "(fn one two\n: Int)", False),
+    Construct("annotatedRecord", "({ a = 1 } : { a : Int })",  True,  "({ a = 1 }\n: { a : Int })", False),
 ]
 
 # name, template, flat, value_position
@@ -1062,6 +1068,8 @@ CONTEXTS = [
     Context("whenBranch",       "when sel is Just w -> {x}",    False, True),
     Context("ifThen",           "if cond then {x} else other",  False, True),
     Context("ifElse",           "if cond then other else {x}",  False, True),
+    # Inside Geng's annotation, which takes any expression bare.
+    Context("annotatedExpr",    "({x} : Int)",                  True,  True),
 ]
 
 # ---------------------------------------------------------------------------
@@ -1119,7 +1127,26 @@ TYPE_CONTEXTS = [
     Context("unionPayload2",  "type U\n    = A {x}\n    | B Int",              False, False, "type"),
     Context("letSig",         "v =\n    let\n        bnd : {x}\n        bnd =\n            one\n    in\n    bnd",
                                                                                True,  True,  "type"),
+    # Geng's declarations. Each template is written in its formatted shape,
+    # since a type cell counts the rows the formatter adds.
+    Context("sigConstraint",  "foo : Eq a => {x}\nfoo =\n    one",            True,  True,  "type"),
+    Context("sigContextArg",  "foo : (Eq a, Ord b) => {x} -> Int\nfoo q =\n    one", True, False, "type"),
+    Context("classMethod",    "class C a where\n    m : {x}",                  True,  True,  "type"),
+    Context("instanceHead",   "instance Show {x} where\n    show q =\n        one", True, False, "type"),
+    Context("primSig",        "@prim(\"p\")\nfoo : {x}",                       True,  True,  "type"),
+    Context("externSig",      "@extern(js, \"M\", \"f\")\nfoo : {x} -> Int",   True,  False, "type"),
+    Context("annotationType", "v =\n    (one : {x})",                          True,  True,  "type"),
 ]
+
+# Cells elm-format cannot read: Geng's syntax has no Elm spelling, so oracle 4
+# (parity) is not asked about them. Oracles 1-3 are truths and run on them all.
+GENG_ONLY = {"annotated", "annotatedCall", "annotatedRecord", "annotatedExpr",
+             "sigConstraint", "sigContextArg", "classMethod", "instanceHead",
+             "primSig", "externSig", "annotationType"}
+
+
+def geng_only(construct, context):
+    return construct.name in GENG_ONLY or context.name in GENG_ONLY
 
 # The four layout variants. `flat_input` variants keep oracle 1 (the flat/break
 # two-directional check); the author-broken ones drop it -- a broken input has
@@ -1263,7 +1290,7 @@ def body_lines(formatted, context=None):
 
 def run(app_args, path):
     return subprocess.run(
-        ["node", str(APP), app_args, str(path)],
+        [NODE, str(APP), app_args, str(path)],
         capture_output=True, text=True, timeout=120,
     )
 
@@ -1473,7 +1500,7 @@ def check_cell(cell):
         # Parity runs only on cells that satisfy oracles 1-3. A cell that
         # already violates a truth would diverge from elm-format too, and
         # reporting it twice buys nothing -- fix the truth first.
-        parity = check_parity(source, formatted) if PARITY else None
+        parity = check_parity(source, formatted) if PARITY and not geng_only(construct, context) else None
         return result(kind="ok", output=formatted, parity=parity)
 
 
@@ -1624,7 +1651,8 @@ def check_comment_cell(cell):
             return result(kind_result="predicate-lie", output=formatted,
                           detail="; ".join(predicate_lie_detail(f) for f in roots[:3]))
 
-        parity = check_parity(source, formatted, cell["base_source"]) if PARITY else None
+        geng = cell["construct"] in GENG_ONLY or cell["context"] in GENG_ONLY
+        parity = check_parity(source, formatted, cell["base_source"]) if PARITY and not geng else None
         return result(kind_result="ok", output=formatted, parity=parity)
 
 
@@ -1994,6 +2022,9 @@ def main():
     ap.add_argument("-k", "--keep", type=pathlib.Path, help="write failing cells to this dir as .gren files")
     ap.add_argument("--construct", help="only this construct")
     ap.add_argument("--context", help="only this context")
+    ap.add_argument("--geng", action="store_true",
+                    help="only the cells with Geng's syntax in them (GENG_ONLY): what "
+                         "geng-lang's harness/fmt-fuzz.py gate runs")
     ap.add_argument("--variant", choices=VARIANTS, action="append",
                     help="only this layout variant (repeatable); default is all four")
     ap.add_argument("--no-parity", action="store_true",
@@ -2078,6 +2109,8 @@ def main():
         sys.exit("no cells selected -- check --construct/--context names")
 
     cells = enumerate_cells(constructs, contexts, variants)
+    if args.geng:
+        cells = [(c, x, v) for (c, x, v) in cells if geng_only(c, x)]
     if args.comments:
         return run_comment_axis(cells, args)
 

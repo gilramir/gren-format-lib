@@ -87,7 +87,10 @@ to be reused.
 
 **Rebuild the CLI first** (`cd ../gren-format && ./build.sh`): every python gate
 shells out to the built `../gren-format/app`, so a stale binary tests the wrong
-code. Never rebuild while a fuzzer is running.
+code. Never rebuild while a fuzzer is running. On the `geng` branch that app is
+built by the Geng fork beside the checkout, so the gates read Geng's syntax, and
+it runs on Node 22 or later, which `tests/appcmd.py` finds (geng-lang
+`m1a-fmt.md` §F18).
 
 A finding whose cause is a known upstream parser bug is labelled
 `[known: compiler-common#NN]` and still counted — gates label, never subtract.

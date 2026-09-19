@@ -70,6 +70,7 @@ import sys
 import tempfile
 
 from corpus import add_corpus_argument, corpus_files_for
+from appcmd import NODE
 
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
@@ -103,7 +104,7 @@ def run_decisions(workdir, source):
         f.write(source)
     try:
         proc = subprocess.run(
-            ["node", str(APP), "--decisions", path],
+            [NODE, str(APP), "--decisions", path],
             capture_output=True,
             text=True,
             timeout=120,

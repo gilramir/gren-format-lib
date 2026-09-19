@@ -603,19 +603,14 @@ processUnionDecl modDecl root =
         union_ =
             modDecl.value.value
 
-        -- `@derive(...)`, when the author wrote one, sits on the row above the
-        -- `type` keyword. `modDecl.start` is the attribute's own `@` when there
-        -- is one and the `type` keyword's row when there is not, so the
-        -- declaration's row range covers it either way.
-        typeRow =
-            if Array.isEmpty union_.derives then
-                modDecl.start.row
-
-            else
-                modDecl.start.row + 1
-
+        -- Where the `type` keyword is, which the parser records: below an
+        -- `@derive(...)` it can be any number of rows down, past comments,
+        -- and guessing the row after the attribute's put a comment written on
+        -- a multi-line comment's closing row after the keyword instead of
+        -- before it. `modDecl.start` is the `@` when there is an attribute,
+        -- so the declaration's row range covers both.
         typeNode =
-            lpnLeaf (mkText { row = typeRow, col = 1 } "type")
+            lpnLeaf (mkText union_.keyword "type")
 
         nameNode =
             lpnLeaf (mkTextFromLocString union_.name)

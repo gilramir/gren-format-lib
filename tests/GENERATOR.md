@@ -436,6 +436,20 @@ types, and `infix` fixity declarations. Geng refuses `port module` and
 `effect module` headers and has no `port` declarations (geng-lang
 `m1b-source.md` §SO20, D279-D280), so the generator no longer emits them.
 
+**Geng's declarations** (geng-lang `m1a-fmt.md` §F18). A signature may carry a
+constraint context of one to three constraints, flat or as its own segment of
+an author-broken signature (D116), and a signed value may sit under
+`@capability`. A custom type may carry `@derive(...)`. Four declaration kinds
+are Geng's alone: a `class` with one to three methods, some constrained, or
+none; an `instance` with a context and a head that is a name or an
+application, and one or two methods; `@prim("…")` over an annotation; and one
+or two `@extern` / `@externPure` rows over an annotation, sometimes with a Geng
+body. The generator does not type-check, so any class name over any variable
+is emitted. An instance's methods and an extern's body are drawn by `value()`
+but never hold a `"""` string, whose rows would move under the instance's +4
+re-indent. The shrinker walks none of these: like the type declarations, only
+dropping the whole declaration applies.
+
 **Types.** Constructors, variables, application, records, extensible records and
 arrows; qualified type names; nested application beyond one argument; comments
 inside a record type.
@@ -446,7 +460,9 @@ a bare lambda; `<|` **continuation chains** (`seed <| \p ->` steps closed by a
 body) in both the aligned and the staircase spelling, with an own-line comment
 run between two steps; record literals and updates; arrays; `let`/`in`, including
 let-bound functions; `when`/`is`; `if`/`then`/`else`; lambdas; calls; field
-access; parentheses. Atoms are ints (decimal and hex), floats (plain and
+access; parentheses; and Geng's `(e : T)` annotation (D358), on one row or
+with `: T` on a row below at `(`+4, always the latter when the expression spans
+rows. Atoms are ints (decimal and hex), floats (plain and
 scientific), strings, `"""…"""` multi-line strings, chars, vars, qualified names,
 constructors, accessors and operator references.
 

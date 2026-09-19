@@ -62,6 +62,7 @@ import subprocess
 import sys
 
 from corpus import add_corpus_argument, corpus_files_for
+from appcmd import NODE
 
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
@@ -71,7 +72,7 @@ def audit(path):
     """Return (path, findings, error). A file that will not parse yields []."""
     try:
         proc = subprocess.run(
-            ["node", str(APP), "--audit-predicates", str(path)],
+            [NODE, str(APP), "--audit-predicates", str(path)],
             capture_output=True,
             text=True,
             timeout=120,

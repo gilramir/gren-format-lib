@@ -218,6 +218,7 @@ encUnion union =
         , { key = "vars", value = Json.array (encLocated Json.string) union.vars }
         , { key = "variants", value = Json.array (encLocated encUnionVariant) union.variants }
         , { key = "derives", value = Json.array (encLocated Json.string) union.derives }
+        , { key = "keyword", value = encPos union.keyword }
         ]
 
 

@@ -323,15 +323,19 @@ isMultilineLambdaParenBlockBox node =
             False
 
 
--- True when a ParenBlock's content is a lambda (`(\x -> …)`) rather than an
--- `if`/`when`/`let` — identified by the first child's box (matching
--- `makeParenBlockBox`'s content dispatch). Guards the direct-operand lambda split
--- against mangling a paren-`if`/`when` (whose branches are also blocks).
+-- True when a ParenBlock's content is a lambda (`(\x -> …)`): its first child
+-- is a head that starts with the `\`-glued first parameter. Guards the
+-- direct-operand lambda split against mangling a paren-`if`/`when` (whose
+-- branches are also blocks) and a dropped `(e : T)` (D358), which is an
+-- expression and then its `: T` in an `IndentedBlock`, the same two children a
+-- lambda has. It asked only "not `if`/`when`/`let`" until the matrix put a
+-- dropped annotation in a pipeline step: taken for a lambda there, the
+-- expression was rendered as a lambda head, and `({ a = 1 }` lost its braces.
 parenContentIsLambdaHead : RenderNode -> Bool
 parenContentIsLambdaHead node =
     when Array.first (rnChildren node) is
         Just headNode ->
-            not (isBlockKeywordHead headNode)
+            not (isBlockKeywordHead headNode) && isLambdaHeadNode headNode
 
         Nothing ->
             False

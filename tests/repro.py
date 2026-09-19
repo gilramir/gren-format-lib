@@ -55,6 +55,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from appcmd import NODE
 
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent.parent / "gren-format" / "app"
@@ -107,7 +108,7 @@ def run_app(workdir, flag, source):
     path = workdir / "src" / "Fuzz.gren"
     path.write_text(source)
     return subprocess.run(
-        ["node", str(APP), flag, str(path)], capture_output=True, text=True
+        [NODE, str(APP), flag, str(path)], capture_output=True, text=True
     )
 
 

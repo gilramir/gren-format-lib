@@ -14,6 +14,7 @@ widened exclusion that quietly covers the original bug fails here, which is the
 whole point.
 """
 import importlib.util, os, subprocess, sys, tempfile, types
+from appcmd import NODE
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("gr", os.path.join(HERE, "gen-random.py"))
 gr = importlib.util.module_from_spec(spec); spec.loader.exec_module(gr)
@@ -72,7 +73,7 @@ assert "[ 1\n" in src, src
 with tempfile.TemporaryDirectory() as tmp:
     p = os.path.join(tmp, "M.gren")
     open(p, "w").write(src)
-    r = subprocess.run(["node", gr.APP, "--show", p], capture_output=True, text=True)
+    r = subprocess.run([NODE, gr.APP, "--show", p], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     formatted = r.stdout
     b, _ = gr._check_break_ignored(mod, src, formatted, tmp)

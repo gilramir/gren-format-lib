@@ -36,6 +36,7 @@ import concurrent.futures
 import os
 import subprocess
 import sys
+from appcmd import NODE
 
 DEFAULT_ROOT = os.path.expanduser("~/prj/gren-format-preview/pkgs")
 APP = os.path.join(os.path.dirname(__file__), "..", "..", "gren-format", "app")
@@ -81,7 +82,7 @@ def crash_message(out):
 def check_one(path):
     try:
         r = subprocess.run(
-            ["node", APP, "--show", path],
+            [NODE, APP, "--show", path],
             capture_output=True, text=True, timeout=120,
         )
         bucket, msg = classify(r.stdout, r.stderr, r.returncode)

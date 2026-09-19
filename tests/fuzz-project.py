@@ -32,8 +32,8 @@ The edges of a mode that WRITES, each built on the same generated project:
      result is a fixed point (the app normalises line endings when it reads)
   H2 a project already formatted EXCEPT for its line endings is still rewritten
   H3 the same, reached as a positional argument, with `--diff` agreeing
-  I  a non-`.gren` file is ignored by a run that really runs
-  I2 a lowercase-named `.gren` makes the no-arg run REFUSE, writing nothing
+  I  a non-`.geng` file is ignored by a run that really runs
+  I2 a lowercase-named `.geng` makes the no-arg run REFUSE, writing nothing
   K  both kinds, reached as a positional argument -- `expandPathToFiles` has
      its own filter, separate from `Outline.findSourceFiles`
   L  `--diff` alongside a file that does not parse still writes nothing
@@ -49,7 +49,7 @@ unfiltered for anything that is not one. That branch had no coverage at all:
   M3 `--diff` over named files: a dry run whose patch applies and lands on
      `--show` (J's twin; both call `diff_agrees`, so they cannot drift)
   M4 naming a file the DIRECTORY branch would have skipped. A package's
-     sources must start with a capital, so `lowercase.gren` can never load as
+     sources must start with a capital, so `lowercase.geng` can never load as
      a module and `gren-format src` skips it (K) -- but naming it is not a
      guess the way discovery is, so the file branch formats whatever it is
      handed, and a file that is not Gren at all comes back a parse error
@@ -86,7 +86,7 @@ That is not hypothetical. Two cells have already been caught out:
     otherwise-formatted file compared equal to its own LF output and kept its
     `\r`s forever, while the no-arg run rewrote the same bytes. H3 fills it.
   - non-source x no-arg was FILLED and VACUOUS, which is worse: oracle I
-    discarded the exit code, and its `lowercase.gren` made the run refuse the
+    discarded the exit code, and its `lowercase.geng` made the run refuse the
     project outright, so nothing was ever formatted and the assertion held for
     the wrong reason. Split into I / I2, with the exit code checked.
 
@@ -150,6 +150,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from appcmd import NODE
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "..", "..", "gren-format", "app")
@@ -159,13 +160,10 @@ G = importlib.util.module_from_spec(spec)
 sys.modules["genrandom"] = G
 spec.loader.exec_module(G)
 
-GREN_JSON = """{
-    "type": "application",
-    "platform": "node",
-    "source-directories": [ "src" ],
-    "gren-version": "0.6.5",
-    "dependencies": { "direct": {}, "indirect": {} }
-}
+GREN_JSON = """[application]
+geng = "0.6.0 <= v < 0.7.0"
+runtime = "node"
+source-directories = ["src"]
 """
 
 # `module Foo exposing (..)`. Only the NAME is rewritten.
@@ -173,7 +171,7 @@ MODULE_HEADER = re.compile(r"^(module\s+)([A-Za-z0-9_.]+)", re.M)
 
 
 def run_app(args, cwd=None, timeout=120):
-    return subprocess.run(["node", APP] + args, capture_output=True, text=True,
+    return subprocess.run([NODE, APP] + args, capture_output=True, text=True,
                           cwd=cwd, timeout=timeout)
 
 
@@ -196,7 +194,7 @@ def read(path):
 def snapshot(src_dir):
     """Module name -> contents, keyed the way `modules` is (no extension)."""
     return {n[:-5]: read(os.path.join(src_dir, n))
-            for n in sorted(os.listdir(src_dir)) if n.endswith(".gren")}
+            for n in sorted(os.listdir(src_dir)) if n.endswith(".geng")}
 
 
 def reported_count(stdout):
@@ -289,7 +287,7 @@ def diff_agrees(trial, tag, root, stdout, before, expected, modules):
     project run (J) and the named-file run (M3) so the two cannot drift."""
     sections = diff_sections(stdout)
     for name in modules:
-        key = "src/%s.gren" % name
+        key = "src/%s.geng" % name
         if before[name] == expected[name]:
             if key in sections:
                 return trial, tag + "-spoke-for-an-unchanged-file", name, root
@@ -306,13 +304,13 @@ def diff_agrees(trial, tag, root, stdout, before, expected, modules):
 
 
 def build_project(root, modules):
-    """`root/gren.json` + `root/src/<Name>.gren`, one file per module."""
+    """`root/geng.toml` + `root/src/<Name>.geng`, one file per module."""
     src = os.path.join(root, "src")
     os.makedirs(src, exist_ok=True)
-    with open(os.path.join(root, "gren.json"), "w") as f:
+    with open(os.path.join(root, "geng.toml"), "w") as f:
         f.write(GREN_JSON)
     for name, text in modules.items():
-        with open(os.path.join(src, name + ".gren"), "w") as f:
+        with open(os.path.join(src, name + ".geng"), "w") as f:
             f.write(text)
     return src
 
@@ -354,7 +352,7 @@ def check_project(trial, root, modules):
     # not this fuzzer's find -- the other gates own that one.
     expected, expected_rui = {}, {}
     for name in modules:
-        path = os.path.join(src, name + ".gren")
+        path = os.path.join(src, name + ".geng")
         r = run_app(["--show", path])
         if r.returncode != 0:
             return trial, "baseline-fail", first_line(r.stdout + r.stderr), None
@@ -473,7 +471,7 @@ def check_rui(trial, root, modules, expected_rui):
     `Outline.findSourceFiles` / `expandPathToFiles`, code the flag does not
     touch and which I / I2 / K already cover in all three modes.
     """
-    names = ["src/%s.gren" % n for n in sorted(modules)]
+    names = ["src/%s.geng" % n for n in sorted(modules)]
 
     # P: both ways of naming paths must land what the no-arg RUI run lands.
     for tag, args in (("dir", ["--remove-unused-imports", "src"]),
@@ -531,13 +529,13 @@ def check_rui(trial, root, modules, expected_rui):
     # applies: the broken file untouched, and no third state for the others.
     root_p4 = root + "-rui-broken"
     src_p4 = build_project(root_p4, modules)
-    with open(os.path.join(src_p4, "Broken.gren"), "w") as f:
+    with open(os.path.join(src_p4, "Broken.geng"), "w") as f:
         f.write(BROKEN)
     try:
         rp4 = run_app(["--remove-unused-imports"], cwd=root_p4)
         if rp4.returncode == 0:
             return trial, "rui-broken-accepted", "expected a parse error", root_p4
-        if read(os.path.join(src_p4, "Broken.gren")) != BROKEN:
+        if read(os.path.join(src_p4, "Broken.geng")) != BROKEN:
             return trial, "rui-broken-file-rewritten", "a file that does not parse was written to", root_p4
         after_p4 = snapshot(src_p4)
         for name in modules:
@@ -552,7 +550,7 @@ BROKEN = "module Broken exposing (f)\n\n\nf =\n    ( 1\n"
 # Two different reasons a file in `src/` is not source, and the two modes do
 # NOT treat them alike -- see oracles I, I2 and K.
 NOT_GREN = {"notes.txt": "this file is not a Gren source file\n"}
-LOWERCASE_GREN = {"lowercase.gren": "-- a .gren whose name is not a module name\n"}
+LOWERCASE_GREN = {"lowercase.geng": "-- a .geng whose name is not a module name\n"}
 
 # Valid, unformatted Gren living in a file whose name a package could never
 # load (sources must start with a capital). Used to pin what happens when such
@@ -574,7 +572,7 @@ def check_edges(trial, root, modules, expected):
     # G: one unparseable file among good ones.
     root_g = root + "-broken"
     src_g = build_project(root_g, modules)
-    with open(os.path.join(src_g, "Broken.gren"), "w") as f:
+    with open(os.path.join(src_g, "Broken.geng"), "w") as f:
         f.write(BROKEN)
     try:
         run_app([], cwd=root_g)
@@ -647,16 +645,16 @@ def check_edges(trial, root, modules, expected):
             if after_h3[name] != expected[name]:
                 return trial, "crlf-clean-paths-kept-its-carriage-returns", name, root_h3
             # whatever changed on disk, `--diff` had to have said so
-            if ("%s.gren" % name) not in rd3.stdout:
+            if ("%s.geng" % name) not in rd3.stdout:
                 return trial, "crlf-clean-paths-diff-stayed-silent", name, root_h3
     finally:
         keep_or_remove(root_h3)
 
-    # I: a non-`.gren` file is ignored -- by a run that REALLY RUNS.
+    # I: a non-`.geng` file is ignored -- by a run that REALLY RUNS.
     #
-    # This oracle used to carry `lowercase.gren` as well and to discard the
+    # This oracle used to carry `lowercase.geng` as well and to discard the
     # exit code, and it passed for the wrong reason the whole time: a
-    # lowercase `.gren` makes `Outline.findSourceFiles` refuse the entire
+    # lowercase `.geng` makes `Outline.findSourceFiles` refuse the entire
     # project, so nothing was ever formatted and "the non-source file is
     # unchanged" was trivially true. A gate that cannot fail is not a gate.
     # The two files are separate oracles now and the exit code is checked.
@@ -679,7 +677,7 @@ def check_edges(trial, root, modules, expected):
     finally:
         keep_or_remove(root_i)
 
-    # I2: a lowercase-named `.gren` is not a module name, and the no-arg run
+    # I2: a lowercase-named `.geng` is not a module name, and the no-arg run
     # REFUSES the project over it rather than skipping it. Pinned because it
     # is inherited behaviour, and because the positional mode does not do it
     # (K) -- two modes disagreeing about one file is the shape that produced
@@ -730,7 +728,7 @@ def check_edges(trial, root, modules, expected):
     # error is the worst outcome available here.
     root_l = root + "-diff-broken"
     src_l = build_project(root_l, modules)
-    with open(os.path.join(src_l, "Broken.gren"), "w") as f:
+    with open(os.path.join(src_l, "Broken.geng"), "w") as f:
         f.write(BROKEN)
     try:
         before_l = snapshot(src_l)
@@ -753,7 +751,7 @@ def check_named(trial, root, modules, expected):
     but for anything that is not a directory it returns `[path]` with no
     filter at all. That branch had no coverage whatever.
     """
-    names = ["src/%s.gren" % n for n in sorted(modules)]
+    names = ["src/%s.geng" % n for n in sorted(modules)]
 
     # M: the dirty project, every module named at once.
     root_m = root + "-named"
@@ -799,7 +797,7 @@ def check_named(trial, root, modules, expected):
         for name in modules:
             if after_m2[name] != expected[name]:
                 return trial, "named-crlf-kept-its-carriage-returns", name, root_m2
-            if ("%s.gren" % name) not in rd2.stdout:
+            if ("%s.geng" % name) not in rd2.stdout:
                 return trial, "named-crlf-diff-stayed-silent", name, root_m2
     finally:
         keep_or_remove(root_m2)
@@ -822,7 +820,7 @@ def check_named(trial, root, modules, expected):
 
     # M4: naming a file the DIRECTORY branch would have skipped.
     #
-    # A package's sources must start with a capital, so `lowercase.gren` can
+    # A package's sources must start with a capital, so `lowercase.geng` can
     # never be loaded as a module and `gren-format src` skips it (K). Naming it
     # is a different act: discovery INFERS which files you meant and can afford
     # to be conservative, while a path you typed is not a guess. So the file
@@ -832,7 +830,7 @@ def check_named(trial, root, modules, expected):
     # K, not an oversight, and the next reader deserves to see it asserted.
     root_m4 = root + "-named-notsource"
     src_m4 = build_project(root_m4, modules)
-    low = os.path.join(src_m4, "lowercase.gren")
+    low = os.path.join(src_m4, "lowercase.geng")
     with open(low, "w") as f:
         f.write(LOWERCASE_SOURCE)
     txt = os.path.join(src_m4, "notes.txt")
@@ -842,11 +840,11 @@ def check_named(trial, root, modules, expected):
         shown = run_app(["--show", low])
         if shown.returncode != 0:
             return trial, "named-lowercase-show-failed", first_line(shown.stdout + shown.stderr), root_m4
-        rm4 = run_app(["src/lowercase.gren"], cwd=root_m4)
+        rm4 = run_app(["src/lowercase.geng"], cwd=root_m4)
         if rm4.returncode != 0:
             return trial, "named-lowercase-run-failed", first_line(rm4.stdout + rm4.stderr), root_m4
         if read(low) != shown.stdout:
-            return trial, "named-lowercase-differs-from-show", "lowercase.gren", root_m4
+            return trial, "named-lowercase-differs-from-show", "lowercase.geng", root_m4
         rm4b = run_app(["src/notes.txt"], cwd=root_m4)
         if rm4b.returncode == 0:
             return trial, "named-non-gren-file-accepted", "expected a parse error", root_m4
@@ -861,15 +859,15 @@ def check_named(trial, root, modules, expected):
     # file and must not leave any other file in a third state.
     root_m5 = root + "-named-broken"
     src_m5 = build_project(root_m5, modules)
-    with open(os.path.join(src_m5, "Broken.gren"), "w") as f:
+    with open(os.path.join(src_m5, "Broken.geng"), "w") as f:
         f.write(BROKEN)
     mid = len(names) // 2
-    names5 = names[:mid] + ["src/Broken.gren"] + names[mid:]
+    names5 = names[:mid] + ["src/Broken.geng"] + names[mid:]
     try:
         rm5 = run_app(names5, cwd=root_m5)
         if rm5.returncode == 0:
             return trial, "named-broken-accepted", "expected a parse error", root_m5
-        if read(os.path.join(src_m5, "Broken.gren")) != BROKEN:
+        if read(os.path.join(src_m5, "Broken.geng")) != BROKEN:
             return trial, "named-broken-file-rewritten", "a file that does not parse was written to", root_m5
         after_m5 = snapshot(src_m5)
         for name in modules:

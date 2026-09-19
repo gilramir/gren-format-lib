@@ -30,6 +30,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from appcmd import NODE
 
 APP = pathlib.Path(__file__).resolve().parent.parent.parent / "gren-format" / "app"
 
@@ -46,7 +47,7 @@ def main():
 
     def one(path):
         try:
-            r = subprocess.run(["node", str(APP), "--audit-predicates", str(path)],
+            r = subprocess.run([NODE, str(APP), "--audit-predicates", str(path)],
                                capture_output=True, text=True, timeout=60)
         except subprocess.TimeoutExpired:
             return None

@@ -73,6 +73,7 @@ import sys
 import tempfile
 import threading
 import time
+from appcmd import NODE
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "..", "..", "gren-format", "app")
@@ -96,6 +97,7 @@ CHAR_ESCAPES = ["\\n", "\\t", "\\\\", "\\'", "\\u{0041}", "\\u{1F600}",
                 "\\u{feff}", "\\u{00a0}"]
 # Concrete (arity-0) type-constructor names, used as leaf types and type-app args.
 TYPE_CONS = ["Int", "Float", "String", "Bool", "Char"]
+CLASSES = ["Eq", "Ord", "Inspect", "Num", "Basics.Eq"]
 INDENT = 4
 
 
@@ -321,6 +323,15 @@ class Array(E):
 
 # Patterns. Single line by construction EXCEPT for an array/record pattern in
 # a parameter slot, which may carry a baked author-break — see `emit_pat_rows`.
+class Annot(E):
+    """`(e : T)`, the expression annotation (geng-lang D358). `broken` puts the
+    colon on a row below the expression, which the formatter keeps (D361); a
+    multi-row expression is always emitted broken, since `: T` after its last
+    row would read as annotating the last operand."""
+    def __init__(self, inner, typ, broken=False):
+        self.inner, self.typ, self.broken = inner, typ, broken
+
+
 class PVar:
     def __init__(self, name): self.name = name
 class PWild:
@@ -371,8 +382,12 @@ class Decl:
     def __init__(self, name, params, body, sig=None, sig_broken=False,
                  doc=None, lead=None, trailing=None, arrow_comment=None,
                  body_below=False, sig_trailing=None, sig_lead=None,
-                 sig_lead_spaced=False):
+                 sig_lead_spaced=False, ctx=None, capability=False):
         self.name, self.params, self.body = name, params, body
+        # Geng: a constraint context on the signature (`Eq a =>`), and
+        # `@capability` above it (D258), which needs a signature.
+        self.ctx = ctx or []
+        self.capability = capability
         # As `LetBind.val_below`, for a top-level declaration's body.
         self.body_below = body_below
         self.sig, self.sig_broken = sig, sig_broken
@@ -428,8 +443,47 @@ class Variant:
 
 
 class UnionDecl:
-    def __init__(self, name, params, variants, broken=False, doc=None, lead=None, trailing=None):
+    def __init__(self, name, params, variants, broken=False, doc=None, lead=None, trailing=None,
+                 derives=None):
         self.name, self.params, self.variants, self.broken = name, params, variants, broken
+        self.doc, self.lead, self.trailing = doc, lead, trailing
+        self.derives = derives or []  # `@derive(Eq, Ord)` above `type`
+
+
+# Geng's declarations. None carries an expression body the shrinker walks --
+# an instance's method bodies and an extern's Geng body are drawn flat and
+# small -- so, like the type declarations, only "drop this whole decl" applies.
+
+class ClassDecl:
+    """`class Name a where` and its methods, or `class Name a` with none.
+    methods: [(name, ctx, type)] -- ctx a constraint list, see `ctx_text`."""
+    def __init__(self, name, var, methods, doc=None, lead=None, trailing=None):
+        self.name, self.var, self.methods = name, var, methods
+        self.doc, self.lead, self.trailing = doc, lead, trailing
+
+
+class InstanceDecl:
+    """`instance ctx => Cls Head where` and its methods, which are
+    definitions with no signature. methods: [Decl] (sig always None)."""
+    def __init__(self, ctx, cls, head, methods, doc=None, lead=None, trailing=None):
+        self.ctx, self.cls, self.head, self.methods = ctx, cls, head, methods
+        self.doc, self.lead, self.trailing = doc, lead, trailing
+        self.name = cls  # for messages; an instance declares no name
+
+
+class PrimDecl:
+    """`@prim("name")` over an annotation."""
+    def __init__(self, name, prim, sig, doc=None, lead=None, trailing=None):
+        self.name, self.prim, self.sig = name, prim, sig
+        self.doc, self.lead, self.trailing = doc, lead, trailing
+
+
+class ExternDecl:
+    """One `@extern` / `@externPure` row per language over an annotation, and
+    maybe a Geng body. impls: [(pure, language, [names])]; body: Decl | None
+    (its sig always None, its name the extern's)."""
+    def __init__(self, name, impls, sig, body=None, doc=None, lead=None, trailing=None):
+        self.name, self.impls, self.sig, self.body = name, impls, sig, body
         self.doc, self.lead, self.trailing = doc, lead, trailing
 
 
@@ -590,6 +644,8 @@ def multiline(n):
         return n.broken or any(multiline(v) for _, v in n.fields)
     if isinstance(n, Array):
         return n.broken or any(multiline(v) for v in n.items)
+    if isinstance(n, Annot):
+        return n.broken or multiline(n.inner)
     return False
 
 
@@ -626,6 +682,7 @@ def emit(n, col):
     if isinstance(n, Record): return emit_record(n.fields, None, n.broken, col)
     if isinstance(n, Update): return emit_record(n.fields, n.base, n.broken, col)
     if isinstance(n, Array):  return emit_array(n, col)
+    if isinstance(n, Annot):  return emit_annot(n, col)
     raise ValueError("emit: unknown node " + type(n).__name__)
 
 
@@ -656,6 +713,20 @@ def emit_paren(n, col):
         return ["( " + one_line(n.inner) + " )"]
     inner = emit(n.inner, col + 2)
     out = ["( " + inner[0]] + inner[1:]
+    out.append(pad(col) + ")")
+    return out
+
+
+def emit_annot(n, col):
+    """`(e : T)` on one row, or the expression from `(`+1 and `: T` on a row
+    of its own at `(`+4, then `)` -- where the formatter puts a dropped
+    annotation, so a formatted one reads back the same way."""
+    typ = emit_type(n.typ)
+    if not n.broken and not multiline(n.inner):
+        return ["(" + one_line(n.inner) + " : " + typ + ")"]
+    inner = emit(n.inner, col + 1)
+    out = ["(" + inner[0]] + inner[1:]
+    out.append(pad(col + INDENT) + ": " + typ)
     out.append(pad(col) + ")")
     return out
 
@@ -1408,6 +1479,45 @@ def emit_variant_payload(payload):
     return " ".join(_type_atom(t) for t in val)
 
 
+def ctx_text(ctx):
+    """A constraint context and its `=>`, or nothing: one constraint bare, two
+    or more parenthesized, as the grammar needs to see where the list ends."""
+    if not ctx:
+        return ""
+    parts = [c + " " + v for c, v in ctx]
+    if len(parts) == 1:
+        return parts[0] + " => "
+    return "(" + ", ".join(parts) + ") => "
+
+
+def emit_class(d):
+    head = "class " + d.name + " " + d.var
+    if not d.methods:
+        return [head]
+    return [head + " where"] + [pad(INDENT) + m + " : " + ctx_text(ctx) + emit_type(t)
+                                for m, ctx, t in d.methods]
+
+
+def emit_instance(d):
+    out = ["instance " + ctx_text(d.ctx) + d.cls + " " + _type_atom(d.head) + " where"]
+    for i, m in enumerate(d.methods):
+        if i > 0:
+            out.append("")
+        out += [(pad(INDENT) + l) if l else l for l in emit_function_decl(m)]
+    return out
+
+
+def emit_extern(d):
+    out = []
+    for pure, lang, names in d.impls:
+        out.append("@" + ("externPure" if pure else "extern") + "(" + lang
+                   + "".join(', "' + n + '"' for n in names) + ")")
+    out.append(d.name + " : " + emit_type(d.sig))
+    if d.body is not None:
+        out += emit_function_decl(d.body)
+    return out
+
+
 def emit_union(d):
     header = "type " + d.name + "".join(" " + p for p in d.params)
     parts = []
@@ -1419,6 +1529,8 @@ def emit_union(d):
             s += " " + comment_text(v.trailing)
         parts.append(s)
     lines = [header]
+    if d.derives:
+        lines.insert(0, "@derive(" + ", ".join(d.derives) + ")")
     if not d.broken:
         lines.append(pad(INDENT) + " ".join(parts))
     else:
@@ -1592,6 +1704,14 @@ def emit_decl(d):
         core = emit_type_alias(d)
     elif isinstance(d, UnionDecl):
         core = emit_union(d)
+    elif isinstance(d, ClassDecl):
+        core = emit_class(d)
+    elif isinstance(d, InstanceDecl):
+        core = emit_instance(d)
+    elif isinstance(d, PrimDecl):
+        core = ['@prim("' + d.prim + '")', d.name + " : " + emit_type(d.sig)]
+    elif isinstance(d, ExternDecl):
+        core = emit_extern(d)
     else:
         return emit_function_decl(d)
     out = emit_leading(d)
@@ -1603,6 +1723,9 @@ def emit_decl(d):
 
 def emit_function_decl(d):
     out = emit_leading(d)
+    if d.sig is not None and getattr(d, "capability", False):
+        out.append("@capability")
+    ctx = getattr(d, "ctx", [])
     if d.sig is not None:
         # A `top`, `broken` record/exrecord sig (see Gen.gen_type) also needs
         # the multiline path, same as a broken arrow — checked via the type's
@@ -1611,10 +1734,15 @@ def emit_function_decl(d):
         sig_is_broken_record = d.sig[0] in ("record", "exrecord") and d.sig[-1]
         if (d.sig_broken and d.sig[0] == "arrow") or sig_is_broken_record:
             out.append(d.name + " :")
-            out += [pad(INDENT) + l
-                    for l in emit_type_multiline(d.sig, d.sig_broken, d.arrow_comment)]
+            segs = emit_type_multiline(d.sig, d.sig_broken, d.arrow_comment)
+            if ctx and d.sig_broken and d.sig[0] == "arrow":
+                # The context is a segment of its own (D116): its row, then
+                # `=>` leading the type's first segment.
+                out.append(pad(INDENT) + ctx_text(ctx)[:-len(" => ")])
+                segs = ["=> " + segs[0]] + segs[1:]
+            out += [pad(INDENT) + l for l in segs]
         else:
-            out.append(d.name + " : " + emit_type(d.sig))
+            out.append(d.name + " : " + ctx_text(ctx) + emit_type(d.sig))
         if d.sig_trailing is not None:
             # A CHAIN, like `d.trailing` — glue its first row onto the
             # signature's last row and let any further rows follow.
@@ -2049,6 +2177,8 @@ class Gen:
             return self.leaf()
         r = self.rng.random()
         d = depth - 1
+        if self.chance(0.05):
+            return self.mk_annot(d)
         if r < 0.14:  return self.mk_call(d)
         if r < 0.24:  return self.mk_binop(d)
         if r < 0.30:  return self.mk_pipeline(d)
@@ -2702,12 +2832,99 @@ class Gen:
                 sig_lead = [self.maybe_multirow(c)
                             for c in self.forced_comments(n)] or None
                 sig_lead_spaced = sig_lead is not None and self.chance(0.5)
+        # Geng: a constraint context, where the signature is not a record
+        # broken across rows (its context would have no row of its own), and
+        # `@capability` over some signed values (D258).
+        ctx = []
+        capability = False
+        if sig is not None:
+            broken_record = sig[0] in ("record", "exrecord") and sig[-1]
+            if not broken_record and self.chance(0.3):
+                ctx = self.ctx()
+            capability = self.chance(0.08)
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
                     doc=doc, lead=lead, trailing=trailing,
                     arrow_comment=arrow_comment,
                     body_below=self.value_below(body, p=0.5),
                     sig_trailing=sig_trailing, sig_lead=sig_lead,
-                    sig_lead_spaced=sig_lead_spaced)
+                    sig_lead_spaced=sig_lead_spaced,
+                    ctx=ctx, capability=capability)
+
+    # -- Geng's declarations ------------------------------------------------
+
+    def ctx(self):
+        """A constraint context: one to three `Class var` pairs. The formatter
+        does not type-check, so any class name over any lowercase var parses."""
+        k = self.rng.choice([1, 1, 2, 3])
+        return [(self.pick(CLASSES), self.pick(["a", "b", "c"])) for _ in range(k)]
+
+    def flat_body(self, depth):
+        """A method's or an extern's Geng body: any value, but no triple-quoted
+        string, whose rows would move under the instance's +4 re-indent."""
+        for _ in range(8):
+            body = self.value(depth)
+            if not any(isinstance(n, MultilineStr) for n in _all_nodes(body)):
+                return body
+        return self.leaf()
+
+    def geng_decl_trimmings(self):
+        doc = self.doc_comment()
+        lead = None
+        if doc is None and self.chance(self.crate):
+            lead = [self.comment() or ("line", "k%d" % self.next_cid())]
+        return doc, lead, self.comment()
+
+    def class_decl(self, i):
+        methods = []
+        if not self.chance(0.15):  # a closed class has no methods (D133)
+            for j in range(self.rng.randint(1, 3)):
+                ctx = self.ctx() if self.chance(0.25) else []
+                methods.append(("m%d_%d" % (i, j), ctx, self.gen_type(2)))
+        doc, lead, trailing = self.geng_decl_trimmings()
+        return ClassDecl("Class%d" % i, self.pick(["a", "f", "t"]), methods,
+                         doc=doc, lead=lead, trailing=trailing)
+
+    def instance_decl(self, i):
+        ctx = self.ctx() if self.chance(0.4) else []
+        head = self.gen_type_app(1, ["a", "b"]) if self.chance(0.5) \
+            else ("con", self.pick(TYPE_CONS))
+        methods = []
+        for j in range(self.rng.randint(1, 2)):
+            nparams = self.rng.randint(0, 2)
+            params = [self.pattern_base(1) for _ in range(nparams)]
+            body = self.flat_body(max(1, self.max_depth - 2))
+            methods.append(Decl("m%d_%d" % (i, j), params, body,
+                                body_below=self.value_below(body, p=0.5)))
+        doc, lead, trailing = self.geng_decl_trimmings()
+        return InstanceDecl(ctx, self.pick(CLASSES), head, methods,
+                            doc=doc, lead=lead, trailing=trailing)
+
+    def prim_decl(self, i):
+        doc, lead, trailing = self.geng_decl_trimmings()
+        k = self.rng.randint(1, 3)
+        sig = ("arrow", [self.gen_type(1) for _ in range(k)]) if k > 1 else self.gen_type(1)
+        return PrimDecl("prim%d" % i, self.pick(["i32_add", "arr_get", "str_len"]), sig,
+                        doc=doc, lead=lead, trailing=trailing)
+
+    def extern_decl(self, i):
+        name = "ext%d" % i
+        impls = [(self.chance(0.3), "js", ["Mod%d" % i, name])]
+        if self.chance(0.3):
+            impls.append((impls[0][0], "c", ["mod_" + name]))
+        sig = ("arrow", [self.gen_type(1), ("con", "Int")])
+        body = None
+        if self.chance(0.3):
+            body = Decl(name, [PVar("x")], self.flat_body(2))
+        doc, lead, trailing = self.geng_decl_trimmings()
+        if body is not None:
+            trailing = None  # a trailing comment on the body would be its own
+        return ExternDecl(name, impls, sig, body=body, doc=doc, lead=lead, trailing=trailing)
+
+    def mk_annot(self, d):
+        inner = self.value(d)
+        typ = self.gen_type(1)
+        broken = multiline(inner) or self.chance(0.4)
+        return Annot(inner, typ, broken=broken)
 
     def type_params(self):
         if not self.chance(0.4):
@@ -2801,8 +3018,10 @@ class Gen:
         last_is_line = variants and variants[-1].trailing is not None \
                        and variants[-1].trailing[0] == "line"
         trailing = None if last_is_line else self.comment()
+        derives = self.rng.sample(["Eq", "Ord", "Inspect"], self.rng.randint(1, 3)) \
+            if self.chance(0.2) else []
         return UnionDecl(name, params, variants, broken=broken, doc=doc,
-                         lead=lead, trailing=trailing)
+                         lead=lead, trailing=trailing, derives=derives)
 
     def infix_decl(self, i):
         assoc = self.pick(["left", "right", "non"])
@@ -2915,12 +3134,20 @@ class Gen:
         decls = []
         for i in range(ndecls):
             r = self.rng.random()
-            if r < 0.65:
+            if r < 0.55:
                 decls.append(self.decl(i))
-            elif r < 0.8:
+            elif r < 0.67:
                 decls.append(self.type_alias(i))
-            else:
+            elif r < 0.8:
                 decls.append(self.union(i))
+            elif r < 0.85:
+                decls.append(self.class_decl(i))
+            elif r < 0.9:
+                decls.append(self.instance_decl(i))
+            elif r < 0.95:
+                decls.append(self.prim_decl(i))
+            else:
+                decls.append(self.extern_decl(i))
         exposing = self.module_exposing(decls)
         hdr = self.header_exposing_comments(exposing)
         return Module(name, imports, decls, infixes=infixes, doc=self.doc_comment(),
@@ -2966,10 +3193,14 @@ class Gen:
             return "(..)"
         items = []
         for d in decls:
+            if isinstance(d, (ClassDecl, InstanceDecl)):
+                continue  # an instance names nothing; a class stays unexported
             if isinstance(d, UnionDecl):
                 items.append(d.name + ("(..)" if self.chance(0.5) else ""))
             else:
                 items.append(d.name)
+        if not items:
+            return "(..)"
         self.rng.shuffle(items)
         return items
 
@@ -2982,7 +3213,7 @@ def generate(seed, max_depth, comment_rate):
 # ───────────────────────────── oracles ────────────────────────────────────
 
 def run_app(args, timeout=60):
-    return subprocess.run(["node", APP] + args, capture_output=True,
+    return subprocess.run([NODE, APP] + args, capture_output=True,
                           text=True, timeout=timeout)
 
 
@@ -2992,7 +3223,7 @@ _REF_APP = None
 
 
 def run_ref_app(args, timeout=60):
-    return subprocess.run(["node", _REF_APP] + args, capture_output=True,
+    return subprocess.run([NODE, _REF_APP] + args, capture_output=True,
                           text=True, timeout=timeout)
 
 
@@ -3821,6 +4052,8 @@ def child_slots(n):
         out.append((n.base, _attr_setter(n, "base")))
     elif isinstance(n, Paren):
         out.append((n.inner, _attr_setter(n, "inner")))
+    elif isinstance(n, Annot):
+        out.append((n.inner, _attr_setter(n, "inner")))
     elif isinstance(n, Call):
         out.append((n.fn, _attr_setter(n, "fn")))
         for i in range(len(n.args)):
@@ -4462,7 +4695,7 @@ def promote(out_root, seed, name, suite_dir):
             os.makedirs(dest, exist_ok=True)
             dirty = os.path.join(dest, name + ".dirty.geng")
             shutil.copy(minf, dirty)
-            r = subprocess.run(["node", APP, "--show", dirty],
+            r = subprocess.run([NODE, APP, "--show", dirty],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 print("WARNING: --show still fails on the promoted case:")
