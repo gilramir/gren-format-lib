@@ -57,7 +57,7 @@ import Formatter.Render.NodeClassify exposing
     , isColonLeaf
     , isEmptyLine
     , isMultilineLambdaParenBlockBox
-    , isTypeRecordLiteral
+    , isDroppingTypeBracket
     , nodeIsComment
     , subtreeEndsWithMultilineBlockComment
     )
@@ -911,7 +911,7 @@ trySoftGlueFlow items =
                         -- item (`} {- c -}`) would otherwise satisfy the
                         -- non-empty-suffix gate and wrongly glue a signature
                         -- segment's dropping record.
-                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) && not (isTypeRecordLiteral soft.node) then
+                        if isSoftGlueLiteral soft && not (Array.isEmpty prefixLines) && not (Array.isEmpty suffixLines) && not (isDroppingTypeBracket soft.node) then
                             let
                                 prefixLine =
                                     B.row (Array.intersperse B.space prefixLines)
@@ -1040,7 +1040,7 @@ pairLeadingComments items =
                                     False
 
                                 Just next ->
-                                    isTypeRecordLiteral next.node
+                                    isDroppingTypeBracket next.node
                                         || ((when at (runLeader i) is
                                                 Just leader ->
                                                     commentDoesNotGlue leader

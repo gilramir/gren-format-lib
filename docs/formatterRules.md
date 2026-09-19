@@ -898,13 +898,22 @@ merge :
 
 A list written on one row stays on one row inside an expanded annotation. An
 annotation that cannot expand -- a class method, an instance head, a `let`
-annotation -- stays on one row, and a list written across rows keeps its rows,
-hanging from where it starts:
+annotation -- stays on one row, and a list written across rows there drops
+below the name at +4 with the rest of the annotation on its `)` row, the way a
+record type written across rows does in a `let` annotation:
 
 ```gren
-instance ( Eq k
-         , Eq v
-         ) => Eq (Pair k v) where
+instance
+    ( Eq k
+    , Eq v
+    ) => Eq (Pair k v) where
+
+
+class Foldable t where
+    fold :
+        ( Eq a
+        , Ord a
+        ) => a -> t -> a
 ```
 
 A `--` after the last constraint stays inside the parentheses, and one after

@@ -11,9 +11,10 @@ instance Eq a => Eq (Array a) where
         True
 
 
-instance ( Eq k
-         , Eq v
-         ) => Eq (Dict k v) where
+instance
+    ( Eq k
+    , Eq v
+    ) => Eq (Dict k v) where
     eq p q =
         True
 

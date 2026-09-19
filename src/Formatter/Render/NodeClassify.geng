@@ -8,6 +8,7 @@ module Formatter.Render.NodeClassify exposing
     , isBareLambdaOperand
     , isColonLeaf
     , isDroppingSignatureRecordNode
+    , isDroppingTypeBracket
     , isEmptyLine
     , isGluedLambdaField
     , isMultilineLambdaParenBlockBox
@@ -507,6 +508,30 @@ isTypeRecordLiteral node =
 
         _ ->
             False
+
+
+{-| A type bracket that drops below its head when it renders across rows: a
+record type, and a constraint context (`( Eq k` ⏎ `, Eq v` ⏎ `)`). Where an
+annotation stays on one row -- a `let` annotation, a class method, an instance
+head -- a context written across rows drops below the name at +4 and the rest
+of the annotation stays on its `)` row, as a record type written across rows
+does there in stock (geng-lang `m1a-fmt.md` §F15, D363). At the top level a
+context always opens its own segment, so it never follows a head there and
+this never applies.
+-}
+isDroppingTypeBracket : RenderNode -> Bool
+isDroppingTypeBracket node =
+    isTypeRecordLiteral node
+        || (when rnShape node is
+                AlwaysVertical (ListParen ParenContext) ->
+                    True
+
+                AllAcrossOrAllVertical (ListParen ParenContext) ->
+                    True
+
+                _ ->
+                    False
+           )
 
 
 {-| True for a node that renders as a multi-line record TYPE — either a plain

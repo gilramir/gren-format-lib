@@ -95,6 +95,7 @@ import Formatter.Render.NodeClassify exposing
     , fieldValueDropsToOwnLine
     , isColonLeaf
     , isDroppingSignatureRecordNode
+    , isDroppingTypeBracket
     , isGluedLambdaField
     , isMultilineLambdaParenBlockBox
     , isOpAndRhsNode
@@ -4055,7 +4056,7 @@ assembleFlowImpl measure flowStart flowIndent items =
         bracketFacts item =
             FP.BracketLiteralItem
                 { forcesVertical = not (isSingleLine item.box)
-                , isTypeRecord = isTypeRecordLiteral item.node
+                , isTypeRecord = isDroppingTypeBracket item.node
                 }
 
         -- Glue a single line onto the last completed row's last line — the
