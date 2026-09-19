@@ -226,6 +226,12 @@ is a **bare** `lambda` / `if` / `when` / `let` (a parenthesized one arrives
 wrapped in a `parens` node, so an unwrapped one cannot have been written), and
 that call's first argument starting on a different row than its `fn` ends on.
 
+*`geng fmt`'s parser cannot build that tree* (geng-lang `m1a-fmt.md` §F19): like
+the Haskell parser, it applies no `if`, `when`, `let` or lambda to an argument.
+A token left of such a block's body is an argument inside it, where D352 holds
+arguments to the enclosing indentation, or it ends the expression, and then the
+file is refused as `geng make` refuses it. The label is retired.
+
 Not seen in practice: a sweep of the 288-file `gren-format-preview/pkgs` corpus
 finds no instance of any of these shapes, because real code indents the
 continuation. Workaround: indent it past the first line of the body.
