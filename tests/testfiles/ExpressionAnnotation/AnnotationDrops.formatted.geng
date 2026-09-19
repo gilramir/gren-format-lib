@@ -1,4 +1,4 @@
-module AnnotationDrops exposing (f, g, h, i, j, m, o, p, q, r, s, t, u)
+module AnnotationDrops exposing (f, g, h, i, j, m, o, p, q, r, s, t, u, v, w)
 
 
 f =
@@ -23,7 +23,7 @@ i =
 
      else
         2
-        : Int
+     : Int
     )
 
 
@@ -33,7 +33,7 @@ j =
 
      else
         2
-        : Int
+     : Int
     )
 
 
@@ -51,7 +51,7 @@ o =
 
         B ->
             2
-        : Int
+     : Int
     )
 
 
@@ -61,7 +61,7 @@ p =
             1
      in
      y
-        : Int
+     : Int
     )
 
 
@@ -113,4 +113,29 @@ u =
 h =
     (grow
         : { r | x : Int } -> Int
+    )
+
+
+v =
+    foo
+        (if x then
+            1
+
+         else
+            2
+         : Int
+        )
+        bar
+
+
+w =
+    (when x is
+        A ->
+            r
+
+        B ->
+            r
+     : { x : Int
+       , y : Int
+       }
     )

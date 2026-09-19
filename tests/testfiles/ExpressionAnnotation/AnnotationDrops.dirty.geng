@@ -1,4 +1,4 @@
-module AnnotationDrops exposing (f, g, h, i, j, m, o, p, q, r, s, t, u)
+module AnnotationDrops exposing (f, g, h, i, j, m, o, p, q, r, s, t, u, v, w)
 
 
 f = ({ x = 1
@@ -58,3 +58,12 @@ u = (Dict.empty : Dict String
 h = (grow : { r
             | x : Int
             } -> Int)
+
+
+v = foo (if x then 1 else 2 : Int) bar
+
+
+w = (when x is
+        A -> r
+        B -> r : { x : Int
+                 , y : Int })

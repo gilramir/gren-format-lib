@@ -3324,9 +3324,9 @@ makeParenBlockBoxWithParts flags children =
                     -- The comments stack below the `when` and the paren wrap then
                     -- places them at `(`+1, beside where a comment already sitting
                     -- before the `)` renders. The one other sibling is the
-                    -- `: T` of an annotated `when` (D358), an `IndentedBlock`
-                    -- that goes a tab stop in, where an annotated `if` or `let`
-                    -- puts it. Anything else has no meaning here and is an
+                    -- `: T` of an annotated `when` (D358), a `BodyBlock` in the
+                    -- `when`'s own column, where an annotated `if` or `let`
+                    -- puts it too (D365). Anything else has no meaning here and is an
                     -- `Err` rather than a second silent drop.
                     let
                         trailingBox node =
@@ -3338,6 +3338,10 @@ makeParenBlockBoxWithParts flags children =
                                     IndentedBlock ->
                                         makePBox (rnShape node) (rnChildren node)
                                             |> Result.map B.indent
+
+                                    -- D365 puts it in the `when`'s own column.
+                                    BodyBlock ->
+                                        makePBox (rnShape node) (rnChildren node)
 
                                     _ ->
                                         Err "box: paren `when` followed by a non-comment sibling"

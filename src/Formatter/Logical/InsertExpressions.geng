@@ -524,31 +524,63 @@ insertAnnotated { expression, annotation } =
                                     (expression.start.row /= annotation.end.row)
                                         || exprAlwaysBreaks expression
                             in
-                            if drops && startsWithRecordType typeNodes then
-                                -- D364: a type that starts with a record glues it
-                                -- to the colon, `: { x : Int` with the record's
-                                -- rows under its `{`, rather than dropping it
-                                -- below a colon left alone on its row.
+                            if drops then
                                 let
-                                    colonPrefix =
-                                        lpnNode
-                                            (PrefixGlue
-                                                { start = annotation.start
-                                                , end = annotation.start
-                                                , value = PrefixAnnotationColon
-                                                }
-                                            )
-                                            typeNodes
-                                in
-                                exprNodes ++ [ lpnNode IndentedBlock [ colonPrefix ] ]
+                                    -- D364: a type that starts with a record
+                                    -- glues it to the colon, `: { x : Int` with
+                                    -- the record's rows under its `{`, rather
+                                    -- than dropping it below a colon left alone
+                                    -- on its row.
+                                    content =
+                                        if startsWithRecordType typeNodes then
+                                            lpnNode
+                                                (PrefixGlue
+                                                    { start = annotation.start
+                                                    , end = annotation.start
+                                                    , value = PrefixAnnotationColon
+                                                    }
+                                                )
+                                                typeNodes
 
-                            else if drops then
-                                exprNodes ++ [ lpnNode IndentedBlock [ plainAcross ([ colonNode ] ++ typeNodes) ] ]
+                                        else
+                                            plainAcross ([ colonNode ] ++ typeNodes)
+
+                                    -- D365: after an `if`, `when` or `let` the
+                                    -- colon goes in the keyword's column, where
+                                    -- `else` and `in` sit, since +4 is a branch
+                                    -- body's column after an `if` and a
+                                    -- pattern's after a `when`. A `BodyBlock` is
+                                    -- a new row with no step in.
+                                    block =
+                                        if isBlockExpression expression then
+                                            BodyBlock
+
+                                        else
+                                            IndentedBlock
+                                in
+                                exprNodes ++ [ lpnNode block [ content ] ]
 
                             else
                                 [ plainAcross (exprNodes ++ [ colonNode ] ++ typeNodes) ]
                         )
             )
+
+
+{-| An `if`, `when` or `let` written directly as the annotated expression. -}
+isBlockExpression : Src.Expression -> Bool
+isBlockExpression expr =
+    when expr.value is
+        Src.If _ ->
+            True
+
+        Src.When _ ->
+            True
+
+        Src.Let _ ->
+            True
+
+        _ ->
+            False
 
 
 {-| Whether a type's first node is a record type, `{ x : Int }` or

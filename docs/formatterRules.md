@@ -991,6 +991,20 @@ layout anyway:
 )
 ```
 
+After an `if`, `when` or `let`, the colon goes in the keyword's column, where
+`else` and `in` sit, rather than at +4, where it would read as part of the last
+branch:
+
+```gren
+(if ready then
+    1
+
+ else
+    2
+ : Int
+)
+```
+
 A type that starts with a record glues the record to the colon, with the
 record's rows under its `{`; a type that starts with a name keeps the name on
 the colon's row, and a record after it drops as an argument does:
