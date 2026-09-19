@@ -1,0 +1,23 @@
+module DeriveAuthorBreaks exposing (A, B, C, D)
+
+
+@derive(Eq, Ord, Inspect)
+type A
+    = A Int
+
+
+@derive(Eq, Ord)
+type B
+    = B Int
+    | C
+
+
+{-| Documented. -}
+@derive(Eq)
+type C
+    = C1 | C2
+
+
+@derive(Eq, Ord)
+type D
+    = D Int

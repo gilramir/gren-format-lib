@@ -1,0 +1,29 @@
+module ClassBodyComments exposing (x)
+
+
+class Eq a where -- after where
+    eq : a -> a -> Bool -- trails eq
+    {- between -}
+    ne : a -> {- inside -} a -> Bool
+
+
+class Show a where
+    -- leads show
+    show : a -> String
+
+
+instance Eq Int where
+    -- leads eq
+    eq p q =
+        True -- trails a body
+
+    -- leads ne
+    ne p q =
+        False
+
+
+class Marker a -- beside a class with no body
+
+
+x : Int
+x = 1

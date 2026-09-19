@@ -93,6 +93,21 @@ Writing it found six such claims, three of them one day old. Nothing else goes
 in this directory; `check-divergence-index.py` (run by `run-tests.sh`) fails if
 the mapping stops being 1:1 in either direction.
 
+**Geng's syntax reaches exactly one gate.** `Classes/`, `Attributes/` and
+`ExpressionAnnotation/` hold constructs stock Gren does not have — classes and
+instances, constraint contexts, `@derive` / `@prim` / `@extern` /
+`@capability`, and `(e : T)` — and every python gate below shells out to the
+stock-built `../gren-format/app`, which cannot parse them. What holds these
+pairs is geng-lang's `harness/fmt.py -f fixtures/`, which formats each with
+`geng fmt`. The comment axis the fuzzers give the rest of the corpus was swept
+for them by hand on 2026-09-19: a `{- -}` and a `--` in each of 1,098
+inter-token gaps of probes written for every construct, formatted with `geng
+fmt` and, where it formatted, compiled with the Haskell front end as well. It
+found 22 gaps the grammar refuses (between `@` and an attribute's name) and
+more than two hundred failures, a refusal to format, output that did not parse
+or a second format that moved something, all fixed with the fixtures above
+pinning them. Nothing re-runs that sweep yet.
+
 Every fixture, in any directory, is asserted with `assertPrettyIn fsPerm "<dir>"`.
 Every check is identical regardless of which suite directory it lives in.
 

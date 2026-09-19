@@ -19,6 +19,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , RecordKind(..)
     , SyntaxType(..)
     , prefixGlyph
+    , roleGlues
     , spanTrailingOwnLine
     )
 import Formatter.Render.BackwardPipeline as BP
@@ -204,19 +205,11 @@ makeDeclBodyBox node stype children =
             -- of its own keeps the attribute inside the declaration's single
             -- `OriginalRows`, which is what makes `VerticalSpace` treat the two
             -- as one unit and put no blank line between them.
-            let
-                peeled =
-                    peelAttribute children
-            in
-            renderHeaderIndentedBody makeUnionBodyBox peeled.rest
-                |> Result.map
-                    (\declBox ->
-                        when peeled.attribute is
-                            Just text ->
-                                B.stack1 [ B.line (B.literal text), declBox ]
-
-                            Nothing ->
-                                declBox
+            peelAttributeRows children
+                |> Result.andThen
+                    (\peeled ->
+                        renderHeaderIndentedBody makeUnionBodyBox peeled.rest
+                            |> Result.map (\declBox -> B.stack1 (Array.pushLast declBox peeled.rows))
                     )
 
         StClass ->
@@ -228,10 +221,10 @@ makeDeclBodyBox node stype children =
             -- is has to be structural, because `renderHeaderIndentedBody` pops
             -- the LAST child as the body: with nothing to pop it would take the
             -- class variable for a body and render `class Num`, which is a
-            -- different declaration. The body is the only child that is not a
-            -- text leaf, so a last child that is one means there is no body.
-            if lastChildIsLeaf children then
-                buildFlowBox 0 children
+            -- different declaration. The body is the only block among the
+            -- children, so a class with none has no body.
+            if hasNoBodyBlock children then
+                renderHeader children
 
             else
                 renderHeaderIndentedBody (buildBlockBody False) children
@@ -642,7 +635,15 @@ makeOpAndRhsBox children =
 
 
 {-| Header + indented body: `type alias Name =` / body, `type Name` / variants —
-header inline, body dropped +4 (elm-format). -}
+header inline, body dropped +4 (elm-format).
+
+The header is one row unless a `--` in it forces a continuation, and that row
+goes in +4, as a signature's does. At 0 it started in column 1, where every
+parser but `compiler-common`'s reads a new declaration: `type Foo -- c` over a
+column-1 `a` is an unfinished custom type to the compiler, so formatting broke
+a file that built. A comment on a row of its own ahead of the keyword is not
+part of that flow: it is a row above the header, and the keyword starts the
+header's own first row in column 1. -}
 renderHeaderIndentedBody : (RenderNode -> Result String Box) -> Array RenderNode -> Result String Box
 renderHeaderIndentedBody bodyRenderer children =
     when Array.popLast children is
@@ -650,12 +651,23 @@ renderHeaderIndentedBody bodyRenderer children =
             Err "box: empty declaration"
 
         Just { initial = header, last = bodyBlock } ->
-            buildFlowBox 0 header
+            renderHeader header
                 |> Result.andThen
                     (\headerBox ->
                         bodyRenderer bodyBlock
                             |> Result.map (\bodyBox -> B.stack1 [ headerBox, B.indent bodyBox ])
                     )
+
+
+{-| A declaration's header, `renderHeaderIndentedBody` says how. -}
+renderHeader : Array RenderNode -> Result String Box
+renderHeader header =
+    peelLeadingRows { requireAttribute = False } header
+        |> Result.andThen
+            (\peeled ->
+                buildFlowBox grenIndent peeled.rest
+                    |> Result.map (\headerBox -> B.stack1 (Array.pushLast headerBox peeled.rows))
+            )
 
 
 -- A type-alias body: a single type node (record, or a plain `= Int`-style
@@ -665,61 +677,127 @@ renderHeaderIndentedBody bodyRenderer children =
 -- first segment to, every segment (including the first) sits at the SAME
 -- column, since `renderHeaderIndentedBody` already supplies the body's one
 -- +4 from `type alias Foo =`.
-{-| Whether a declaration's last child is a text leaf rather than a block.
+{-| Whether a declaration has no body block at all.
 
 `renderHeaderIndentedBody` splits header from body by popping the last child, so
-this is how a declaration says it has no body at all.
+this is how a declaration says it has no body. It asks whether any child is a
+block rather than whether the last one is a leaf: a comment trailing a body-less
+`class Marker a` is the last child and is not a leaf, and popping it as the body
+dropped it.
 -}
-lastChildIsLeaf : Array RenderNode -> Bool
-lastChildIsLeaf children =
-    when Array.last children is
-        Just node ->
+hasNoBodyBlock : Array RenderNode -> Bool
+hasNoBodyBlock children =
+    not
+        (Array.any
+            (\node ->
+                when rnShape node is
+                    IndentedBlock ->
+                        True
+
+                    _ ->
+                        False
+            )
+            children
+        )
+
+
+{-| Split the attribute rows off the front of a declaration's children: every
+`@derive(...)`, `@prim(...)` and `@extern(...)` leaf, and the comments among
+them, each rendered as the row it becomes. An attribute is the only leaf that
+can start with `@`, so the test is the glyph.
+
+The attribute is one unbreakable leaf, so a comment the author wrote inside its
+parentheses has nowhere inside it to go. `Comments` places it just ahead of the
+leaf, leading its line, and it renders on a row of its own above the attribute;
+one written after the attribute on its row glues onto that row, as it would
+onto any other; one on a row between the attributes and the declaration stays
+there. The comments are only peeled with an attribute: a declaration with none
+comes back untouched, for its own renderer to place its comments.
+-}
+peelAttributeRows : Array RenderNode -> Result String { rows : Array Box, rest : Array RenderNode }
+peelAttributeRows children =
+    peelLeadingRows { requireAttribute = True } children
+
+
+{-| The rows in front of a declaration's own first token: its attributes and the
+comments among and before them, each rendered as the row it becomes.
+`requireAttribute` says whether comments alone are peeled; `peelAttributeRows`
+says why it does not peel them.
+-}
+peelLeadingRows : { requireAttribute : Bool } -> Array RenderNode -> Result String { rows : Array Box, rest : Array RenderNode }
+peelLeadingRows { requireAttribute } children =
+    let
+        attributeText node =
             when leafValue node is
-                Just _ ->
-                    True
-
-                Nothing ->
-                    False
-
-        Nothing ->
-            False
-
-
-{-| Split a leading `@derive(...)` leaf off a declaration's children. An
-attribute is the only leaf that can start with `@`, so the test is the glyph.
--}
-peelAttribute : Array RenderNode -> { attribute : Maybe String, rest : Array RenderNode }
-peelAttribute children =
-    when Array.popFirst children is
-        Just { first = firstNode, rest = restNodes } ->
-            when leafValue firstNode is
                 Just text ->
                     if String.startsWith "@" text then
-                        { attribute = Just text, rest = restNodes }
+                        Just text
 
                     else
-                        { attribute = Nothing, rest = children }
+                        Nothing
 
                 Nothing ->
-                    { attribute = Nothing, rest = children }
+                    Nothing
 
-        Nothing ->
-            { attribute = Nothing, rest = children }
+        prefixLength =
+            (Array.foldl
+                (\node acc ->
+                    if acc.done then
+                        acc
 
+                    else if nodeIsComment node || attributeText node /= Nothing then
+                        { acc | length = acc.length + 1 }
 
-{-| Every leading attribute leaf, in order, and the children after them. -}
-peelAttributes : Array RenderNode -> Array String -> { attributes : Array String, rest : Array RenderNode }
-peelAttributes children attributes =
-    let
-        peeled =
-            peelAttribute children
+                    else
+                        { acc | done = True }
+                )
+                { length = 0, done = False }
+                children
+            ).length
+
+        prefix =
+            Array.takeFirst prefixLength children
     in
-    when peeled.attribute is
-        Just text ->
-            peelAttributes peeled.rest (Array.pushLast text attributes)
+    if requireAttribute && not (Array.any (\node -> attributeText node /= Nothing) prefix) then
+        Ok { rows = [], rest = children }
 
-        Nothing ->
-            { attributes = attributes, rest = children }
+    else
+        Array.foldl
+            (\node accR ->
+                accR
+                    |> Result.andThen
+                        (\rows ->
+                            when attributeText node is
+                                Just text ->
+                                    Ok (Array.pushLast (B.line (B.literal text)) rows)
+
+                                Nothing ->
+                                    let
+                                        ownRow _ =
+                                            commentNodeBox node
+                                                |> Result.map (\box -> Array.pushLast box rows)
+
+                                        glues =
+                                            commentRole (rnShape node)
+                                                |> Maybe.map roleGlues
+                                                |> Maybe.withDefault False
+                                    in
+                                    if glues then
+                                        when Array.popLast rows is
+                                            Just { last, initial } ->
+                                                glueTrailingComments last [ node ]
+                                                    |> Result.map (\glued -> Array.pushLast glued initial)
+
+                                            Nothing ->
+                                                ownRow {}
+
+                                    else
+                                        ownRow {}
+                        )
+            )
+            (Ok [])
+            prefix
+            |> Result.map (\rows -> { rows = rows, rest = Array.dropFirst prefixLength children })
 
 
 {-| A `class` / `instance` body: one member per line, always.
@@ -736,17 +814,69 @@ class's members are annotations and pack like a union's variants, an instance's
 members are definitions with bodies and get one blank line between them like
 `let` bindings — always one, written or not, which is `VerticalSpace`'s rule
 for `let` said in a second place because these members are not a flow it walks.
+
+A comment the author wrote between members is a child of the block beside
+them, not of a member, and its stored role says where it goes. One that leads
+its line stacks directly above the member after it, as a comment above a `let`
+binding does, so the blank line an instance puts between members goes above the
+comment and not between it and what it describes. One that trails the member
+before it glues onto that member's last line. One after the last member stays
+below it.
 -}
 buildBlockBody : Bool -> RenderNode -> Result String Box
 buildBlockBody spaced bodyNode =
-    traverseResult (\member -> buildFlowBox grenIndent (rnChildren member)) (rnChildren bodyNode)
+    Array.foldl
+        (\child accR ->
+            accR
+                |> Result.andThen
+                    (\acc ->
+                        if nodeIsComment child then
+                            if commentRole (rnShape child) |> Maybe.map roleGlues |> Maybe.withDefault False then
+                                    when Array.popLast acc.groups is
+                                        Just { last, initial } ->
+                                            glueTrailingComments last [ child ]
+                                                |> Result.map (\glued -> { acc | groups = Array.pushLast glued initial })
+
+                                        Nothing ->
+                                            commentNodeBox child
+                                                |> Result.map (\box -> { acc | leading = Array.pushLast box acc.leading })
+
+                            else
+                                    commentNodeBox child
+                                        |> Result.map (\box -> { acc | leading = Array.pushLast box acc.leading })
+
+                        else
+                            buildFlowBox grenIndent (rnChildren child)
+                                |> Result.map
+                                    (\memberBox ->
+                                        { groups = Array.pushLast (B.stack1 (Array.pushLast memberBox acc.leading)) acc.groups
+                                        , leading = []
+                                        }
+                                    )
+                    )
+        )
+        (Ok { groups = [], leading = [] })
+        (rnChildren bodyNode)
         |> Result.map
-            (\memberBoxes ->
+            (\acc ->
+                let
+                    groups =
+                        if Array.isEmpty acc.leading then
+                            acc.groups
+
+                        else
+                            when Array.popLast acc.groups is
+                                Just { last, initial } ->
+                                    Array.pushLast (B.stack1 (Array.pushFirst last acc.leading)) initial
+
+                                Nothing ->
+                                    [ B.stack1 acc.leading ]
+                in
                 if spaced then
-                    B.stack1 (Array.intersperse B.blankLine memberBoxes)
+                    B.stack1 (Array.intersperse B.blankLine groups)
 
                 else
-                    B.stack1 memberBoxes
+                    B.stack1 groups
             )
 
 
@@ -3192,8 +3322,25 @@ makeParenBlockBoxWithParts flags children =
                     -- only the fuzzer's marker count can see it.
                     -- The comments stack below the `when` and the paren wrap then
                     -- places them at `(`+1, beside where a comment already sitting
-                    -- before the `)` renders. A non-comment sibling has no meaning
-                    -- here and is an `Err` rather than a second silent drop.
+                    -- before the `)` renders. The one other sibling is the
+                    -- `: T` of an annotated `when` (D358), an `IndentedBlock`
+                    -- that goes a tab stop in, where an annotated `if` or `let`
+                    -- puts it. Anything else has no meaning here and is an
+                    -- `Err` rather than a second silent drop.
+                    let
+                        trailingBox node =
+                            if nodeIsComment node then
+                                commentNodeBox node
+
+                            else
+                                when rnShape node is
+                                    IndentedBlock ->
+                                        makePBox (rnShape node) (rnChildren node)
+                                            |> Result.map B.indent
+
+                                    _ ->
+                                        Err "box: paren `when` followed by a non-comment sibling"
+                    in
                     when Array.dropFirst 1 children is
                         [] ->
                             makePBox (rnShape first) (rnChildren first)
@@ -3201,18 +3348,14 @@ makeParenBlockBoxWithParts flags children =
                                 |> noParts
 
                         trailing ->
-                            if Array.all nodeIsComment trailing then
-                                Result.map2
-                                    (\whenBox commentBoxes ->
-                                        wrapParenVerticalPadded
-                                            (B.stack1 (Array.pushFirst whenBox commentBoxes))
-                                    )
-                                    (makePBox (rnShape first) (rnChildren first))
-                                    (traverseResult commentNodeBox trailing)
-                                    |> noParts
-
-                            else
-                                Err "box: paren `when` followed by a non-comment sibling"
+                            Result.map2
+                                (\whenBox trailingBoxes ->
+                                    wrapParenVerticalPadded
+                                        (B.stack1 (Array.pushFirst whenBox trailingBoxes))
+                                )
+                                (makePBox (rnShape first) (rnChildren first))
+                                (traverseResult trailingBox trailing)
+                                |> noParts
 
                 IfCondition _ ->
                     noParts (blockInParenBox children)
@@ -4646,16 +4789,9 @@ leading attribute is peeled. What is left is a signature and nothing else.
 -}
 renderAttributedSignature : RenderNode -> Array RenderNode -> Result String Box
 renderAttributedSignature node children =
-    let
-        peeled =
-            peelAttributes children []
-    in
-    makeSignatureBox (rnTypeSegmentsBroken node) peeled.rest
-        |> Result.map
-            (\declBox ->
-                if Array.isEmpty peeled.attributes then
-                    declBox
-
-                else
-                    B.stack1 (Array.map (\text -> B.line (B.literal text)) peeled.attributes ++ [ declBox ])
+    peelAttributeRows children
+        |> Result.andThen
+            (\peeled ->
+                makeSignatureBox (rnTypeSegmentsBroken node) peeled.rest
+                    |> Result.map (\declBox -> B.stack1 (Array.pushLast declBox peeled.rows))
             )

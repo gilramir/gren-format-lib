@@ -1,0 +1,28 @@
+module ClassAuthorBreaks exposing (x)
+
+
+class Eq a where
+    eq : a -> a -> Bool
+
+
+class Show a where
+    show : a -> String
+    showList : Array a -> String
+
+
+class Container f where
+    empty : f
+    insert : Ord a => a -> f -> f
+    fold : (a -> b -> b) -> b -> f -> b
+
+
+class Marker a
+
+
+class Num a where
+    eq : a -> a -> Bool
+
+
+x : Int
+x =
+    1

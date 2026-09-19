@@ -1,0 +1,33 @@
+module AttributeComments exposing (T, add, both, grant, now, sub)
+
+
+{- inside the parentheses -}
+@prim("i32_add")
+add : Int -> Int -> Int
+
+
+@prim("i32_sub") -- after the attribute
+sub : Int -> Int -> Int
+
+
+@extern(js, "A", "now") {- after the first row -}
+{- inside the second -}
+@extern(c, "a_now")
+now : Int -> Task x Int
+
+
+@extern(js, "B", "both")
+-- between the attribute and the annotation
+both : Int -> Task x Int
+
+
+{- inside -}
+@derive(Eq, Ord) -- after
+type T
+    = T
+
+
+@capability -- after
+grant : Task x Permission
+grant =
+    Task.succeed Permission

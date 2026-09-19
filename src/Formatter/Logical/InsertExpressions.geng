@@ -486,7 +486,17 @@ expression ends, so a comment written after the colon sorts after it.
 
 The author's rows decide the layout, as they do for a lambda's body: a type
 written on a later row than the expression ends on drops to its own indented
-line, colon first, the way a broken binop chain puts its operator first. -}
+line, colon first, the way a broken binop chain puts its operator first.
+
+So the colon stays on the expression's row only when all of `e : T` was
+written on one row and renders on one. Anything else drops, and the dropped
+layout is the fixed point, since its type is always on a row after the
+expression's. Keeping the colon inline was tried for the other shapes and does
+not survive its own output: a type written across rows renders below the colon,
+which the reparse reads as a type on a later row; an `if`, `when` or `let`
+breaks open, and the colon after its last branch landed on a row of its own;
+and after a call or a `|>` chain written across rows, `bar : Int` reads as
+annotating the last argument rather than the whole expression. -}
 insertAnnotated : { expression : Src.Expression, annotation : Src.Type } -> Result String (Array LPNode)
 insertAnnotated { expression, annotation } =
     insertExpression expression
@@ -496,10 +506,25 @@ insertAnnotated { expression, annotation } =
                     |> Result.map
                         (\typeNodes ->
                             let
+                                -- Anchored where the colon renders. Inline, that
+                                -- is where the expression ends, so a comment
+                                -- written after the colon sorts after it.
+                                -- Dropped, it leads the type's row: anchored at
+                                -- the expression's end, a `--` after the
+                                -- expression sorted after the colon, rendered on
+                                -- the type's row, and read back there moved again.
                                 colonNode =
-                                    lpnLeaf (mkZeroWidthText expression.end ":")
+                                    if drops then
+                                        lpnLeaf (mkZeroWidthText annotation.start ":")
+
+                                    else
+                                        lpnLeaf (mkZeroWidthText expression.end ":")
+
+                                drops =
+                                    (expression.start.row /= annotation.end.row)
+                                        || exprAlwaysBreaks expression
                             in
-                            if annotation.start.row /= expression.end.row then
+                            if drops then
                                 exprNodes ++ [ lpnNode IndentedBlock [ plainAcross ([ colonNode ] ++ typeNodes) ] ]
 
                             else

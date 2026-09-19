@@ -23,6 +23,11 @@ main README; for how the formatter arrives at these decisions internally, see
 - [Type aliases](#type-aliases)
 - [Custom types](#custom-types)
 - [Infix operator declarations](#infix-operator-declarations)
+- [Geng's declarations and annotations](#gengs-declarations-and-annotations)
+  - [Constraint contexts](#constraint-contexts)
+  - [Classes and instances](#classes-and-instances)
+  - [Attributes](#attributes)
+  - [Expression annotations](#expression-annotations)
 - [Records](#records)
   - [Record values](#record-values)
   - [Record updates](#record-updates)
@@ -865,6 +870,120 @@ An `infix` declaration is always written on one line:
 ```gren
 infix right 5 (++) = append
 ```
+
+---
+
+## Geng's declarations and annotations
+
+What the fork adds to the language, each held by a suite of its own under
+`tests/testfiles/` (`Classes/`, `Attributes/`, `ExpressionAnnotation/`). Those
+pairs are Geng source, so the stock-built CLI the python gates drive cannot
+read them; geng-lang's `harness/fmt.py` holds them to `geng fmt`.
+
+### Constraint contexts
+
+A context is a segment of the signature, and `=>` is laid out as `->` is. One
+constraint never keeps redundant parentheses; two or more always have them. A
+top-level annotation the author broke anywhere, inside the context or after
+it, expands with `=>` in the arrow column:
+
+```gren
+merge :
+    ( Ord k
+    , Eq v
+    )
+    => Dict k v
+    -> Dict k v
+```
+
+A list written on one row stays on one row inside an expanded annotation. An
+annotation that cannot expand -- a class method, an instance head, a `let`
+annotation -- stays on one row, and a list written across rows keeps its rows,
+hanging from where it starts:
+
+```gren
+instance ( Eq k
+         , Eq v
+         ) => Eq (Pair k v) where
+```
+
+A `--` after the last constraint stays inside the parentheses, and one after
+the context stays beside it rather than moving past the `=>`.
+
+### Classes and instances
+
+The head is one row, `class Name a where` or `instance Context => Head where`,
+however the author spread it, with the members one per line below at +4. A
+class's members are annotations and pack; an instance's are definitions and
+take one blank line between them, as `let` bindings do. A class method's
+annotation is flattened, as a `let` annotation is. A class with no methods is
+the head alone, with no `where`.
+
+```gren
+class Eq a where
+    eq : a -> a -> Bool
+    ne : a -> a -> Bool
+
+
+instance Eq a => Eq (Array a) where
+    eq p q =
+        True
+
+    ne p q =
+        False
+```
+
+A comment on its own row in a body stacks directly above the member after it,
+so the blank line between instance members goes above the comment. One after a
+member on its row stays there, a `{- -}` included. A `--` inside a head puts
+the rest of the head on a continuation row at +4, never in column 1, where
+every parser but `compiler-common`'s reads a new declaration. `type` and
+`type alias` heads do the same.
+
+### Attributes
+
+`@derive(...)`, `@prim("...")`, each `@extern(...)` / `@externPure(...)` row
+and `@capability` is a row of its own directly above the declaration it
+belongs to, with no blank line between, and comes back on one row with the
+spacing normalized whatever rows the author gave its parentheses:
+
+```gren
+@extern(js, "Time", "now")
+@extern(c, "geng_time_now")
+now : Task x Int
+```
+
+An attribute is one unbreakable token, so a comment written inside its
+parentheses has nowhere inside it to go: it renders on a row of its own above
+the attribute. A comment after an attribute on its row stays there, and one on
+a row between the attributes and the annotation stays between them.
+
+### Expression annotations
+
+`(e : T)` is laid out as a signature lays out `name : Type`. Written whole on
+one row, it stays on that row, in any position:
+
+```gren
+foo (1 : Int8) [ (1 : UInt8), (2 : UInt8) ]
+```
+
+Anything else drops the type to its own line at +4, colon first: an annotation
+the author broke before or after the colon, a type written across rows, an
+expression written across rows, and an `if`, `when` or `let`, which always
+breaks open. After those, a colon left on the expression's last row read as
+annotating the last operand or branch, and the reparse chose the dropped
+layout anyway:
+
+```gren
+(x
+    |> f
+    |> g
+    : Int
+)
+```
+
+A `)` the author wrote on a row of its own stays there, as for any
+parenthesized expression.
 
 ---
 

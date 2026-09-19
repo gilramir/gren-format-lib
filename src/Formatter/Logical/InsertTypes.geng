@@ -43,22 +43,22 @@ the list ends.
 makeAnnotationBranch : Src.Annotation -> Result String (Array LPNode)
 makeAnnotationBranch ann =
     makeSignatureBranch ann.type_
-        |> Result.map (\typeNodes -> makeContextNodes ann.constraints ++ typeNodes)
+        |> Result.map (\typeNodes -> makeContextNodes ann.type_.start ann.constraints ++ typeNodes)
 
 
-makeContextNodes : Array Src.Constraint -> Array LPNode
-makeContextNodes constraints =
+makeContextNodes : { row : Int, col : Int } -> Array Src.Constraint -> Array LPNode
+makeContextNodes typeStart constraints =
     when Array.popFirst constraints is
         Nothing ->
             []
 
         Just { first = firstConstraint, rest = others } ->
             let
-                arrowNode =
-                    lpnLeaf (mkZeroWidthText (lastConstraintEnd firstConstraint others) "=>")
+                arrowAt at =
+                    lpnLeaf (mkZeroWidthText at "=>")
             in
             if Array.isEmpty others then
-                constraintNodes firstConstraint ++ [ arrowNode ]
+                constraintNodes firstConstraint ++ [ arrowAt (lastConstraintEnd firstConstraint others) ]
 
             else
                 let
@@ -82,10 +82,30 @@ makeContextNodes constraints =
 
                     items =
                         Array.map (\c -> plainAcross (constraintNodes c)) constraints
+
+                    -- The parser records no position for the `)`. On one row it
+                    -- is taken to close where the last constraint ends. Across
+                    -- rows it renders on a row of its own below the last
+                    -- constraint, and it is taken to close there, with the `=>`
+                    -- after it: closed where the last constraint ends, a `--`
+                    -- written after that constraint fell outside the list,
+                    -- rendered after the `)`, and moved again on the reparse.
+                    -- Never past where the type starts, though: `Ord y) => x`
+                    -- on one row put the close on the definition's row below,
+                    -- and the signature took that row's comments.
+                    lastEnd =
+                        lastConstraintEnd firstConstraint others
+
+                    close =
+                        if multiLine && typeStart.row > lastEnd.row then
+                            { row = lastEnd.row + 1, col = 1 }
+
+                        else
+                            lastEnd
                 in
-                [ lpnBracketNode shape (lastConstraintEnd firstConstraint others) items
+                [ lpnBracketNode shape close items
                     |> lpnWithBracketStart firstConstraint.class.start
-                , arrowNode
+                , arrowAt close
                 ]
 
 

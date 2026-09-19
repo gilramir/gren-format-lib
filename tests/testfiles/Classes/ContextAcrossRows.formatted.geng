@@ -1,0 +1,31 @@
+module ContextAcrossRows exposing (f, x)
+
+
+class Foldable t where
+    fold : ( Eq a
+           , Ord a
+           ) => a -> t -> a
+
+
+instance ( Eq k
+         , Eq v
+         ) => Eq (Pair k v) where
+    eq p q =
+        True
+
+
+f : Int -> Int
+f n =
+    let
+        g : ( Eq q
+            , Ord q
+            ) => q -> Bool
+        g _ =
+            True
+    in
+    n
+
+
+x : Int
+x =
+    1

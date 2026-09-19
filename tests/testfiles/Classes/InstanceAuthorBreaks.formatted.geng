@@ -1,0 +1,43 @@
+module InstanceAuthorBreaks exposing (x)
+
+
+instance Eq Path where
+    eq p q =
+        True
+
+
+instance Eq a => Eq (Array a) where
+    eq p q =
+        True
+
+
+instance ( Eq k
+         , Eq v
+         ) => Eq (Dict k v) where
+    eq p q =
+        True
+
+    ne p q =
+        False
+
+
+instance Show Int where
+    eq p q =
+        True
+
+
+instance Show (Pair
+                a
+                b
+              ) where
+    show p =
+        let
+            r =
+                "pair"
+        in
+        r
+
+
+x : Int
+x =
+    1

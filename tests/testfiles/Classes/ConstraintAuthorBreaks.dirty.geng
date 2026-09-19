@@ -1,0 +1,35 @@
+module ConstraintAuthorBreaks exposing (a, b, c, d, e, f)
+
+
+a : Eq x =>
+    x -> Bool
+a _ = True
+
+
+b : Eq x
+    => x -> Bool
+b _ = True
+
+
+c : (Eq x,
+    Ord y) => x -> y -> Bool
+c _ _ = True
+
+
+d :
+    Eq x => x -> Bool
+d _ = True
+
+
+e : ( Eq x ) => x -> Bool
+e _ = True
+
+
+f : Int -> Int
+f n =
+    let
+        g : (Eq q, Ord q)
+            => q -> Bool
+        g _ = True
+    in
+    n

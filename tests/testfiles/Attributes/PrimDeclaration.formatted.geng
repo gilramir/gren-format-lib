@@ -1,0 +1,25 @@
+module PrimDeclaration exposing (add, len, mul, neg, sub)
+
+
+@prim("i32_add")
+add : Int -> Int -> Int
+
+
+@prim("i32_sub")
+sub : Int -> Int -> Int
+
+
+@prim("i32_mul")
+mul :
+    Int
+    -> Int
+    -> Int
+
+
+{-| Documented. -}
+@prim("arr_length")
+len : Array a -> Int
+
+
+@prim("i32_neg")
+neg : Int -> Int

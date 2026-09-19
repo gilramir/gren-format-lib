@@ -29,6 +29,8 @@ suites fsPerm =
     , recordUpdatesSuite fsPerm
     , declarationSuite fsPerm
     , classesSuite fsPerm
+    , attributesSuite fsPerm
+    , expressionAnnotationSuite fsPerm
     , headerCommentsSuite fsPerm
     , pipelineCommentsSuite fsPerm
     , patternCommentsSuite fsPerm
@@ -557,6 +559,7 @@ patternsAndLiteralsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternsAndLiterals" "string escape sequences preserved" "StringEscapes"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "non-printable ASCII in strings escaped as \\u{XXXX}" "NonPrintableEscapes"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "an invisible code point keeps its \\u{XXXX} escape in a string and a char alike, while a printable one is written as itself" "InvisibleCharacters"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "an integer literal past 2^53, decimal or hex, in an expression or a pattern, comes back as written" "LargeIntegerLiterals"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "string and char escape sequences in when patterns" "StringAndCharPatterns"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "multiline (triple-quoted) strings preserved" "MultilineString"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "lambda with record and array destructure patterns" "LambdaPatterns"
@@ -674,6 +677,54 @@ classesSuite fsPerm =
             , assertPrettyIn fsPerm "Classes" "a class declaration's methods pack one per line like a union's variants, and the body ends where the indentation does" "ClassDeclaration"
             , assertPrettyIn fsPerm "Classes" "an instance declaration's methods are definitions, so they take one blank line between them like `let` bindings" "InstanceDeclaration"
             , assertPrettyIn fsPerm "Classes" "`@derive(...)` renders on its own line above the type it belongs to, inside the same declaration unit, so no blank line opens between them" "DeriveAttribute"
+            , assertPrettyIn fsPerm "Classes" "a class head written across rows, `where` on a row of its own, a one-row body and a body-less class written across rows all come back as `class Name a where` and one method per line; a method's annotation the author broke is flattened, as a `let` annotation is" "ClassAuthorBreaks"
+            , assertPrettyIn fsPerm "Classes" "an instance head written across rows, `where` on a row of its own and a one-row body come back as `instance ... where` and one definition per line; a context and a parenthesized type the author broke keep their rows, hanging from the head" "InstanceAuthorBreaks"
+            , assertPrettyIn fsPerm "Classes" "a constraint list written across rows where the annotation cannot expand -- a class method, an instance head, a `let` annotation -- keeps one constraint per row, hanging from where it starts" "ContextAcrossRows"
+            , assertPrettyIn fsPerm "Classes" "a top-level annotation broken anywhere in or after its context -- after `=>`, before it, inside a two-constraint list -- expands with `=>` in the arrow column; one written whole on the row below its name, or with redundant parentheses, stays inline; a `let` annotation stays inline" "ConstraintAuthorBreaks"
+            , assertPrettyIn fsPerm "Classes" "comments in a class or instance body stay with their members: one leading a member's row stacks above it with no blank line between, one after a member on its row stays there, and one beside a body-less class stays on its row" "ClassBodyComments"
+            , assertPrettyIn fsPerm "Classes" "a `--` inside a class or instance head puts the rest of the head on a continuation row +4, not in column 1, where it would read as a new declaration" "HeadLineComment"
+            , assertPrettyIn fsPerm "Classes" "`@derive(...)` written across rows comes back on one row, as does a type head the author broke under it" "DeriveAuthorBreaks"
+            ]
+        }
+
+
+{-| The attributes: `@prim`, `@extern` / `@externPure` and `@capability`, each a
+row of its own above an annotation (geng-lang `core.md` C13, `ffi.md` F1, D258).
+An attribute is one unbreakable token, so a comment inside its parentheses
+leaves them for a row of its own above it.
+-}
+attributesSuite : FileSystem.Permission -> U.Suite
+attributesSuite fsPerm =
+    U.suite
+        { name = "Attributes"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPrettyIn fsPerm "Attributes" "`@prim(\"...\")` comes back on one row with no spaces inside, whatever rows the author gave its parentheses, and the annotation under it is laid out as a signature is" "PrimDeclaration"
+            , assertPrettyIn fsPerm "Attributes" "`@extern` / `@externPure` rows come back one per language on one row each, the annotation under them as a signature, and a Geng body directly under that" "ExternDeclaration"
+            , assertPrettyIn fsPerm "Attributes" "`@capability` stays a row of its own above the annotation, with the equation under it" "CapabilityAttribute"
+            , assertPrettyIn fsPerm "Attributes" "a comment inside an attribute's parentheses renders on a row above it; one after an attribute stays on its row; one between the attributes and the annotation stays there" "AttributeComments"
+            ]
+        }
+
+
+{-| `(e : T)`, the expression annotation (geng-lang D358, `expr-annotation.md`
+§EA9). The colon stays on the expression's row only when all of `e : T` was
+written on one row; anything else drops the type to its own line, colon first.
+-}
+expressionAnnotationSuite : FileSystem.Permission -> U.Suite
+expressionAnnotationSuite fsPerm =
+    U.suite
+        { name = "Expression annotation"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPrettyIn fsPerm "ExpressionAnnotation" "an annotation written on one row stays on it, in any position; one broken before or after the colon drops the type +4, colon first; a `)` the author put on its own row stays there, as for any parenthesized expression" "AnnotationLayout"
+            , assertPrettyIn fsPerm "ExpressionAnnotation" "a type written across rows, an expression that breaks open (`if`, `when`, `let`), and an expression written across rows (a call, a pipeline, a record, an array) all drop the type, since the inline colon read back as a different layout or as annotating the last operand" "AnnotationDrops"
             ]
         }
 

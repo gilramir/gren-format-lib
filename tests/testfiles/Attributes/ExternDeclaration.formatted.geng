@@ -1,0 +1,40 @@
+module ExternDeclaration exposing (bodyBroken, both, broken, guard, multi, now, write)
+
+
+@extern(js, "Time", "now")
+now : Task x Int
+
+
+@extern(js, "Console", "write")
+write : String -> Task x {}
+
+
+@externPure(js, "Bytes", "guard")
+guard : (x -> r) -> x -> r -> r
+guard run input _ =
+    run input
+
+
+@extern(js, "A", "both")
+@extern(c, "a_both")
+both : Int -> Task x Int
+
+
+@extern(js, "Multi", "names")
+multi : Int -> Task x Int
+
+
+@extern(js, "B", "broken")
+broken :
+    Int
+    -> String
+    -> Task x Int
+
+
+{-| Documented. -}
+@externPure(js, "C", "bodyBroken")
+bodyBroken :
+    Int
+    -> Int
+bodyBroken n =
+    n + 1

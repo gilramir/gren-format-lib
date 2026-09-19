@@ -1,0 +1,30 @@
+module AnnotationLayout exposing (a, b, c, d, e, h, k)
+
+
+a = (42 : Int64)
+
+
+b = (42
+    : Int64)
+
+
+c = (42 :
+    Int64)
+
+
+d = (
+    42 : Int64
+    )
+
+
+e =
+    ( { x = 1, y = 2 }
+        : { x : Int, y : Int }
+    )
+
+
+h = ((\n -> n + 1) : Int
+    -> Int)
+
+
+k = foo (1 : Int8) (-1 : Int16) [ (1 : UInt8), (2 : UInt8) ] (\x -> x : Int -> Int)

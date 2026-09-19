@@ -1,0 +1,23 @@
+module CapabilityAttribute exposing (broken, forHost, initialize)
+
+
+@capability
+initialize : Task x Permission
+initialize =
+    Task.succeed Permission
+
+
+{-| For one host. -}
+@capability
+forHost : String -> Task x Permission
+forHost host =
+    Task.succeed (Specific host)
+
+
+@capability
+broken :
+    String
+    -> Int
+    -> Task x Permission
+broken a b =
+    Task.succeed (Specific a)

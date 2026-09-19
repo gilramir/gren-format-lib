@@ -2408,6 +2408,63 @@ isUnionVariantFlow node =
             False
 
 
+{-| A member of a `class` or `instance` body: a method's annotation, `name`
+then the `:` anchored where it ends, or a method's definition, a header flow and
+its `BodyBlock` and nothing else. A `let` binding is an `IndentedBlock`, not a
+flow, so neither shape is one; a record field puts a leaf, not a flow, before its
+`BodyBlock`.
+-}
+isBlockMemberFlow : LPNode -> Bool
+isBlockMemberFlow node =
+    let
+        children =
+            lpnChildren node
+
+        isFlow child =
+            when lpnShape child is
+                AcrossOrVertical _ ->
+                    True
+
+                _ ->
+                    False
+
+        isBodyBlock child =
+            when lpnShape child is
+                BodyBlock ->
+                    True
+
+                _ ->
+                    False
+
+        isDefinition =
+            when { first = Array.get 0 children, second = Array.get 1 children } is
+                { first = Just first, second = Just second } ->
+                    Array.length children == 2 && isFlow first && isBodyBlock second
+
+                _ ->
+                    False
+
+        isAnnotation =
+            when Array.get 1 children is
+                Just second ->
+                    isColonLeaf second
+
+                Nothing ->
+                    False
+    in
+    isDefinition || isAnnotation
+
+
+isColonLeaf : LPNode -> Bool
+isColonLeaf node =
+    when lpnShape node is
+        UnbreakableText loc ->
+            loc.value == ":"
+
+        _ ->
+            False
+
+
 -- The last row a node actually renders content on: the max of its last
 -- positioned token and its closing bracket (elm-format's "last rendered line").
 -- This is the row a trailing comment must share to glue onto it. (Exactly the
@@ -2450,7 +2507,10 @@ nodeIsElided : LPNode -> Bool
 nodeIsElided node =
     when lpnShape node is
         UnbreakableText loc ->
-            loc.value == "->"
+            -- `=>` is the same token for this purpose: a constraint context is
+            -- a signature segment of its own (D116), anchored zero-width at
+            -- the end of the last constraint and rendered line-leading.
+            (loc.value == "->" || loc.value == "=>")
                 && loc.start.row == loc.end.row
                 && loc.start.col == loc.end.col
 
@@ -2778,6 +2838,14 @@ prevBlockGlueRow commentIsMultiline node =
                 -- A union variant (`= Red`, `| Green`) is a bare constructor, not
                 -- a call: a same-row block comment rides it (`= Red {- warm -}`),
                 -- so the union stays flat. Distinguished by the `=`/`|` head.
+                lastRenderedRow node
+
+            else if isBlockMemberFlow node then
+                -- A class method or an instance method is a whole member of a
+                -- block that nothing follows on its row, so a same-row block
+                -- comment rides it as it rides a variant. Own-line, it came out
+                -- a row below the declaration's last member, which the reparse
+                -- re-homes to column 1 when the member is the last one.
                 lastRenderedRow node
 
             else if flowEndsAtBracketClose node then

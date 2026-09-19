@@ -1,0 +1,25 @@
+module LargeIntegerLiterals exposing (a, b, c, d, e, f)
+
+-- Integer literals are carried as the text they were written as, so none of
+-- these goes through a double: 9223372036854775807 once came back as
+-- 9223372036854778000 (geng-lang m1a-fmt.md §F12).
+a = 9223372036854775807
+
+
+b = -9223372036854775808
+
+
+c = 18446744073709551615
+
+
+d = 0xFFFFFFFFFFFFFFFF
+
+
+e = 1.0e308
+
+
+f n =
+    when n is
+        9223372036854775807 -> 1
+        0xFFFFFFFFFFFFFFFF -> 2
+        _ -> 3

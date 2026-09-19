@@ -1,0 +1,17 @@
+module HeadLineComment exposing (x)
+
+
+class Show -- names the class
+    a where
+    show : a -> String
+
+
+instance Show -- names the class
+    Path where
+    show p =
+        "p"
+
+
+x : Int
+x =
+    1
