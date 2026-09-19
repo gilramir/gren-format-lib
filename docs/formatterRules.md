@@ -991,6 +991,26 @@ layout anyway:
 )
 ```
 
+A type that starts with a record glues the record to the colon, with the
+record's rows under its `{`; a type that starts with a name keeps the name on
+the colon's row, and a record after it drops as an argument does:
+
+```gren
+(defaults
+    : { x : Int
+      , y : Int
+      }
+)
+
+
+(Dict.empty
+    : Dict String
+        { x : Int
+        , y : Int
+        }
+)
+```
+
 A `)` the author wrote on a row of its own stays there, as for any
 parenthesized expression.
 

@@ -724,7 +724,7 @@ expressionAnnotationSuite fsPerm =
         , tearDown = U.noTearDown
         , tests =
             [ assertPrettyIn fsPerm "ExpressionAnnotation" "an annotation written on one row stays on it, in any position; one broken before or after the colon drops the type +4, colon first; a `)` the author put on its own row stays there, as for any parenthesized expression" "AnnotationLayout"
-            , assertPrettyIn fsPerm "ExpressionAnnotation" "a type written across rows, an expression that breaks open (`if`, `when`, `let`), and an expression written across rows (a call, a pipeline, a record, an array) all drop the type, since the inline colon read back as a different layout or as annotating the last operand" "AnnotationDrops"
+            , assertPrettyIn fsPerm "ExpressionAnnotation" "a type written across rows, an expression that breaks open (`if`, `when`, `let`), and an expression written across rows (a call, a pipeline, a record, an array) all drop the type, since the inline colon read back as a different layout or as annotating the last operand; a type that starts with a record glues it to the colon, and one that starts with a name keeps the name there" "AnnotationDrops"
             ]
         }
 

@@ -609,8 +609,9 @@ type LPShape
     | MultilineString (Located (Array String))
 
 
-{-| Which prefix a `PrefixGlue` carries. Both render identically (the glyph
-glued onto the inner's first line with no space), but they differ in one leaf
+{-| Which prefix a `PrefixGlue` carries. All render identically (the glyph
+glued onto the inner's first line with no space, and the continuation rows
+padded by its width), but they differ in one leaf
 property — whether a same-row trailing comment belongs to them — so the two
 uses are one constructor with a payload, not two constructors. See
 `gluesTrailingComment`.
@@ -618,10 +619,12 @@ uses are one constructor with a payload, not two constructors. See
 type PrefixKind
     = PrefixMinus
     | PrefixLambdaHead
+    | PrefixAnnotationColon
 
 
 {-| The literal glyph a `PrefixGlue` prints: `-` for negation, `\` for a
-lambda head. The single source of truth for the emitted character.
+lambda head, and `: ` for a dropped annotation whose type starts with a record
+(D364). The single source of truth for the emitted character.
 -}
 prefixGlyph : PrefixKind -> String
 prefixGlyph kind =
@@ -632,10 +635,14 @@ prefixGlyph kind =
         PrefixLambdaHead ->
             "\\"
 
+        PrefixAnnotationColon ->
+            ": "
+
 
 {-| Does a same-row comment trailing this prefix's content belong to it (glue
 onto its last row) rather than lead its own line? A unary minus is a
-self-contained unit — nothing follows its operand — so it owns the comment. A
+self-contained unit — nothing follows its operand — so it owns the comment,
+and so does an annotation's type, which only the `)` follows. A
 lambda head does not: `-> body` still follows the `\`-glued first parameter, so
 a comment there leads its own line (see `KitchenComments`).
 -}
@@ -647,6 +654,9 @@ gluesTrailingComment kind =
 
         PrefixLambdaHead ->
             False
+
+        PrefixAnnotationColon ->
+            True
 
 
 {-| The logical-printing-tree node.

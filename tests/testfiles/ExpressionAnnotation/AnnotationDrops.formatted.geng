@@ -1,4 +1,4 @@
-module AnnotationDrops exposing (f, g, i, j, m, o, p, q, r, s)
+module AnnotationDrops exposing (f, g, h, i, j, m, o, p, q, r, s, t, u)
 
 
 f =
@@ -11,10 +11,9 @@ f =
 
 g =
     (identity
-        :
-            { x : Int
-            , y : Int
-            } -> { x : Int, y : Int }
+        : { x : Int
+          , y : Int
+          } -> { x : Int, y : Int }
     )
 
 
@@ -91,4 +90,27 @@ s =
         |> f
         |> g
         : Int
+    )
+
+
+t =
+    (defaults
+        : { x : Int
+          , y : Int
+          }
+    )
+
+
+u =
+    (Dict.empty
+        : Dict String
+            { x : Int
+            , y : Int
+            }
+    )
+
+
+h =
+    (grow
+        : { r | x : Int } -> Int
     )

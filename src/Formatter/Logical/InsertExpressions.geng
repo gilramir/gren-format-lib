@@ -524,13 +524,55 @@ insertAnnotated { expression, annotation } =
                                     (expression.start.row /= annotation.end.row)
                                         || exprAlwaysBreaks expression
                             in
-                            if drops then
+                            if drops && startsWithRecordType typeNodes then
+                                -- D364: a type that starts with a record glues it
+                                -- to the colon, `: { x : Int` with the record's
+                                -- rows under its `{`, rather than dropping it
+                                -- below a colon left alone on its row.
+                                let
+                                    colonPrefix =
+                                        lpnNode
+                                            (PrefixGlue
+                                                { start = annotation.start
+                                                , end = annotation.start
+                                                , value = PrefixAnnotationColon
+                                                }
+                                            )
+                                            typeNodes
+                                in
+                                exprNodes ++ [ lpnNode IndentedBlock [ colonPrefix ] ]
+
+                            else if drops then
                                 exprNodes ++ [ lpnNode IndentedBlock [ plainAcross ([ colonNode ] ++ typeNodes) ] ]
 
                             else
                                 [ plainAcross (exprNodes ++ [ colonNode ] ++ typeNodes) ]
                         )
             )
+
+
+{-| Whether a type's first node is a record type, `{ x : Int }` or
+`{ r | x : Int }`: the one kind of type that, after a colon, drops below it
+when it renders across rows. -}
+startsWithRecordType : Array LPNode -> Bool
+startsWithRecordType typeNodes =
+    when Array.first typeNodes is
+        Just first ->
+            when lpnShape first is
+                AlwaysVertical (ListCurly RecordType) ->
+                    True
+
+                AllAcrossOrAllVertical (ListCurly RecordType) ->
+                    True
+
+                RecordUpdate _ ->
+                    True
+
+                _ ->
+                    False
+
+        Nothing ->
+            False
 
 
 {-| `Src.Update` — a record update `{ base | field = ... }`. `locExpr.end` is
