@@ -439,7 +439,7 @@ types, and `infix` fixity declarations. Geng refuses `port module` and
 **Geng's declarations** (geng-lang `m1a-fmt.md` §F18). A signature may carry a
 constraint context of one to three constraints, flat or as its own segment of
 an author-broken signature (D116), and a signed value may sit under
-`@capability`. A custom type may carry `@derive(...)`. Four declaration kinds
+`@capability` or `@inline`. A custom type may carry `@derive(...)`. Four declaration kinds
 are Geng's alone: a `class` with one to three methods, some constrained, or
 none; an `instance` with a context and a head that is a name or an
 application, and one or two methods; `@prim("…")` over an annotation; and one

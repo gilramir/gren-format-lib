@@ -1,0 +1,14 @@
+module InlineAttribute exposing (get, first)
+
+
+{-| Retrieve the element at a given index. -}
+@inline
+get : Int -> Array a -> Maybe a
+get index array = if index < 0 then Nothing else Just (unsafeGet array index)
+
+
+@inline
+first :
+    Array a
+    -> Maybe a
+first array = get 0 array

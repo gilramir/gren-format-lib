@@ -385,7 +385,8 @@ class Decl:
                  sig_lead_spaced=False, ctx=None, capability=False):
         self.name, self.params, self.body = name, params, body
         # Geng: a constraint context on the signature (`Eq a =>`), and
-        # `@capability` above it (D258), which needs a signature.
+        # `@capability` (D258) or `@inline` (D545) above it, which needs a
+        # signature. `capability` is the attribute's text, or False.
         self.ctx = ctx or []
         self.capability = capability
         # As `LetBind.val_below`, for a top-level declaration's body.
@@ -1724,7 +1725,7 @@ def emit_decl(d):
 def emit_function_decl(d):
     out = emit_leading(d)
     if d.sig is not None and getattr(d, "capability", False):
-        out.append("@capability")
+        out.append(d.capability)
     ctx = getattr(d, "ctx", [])
     if d.sig is not None:
         # A `top`, `broken` record/exrecord sig (see Gen.gen_type) also needs
@@ -2834,14 +2835,17 @@ class Gen:
                 sig_lead_spaced = sig_lead is not None and self.chance(0.5)
         # Geng: a constraint context, where the signature is not a record
         # broken across rows (its context would have no row of its own), and
-        # `@capability` over some signed values (D258).
+        # `@capability` (D258) or `@inline` (D545) over some signed values.
         ctx = []
         capability = False
         if sig is not None:
             broken_record = sig[0] in ("record", "exrecord") and sig[-1]
             if not broken_record and self.chance(0.3):
                 ctx = self.ctx()
-            capability = self.chance(0.08)
+            if self.chance(0.08):
+                capability = "@capability"
+            elif self.chance(0.04):
+                capability = "@inline"
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
                     doc=doc, lead=lead, trailing=trailing,
                     arrow_comment=arrow_comment,

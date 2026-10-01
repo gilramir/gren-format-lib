@@ -565,7 +565,7 @@ processExternDecl modDecl root =
                 -- directly under the annotation.
                 when extern.definition is
                     Just def ->
-                        processFunctionBody { name = def.name, capability = False, signature = Nothing, args = def.args, body = def.body } withSignature
+                        processFunctionBody { name = def.name, capability = False, inline = False, signature = Nothing, args = def.args, body = def.body } withSignature
 
                     Nothing ->
                         Ok withSignature
@@ -934,7 +934,7 @@ processModDecl modDecl root =
         rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
-    processFunctionSignature (capabilityStart modDecl) modDecl.value.value.name modDecl.value.value.signature rootWithDoc
+    processFunctionSignature (attributeOf modDecl) modDecl.value.value.name modDecl.value.value.signature rootWithDoc
         |> Result.andThen (processFunctionBody modDecl.value.value)
 
 
@@ -999,14 +999,17 @@ processFunctionDoc maybeLocString root =
             root
 
 
-{-| Where a value's `@capability` attribute is (D258), if it has one. The
-declaration's `start` is after its doc comment and before the attribute, so it
-is the `@`.
+{-| Where a value's `@capability` (D258) or `@inline` (D545) attribute is, and
+which it is, if it has one. The declaration's `start` is after its doc comment
+and before the attribute, so it is the `@`.
 -}
-capabilityStart : Src.ModuleDeclaration Src.Value -> Maybe Position
-capabilityStart modDecl =
+attributeOf : Src.ModuleDeclaration Src.Value -> Maybe { at : Position, text : String }
+attributeOf modDecl =
     if modDecl.value.value.capability then
-        Just modDecl.start
+        Just { at = modDecl.start, text = "@capability" }
+
+    else if modDecl.value.value.inline then
+        Just { at = modDecl.start, text = "@inline" }
 
     else
         Nothing
@@ -1014,13 +1017,13 @@ capabilityStart modDecl =
 
 {-| Maybe or maybe not insert a FunctionSignature for this function.
 
-A value under `@capability` (D258) always has one, since both parsers demand
-it, and the attribute is a line of its own above it — laid out as an extern
+A value under `@capability` (D258) or `@inline` (D545) always has one, since
+both parsers demand it, and the attribute is a line of its own above it — laid out as an extern
 with a Geng body is, an attribute row, the annotation and then the equation, so
 it shares `StExternSignature`.
 -}
-processFunctionSignature : Maybe Position -> Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
-processFunctionSignature capability locName maybeType root =
+processFunctionSignature : Maybe { at : Position, text : String } -> Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processFunctionSignature attribute locName maybeType root =
     when maybeType is
         Nothing ->
             Ok root
@@ -1048,9 +1051,9 @@ processFunctionSignature capability locName maybeType root =
                                 lpnLeaf (mkZeroWidthText sigNameEnd ":")
 
                             attributeNodes =
-                                when capability is
-                                    Just at ->
-                                        [ lpnLeaf (mkText at "@capability") ]
+                                when attribute is
+                                    Just a ->
+                                        [ lpnLeaf (mkText a.at a.text) ]
 
                                     Nothing ->
                                         []
@@ -1080,15 +1083,15 @@ processFunctionSignature capability locName maybeType root =
                                 lpnNode
                                     (OriginalRows
                                         { first =
-                                            when capability is
-                                                Just at ->
-                                                    at.row
+                                            when attribute is
+                                                Just a ->
+                                                    a.at.row
 
                                                 Nothing ->
                                                     sigStart.row
                                         , last = max childrenLast locType.end.row
                                         , stype =
-                                            when capability is
+                                            when attribute is
                                                 Just _ ->
                                                     StExternSignature
 

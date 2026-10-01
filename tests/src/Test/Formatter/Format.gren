@@ -705,6 +705,7 @@ attributesSuite fsPerm =
             [ assertPrettyIn fsPerm "Attributes" "`@prim(\"...\")` comes back on one row with no spaces inside, whatever rows the author gave its parentheses, and the annotation under it is laid out as a signature is" "PrimDeclaration"
             , assertPrettyIn fsPerm "Attributes" "`@extern` / `@externPure` rows come back one per language on one row each, the annotation under them as a signature, and a Geng body directly under that" "ExternDeclaration"
             , assertPrettyIn fsPerm "Attributes" "`@capability` stays a row of its own above the annotation, with the equation under it" "CapabilityAttribute"
+            , assertPrettyIn fsPerm "Attributes" "`@inline` stays a row of its own above the annotation, with the equation under it, as `@capability` does" "InlineAttribute"
             , assertPrettyIn fsPerm "Attributes" "a comment inside an attribute's parentheses renders on a row above it; one after an attribute stays on its row; one between the attributes and the annotation stays there" "AttributeComments"
             ]
         }
