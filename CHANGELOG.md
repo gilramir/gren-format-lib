@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`Compiler.Ast.Compare` compares two arrays in time proportional to their
+  length.** `compareArrayItems` took the first element of each array with
+  `popFirst` at every step, which copies the rest, so comparing two arrays of
+  `n` items copied `n * n / 2` of them. It now walks both by index. On a
+  formatter run over a large source tree this was 141 MB of the 6.5 GB it
+  allocates.
+
 ## [1.1.1] - 2026-09-04
 
 ### Fixed

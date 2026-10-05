@@ -632,17 +632,19 @@ compareArray name cmp a_array b_array =
 
 compareArrayItems : (a -> a -> Result String {}) -> Array a -> Array a -> Result String {}
 compareArrayItems cmp a_array b_array =
-    when { fst = Array.popFirst a_array, snd = Array.popFirst b_array } is
-        { fst = Nothing, snd = Nothing } ->
-            Ok {}
+    compareArrayItemsFrom cmp a_array b_array 0
 
-        { fst = Just { first = a, rest = aRest }, snd = Just { first = b, rest = bRest } } ->
+
+compareArrayItemsFrom : (a -> a -> Result String {}) -> Array a -> Array a -> Int -> Result String {}
+compareArrayItemsFrom cmp a_array b_array i =
+    when { fst = Array.get i a_array, snd = Array.get i b_array } is
+        { fst = Just a, snd = Just b } ->
             when cmp a b is
                 Err e ->
                     Err e
 
                 Ok {} ->
-                    compareArrayItems cmp aRest bRest
+                    compareArrayItemsFrom cmp a_array b_array (i + 1)
 
         _ ->
             Ok {}
