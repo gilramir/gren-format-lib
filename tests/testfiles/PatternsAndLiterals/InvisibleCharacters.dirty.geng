@@ -10,7 +10,8 @@ noBreakSpace = "\u{00a0}"
 
 charByteOrderMark = '\u{feff}'
 
--- A code point with a glyph is written as itself, in both kinds.
+-- A code point with a glyph is written as itself, in both kinds, but one the
+-- author spelled as an escape keeps its escape (geng-lang D601).
 letters = "é 日本 😀"
 
 charAccented = '\u{00e9}'
@@ -22,8 +23,9 @@ charSnowman = '☃'
 family = "👨‍👩‍👧"
 
 -- The edges of those ranges: U+00A1 and U+D7FF are the printable neighbours of
--- the C1 block and of the surrogates, and stay characters.
-boundaries = "\u{009f}\u{00a1}\u{d7ff}"
+-- the C1 block and of the surrogates, and written as themselves stay
+-- characters.
+boundaries = "\u{009f}¡퟿"
 
 -- Private-use and noncharacter code points are escaped as well.
 oddities = "\u{E000}\u{FDD0}\u{10FFFF}"

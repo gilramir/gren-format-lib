@@ -4,6 +4,7 @@ module Formatter.Logical.LiteralFormat exposing
     , escapeStringContent
     , hexLiteral
     , intToHex
+    , respellEscapes
     )
 
 {-|
@@ -17,7 +18,7 @@ reason to call these; it goes through `Formatter.prettyPrint`, which applies
 them for you.
 
 @docs escapeStringContent, escapeMultilineContent, charLiteralString
-@docs hexLiteral, intToHex
+@docs respellEscapes, hexLiteral, intToHex
 
 -}
 
@@ -329,6 +330,45 @@ isNoncharacter code =
         || (modBy 0x10000 code >= 0xFFFE)
 
 
+{-| A literal's content as the escapers above wrote it, with each code point
+of `codes` that it holds as itself spelled `\u{HEX}` instead: the code points
+the author spelled that way (geng-lang D601). The parser hands the formatter a
+decoded string, so `"e\u{0301}"` and `"e" ++` a literal combining acute arrive
+the same; `Compiler.Parse.Context`'s `escapes` says which code points a literal
+spelled as escapes, and `Formatter.Logical.Escapes` calls this on its leaf.
+
+`text` is the content alone, without its quotes, and every `\` in it starts an
+escape the escapers wrote, which is copied whole: the `u` of `\u{200D}` is not
+a `u` the author may have spelled `\u{0075}`.
+
+    respellEscapes [ 0x2603 ] "☃ \\u{200D}u" == "\\u{2603} \\u{200D}u"
+-}
+respellEscapes : Array Int -> String -> String
+respellEscapes codes text =
+    if Array.isEmpty codes then
+        text
+
+    else
+        let
+            step c st =
+                if st.inUnicode then
+                    { acc = String.pushLast c st.acc, afterBackslash = False, inUnicode = c /= '}' }
+
+                else if st.afterBackslash then
+                    { acc = String.pushLast c st.acc, afterBackslash = False, inUnicode = c == 'u' }
+
+                else if c == '\\' then
+                    { acc = String.pushLast c st.acc, afterBackslash = True, inUnicode = False }
+
+                else if Array.member (Char.toCode c) codes then
+                    { acc = st.acc ++ "\\u{" ++ codePointHex (Char.toCode c) ++ "}", afterBackslash = False, inUnicode = False }
+
+                else
+                    { acc = String.pushLast c st.acc, afterBackslash = False, inUnicode = False }
+        in
+        (String.foldl step { acc = "", afterBackslash = False, inUnicode = False } text).acc
+
+
 {-| A hex integer literal, normalised: `0x1F`, or `-0x1`.
 
 **The argument is the literal as written** -- `"0x001f"`, or `"-0x1F"` -- and
@@ -467,11 +507,13 @@ intToHex n =
 -- Format a code point for a `\u{...}` escape: uppercase hex, padded to at least
 -- four digits — `\u{001B}`, `\u{FEFF}`, `\u{1F600}`.
 --
--- The author's own spelling is not available to copy. The parser hands the
+-- The author's digits are not available to copy. The parser hands the
 -- formatter a decoded `String`/`Char`, so `\u{001B}`, `\u{001b}` and a raw ESC
 -- byte all arrive here identical (compiler-common#34, and divergence #9 in
--- docs/elmFormatComparison.md). The case is therefore invented rather than
--- preserved, and the one invented is elm-format's, which prints `%04X`.
+-- docs/elmFormatComparison.md); on the `geng` branch the parser records which
+-- code points were escapes (`respellEscapes`), but not how their digits were
+-- written. The case is therefore invented rather than preserved, and the one
+-- invented is elm-format's, which prints `%04X`.
 codePointHex : Int -> String
 codePointHex n =
     let

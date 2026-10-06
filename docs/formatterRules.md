@@ -1344,10 +1344,11 @@ withEscapes =
     "line one\nline two\t!\\"
 ```
 
-The formatter has no copy of your original spelling to fall back on — the parser
-hands it the decoded string, in which `"\u{0041}"` and `"A"` are the same
-thing — so it writes every character back out under one rule. That rule is the
-same for `"..."`, `"""..."""` and `'x'`:
+The parser hands the formatter the decoded string, in which `"\u{0041}"` and
+`"A"` are the same thing, so it writes every character back out under one rule.
+On the `geng` branch the parser also records which code points each literal
+spelled as `\u{...}`, and those keep their escape (below). The rule is the same
+for `"..."`, `"""..."""` and `'x'`:
 
 - Tab, newline, carriage return, a backslash, and the quote that would close
   this literal take their two-character escapes: `\t`, `\n`, `\r`, `\\`, and
@@ -1356,6 +1357,15 @@ same for `"..."`, `"""..."""` and `'x'`:
 - A character you can **see** is written as itself. Letters, marks, numbers,
   punctuation and symbols all qualify, in any script — `"é"`, `"日本"` and `"😀"`
   come back untouched, and so do `'é'` and `'☃'`.
+- **Unless you spelled it as an escape.** A code point a literal spells as
+  `\u{...}` is written as an escape everywhere in that literal, so
+  `"e\u{0301}"` keeps the combining accent it would otherwise hide beside the
+  `e`, and `"🏳\u{FE0F}\u{200D}🌈"` keeps its variation selector. elm-format
+  writes these as the characters; this is
+  [divergence #36](elmFormatComparison.md#divergence-36). The parser records the
+  code points a literal escaped, not each place it escaped them, so a literal
+  that holds the same code point both ways comes back with every one escaped.
+  A named escape stays named: `"\u{000d}"` is still written `"\r"`.
 - A character you **cannot** see keeps a `\u{...}` escape, which is what makes
   it visible in the source at all: control characters; every space separator
   except a plain space and a full-width space, so a no-break space cannot
@@ -1389,7 +1399,7 @@ text, so an escape is what would hide it. elm-format escapes it with the rest
 of the category; this is [divergence #35](elmFormatComparison.md#divergence-35).
 
 The hex digits are uppercase, and at least four wide: `\u{001B}`, `\u{FEFF}`,
-`\u{1F600}`. Which case *you* wrote is not recoverable — `\u{001B}`, `\u{001b}`
+`\u{1F600}`. Which case *you* wrote is not recorded — `\u{001B}`, `\u{001b}`
 and a raw ESC byte all arrive at the formatter as one and the same character —
 so the case is a choice rather than a preservation, and the choice matches
 elm-format.

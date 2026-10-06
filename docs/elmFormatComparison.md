@@ -390,13 +390,17 @@ entry with no fixture, or a fixture with no entry.
 
    - **Integers.** `0xff` and `0x00Ff` both print as `0xFF`. elm-format does the
      same, so this is not a divergence at all — just not preservation.
-   - **String and character escapes.** An escape whose code point is *printable*
-     is re-emitted in its shortest form: `"\u{000d}"` prints as `"\r"`,
-     `'\u{0041}'` as `'A'`, and `"\u{1F600}"` as a literal `"😀"`. This *is* a
-     divergence, and it runs the **opposite** way from the rest of this entry —
-     elm-format expands named escapes (`\r` → `\u{000D}`) where gren-format
-     contracts them, so on escapes it is elm-format that is closer to what a
-     `\u{…}`-writing author typed.
+   - **String and character escapes.** A `\u{…}` escape for a code point with
+     a named escape is re-emitted named: `"\u{000d}"` prints as `"\r"`. This
+     *is* a divergence, and it runs the **opposite** way from the rest of this
+     entry — elm-format expands named escapes (`\r` → `\u{000D}`) where
+     gren-format contracts them.
+
+     Any other escape stays an escape. On `main` an escape whose code point is
+     *printable* was re-emitted as the character, `'\u{0041}'` as `'A'` and
+     `"\u{1F600}"` as `"😀"`, which elm-format does too. On the `geng` branch
+     the parser records which code points a literal escaped, and they keep
+     their escape: [#36](#divergence-36).
 
      An escape whose code point is **not** printable is left as an escape, by
      the same rule elm-format uses and in the same uppercase spelling —
@@ -407,7 +411,8 @@ entry with no fixture, or a fixture with no entry.
      invented is elm-format's.
 
    Fixture: `Divergence/D09VerbatimLiterals`, which pins all three. Both sides
-   are verified against the `elm-format` binary.
+   are verified against the `elm-format` binary; its `"\u{1F600}"` now pins
+   #36's kept escape as well.
 
    Filed upstream as
    [compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34);
@@ -2177,14 +2182,42 @@ entry with no fixture, or a fixture with no entry.
     Verified against the `elm-format` binary, which escapes `\u{3000}`,
     `\u{00A0}` and `\u{2003}` alike and agrees with gren-format on every other
     code point the rule touches — `\u{feff}` → `"\u{FEFF}"`, `\u{001b}` →
-    `"\u{001B}"`, `'\u{2603}'` → `'☃'`, a ZWJ sequence → `"👨\u{200D}👩"`. This
-    entry is the whole of the difference between the two formatters here.
+    `"\u{001B}"`, a ZWJ sequence → `"👨\u{200D}👩"`. Of the escapes of
+    *invisible* code points, this entry is the whole of the difference between
+    the two formatters; an escape of a visible one is [#36](#divergence-36).
 
     Fixture: `Divergence/D35IdeographicSpace` — which has to carry it alone,
     because `matrix-syntax.py`'s parity oracle cannot see this rule at all. Its
     literal atoms are `'c'` and `"s"`, plain ASCII, so no cell it generates holds
     an escape or a non-ASCII character, and no entry in
     `matrix-parity-baseline.json` moves when the rule changes.
+
+
+36. <a id="divergence-36"></a>**An escape the author wrote stays an escape;
+    elm-format writes the character.** elm-format decides a literal's spelling
+    from each code point alone, so `"e\u{0301}"` comes back as an `e` followed
+    by a combining acute written as itself, which no reader can tell from a
+    precomposed `é`, and `"🏳\u{FE0F}\u{200D}🌈"` loses its variation selector
+    into the flag beside it. gren-format on the `geng` branch writes a code
+    point as `\u{…}` wherever the author's literal did, in strings, multi-line
+    strings, characters and patterns, as well as wherever the code point is
+    invisible (#35's rule). A visible character written as itself is still
+    written as itself, so text in a script built on combining marks, written
+    as text, is untouched.
+
+    The parser hands the formatter a decoded string
+    ([compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34)),
+    so the fork's parser records, for each literal that has a `\u{…}` escape,
+    where the literal starts and which code points it spelled that way
+    (`Compiler.Parse.Context`'s `escapes`), and `Formatter.Logical.Escapes`
+    respells them. The record is per code point, not per place, so a literal
+    holding the same code point both ways comes back with each one escaped.
+    The digits are uppercase and at least four wide, as #35's are; a named
+    escape stays named (#9). Chosen by the maintainer, 2026-10-06 (geng-lang
+    D601), after the formatter turned the escapes of two of geng-lang's
+    benchmark sources into invisible marks.
+
+    Fixture: `Divergence/D36KeptEscapes`.
 
 
 ## Out of scope for comparison

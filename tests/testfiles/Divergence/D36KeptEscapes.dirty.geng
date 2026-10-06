@@ -1,0 +1,44 @@
+module D36KeptEscapes exposing (..)
+
+-- Divergence #36. A code point the author spelled as `\u{...}` keeps its escape,
+-- in a string, a multi-line string, a character and a pattern; elm-format writes
+-- each as the character. Text written as text is untouched.
+
+
+combining : String
+combining = "e\u{0301}a\u{0300} o\u{302}"
+
+
+selector : String
+selector = "🏳\u{fe0f}\u{200D}🌈"
+
+
+accent : Char
+accent = '\u{0301}'
+
+
+snowman : Char
+snowman = '\u{2603}'
+
+
+written : String
+written = "é 日本 नमस्ते"
+
+
+both : String
+both = "☃ and \u{2603}"
+
+
+block : String
+block =
+    """
+    a\u{0301}
+    b
+    """
+
+
+matches : String -> Bool
+matches s =
+    when s is
+        "n\u{0303}" -> True
+        _ -> False

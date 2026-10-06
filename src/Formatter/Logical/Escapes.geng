@@ -1,0 +1,133 @@
+module Formatter.Logical.Escapes exposing (keepEscapes)
+
+{-| The author's `\u{...}` escapes put back into the literals that had them
+(geng-lang D601).
+
+The parser hands the formatter decoded strings, so the escapers in
+`Formatter.Logical.LiteralFormat` can only decide from a code point itself
+whether to write it as an escape: an invisible one is, anything printable is
+not. A combining accent or a variation selector is printable, and one the
+author spelled `\u{0301}` came back as the mark itself, invisible beside the
+letter it combines with.
+
+`Compiler.Parse.Context`'s `escapes` records, for each literal that spelled a
+code point as an escape, where the literal starts and which code points it
+spelled that way. This pass finds each such literal's leaf by its start and
+respells those code points with `respellEscapes`. A literal is one leaf, an
+`UnbreakableText` or a `MultilineString`, wherever it occurs: an expression or
+a pattern. Positions are kept as they are, as every pass before rendering
+keeps them (`lpnWithShape`).
+
+A code point is respelled everywhere in its literal, so a literal holding one
+combining acute written as itself and another written `\u{0301}` comes back
+with both escaped. The parser records the set of code points, not each
+occurrence, since a multi-line string's indentation and trailing space are
+removed after it is read and move every index past them.
+
+@docs keepEscapes
+
+-}
+
+import Array.Builder as Builder
+import Compiler.Parse.Context as Ctx
+import Dict exposing (Dict)
+import Formatter.Logical.LiteralFormat exposing (respellEscapes)
+import Formatter.Logical.LogicalPrintingTree
+    exposing
+        ( LPNode
+        , LPShape(..)
+        , lpnChildren
+        , lpnReplaceChildren
+        , lpnShape
+        , lpnWithShape
+        )
+
+
+{-| `tree` with every literal the context names respelled. A module with no
+escape in it, which is most, is not walked. -}
+keepEscapes : Ctx.Context -> LPNode -> LPNode
+keepEscapes ctx tree =
+    let
+        entries =
+            Builder.toArray ctx.escapes
+    in
+    if Array.isEmpty entries then
+        tree
+
+    else
+        let
+            table =
+                Array.foldl (\e d -> Dict.set (key e.start) e.codes d) Dict.empty entries
+        in
+        (walk table tree).node
+
+
+key : { row : Int, col : Int } -> String
+key pos =
+    String.fromInt pos.row ++ ":" ++ String.fromInt pos.col
+
+
+walk : Dict String (Array Int) -> LPNode -> { node : LPNode, changed : Bool }
+walk table node =
+    let
+        children =
+            Array.map (walk table) (lpnChildren node)
+
+        anyChanged =
+            Array.any .changed children
+
+        rebuilt =
+            if anyChanged then
+                lpnReplaceChildren node (Array.map .node children)
+
+            else
+                node
+    in
+    when respellShape table (lpnShape rebuilt) is
+        Just shape ->
+            { node = lpnWithShape shape rebuilt, changed = True }
+
+        Nothing ->
+            { node = rebuilt, changed = anyChanged }
+
+
+respellShape : Dict String (Array Int) -> LPShape -> Maybe LPShape
+respellShape table shape =
+    when shape is
+        UnbreakableText loc ->
+            when Dict.get (key loc.start) table is
+                Just codes ->
+                    when quoted loc.value is
+                        Just { quote, content } ->
+                            Just (UnbreakableText { loc | value = quote ++ respellEscapes codes content ++ quote })
+
+                        Nothing ->
+                            Nothing
+
+                Nothing ->
+                    Nothing
+
+        MultilineString loc ->
+            when Dict.get (key loc.start) table is
+                Just codes ->
+                    Just (MultilineString { loc | value = Array.map (respellEscapes codes) loc.value })
+
+                Nothing ->
+                    Nothing
+
+        _ ->
+            Nothing
+
+
+-- A string or character literal's text split into its quote and its content.
+quoted : String -> Maybe { quote : String, content : String }
+quoted text =
+    let
+        quote =
+            String.takeFirst 1 text
+    in
+    if (quote == "\"" || quote == "'") && String.count text >= 2 && String.endsWith quote text then
+        Just { quote = quote, content = text |> String.dropFirst 1 |> String.dropLast 1 }
+
+    else
+        Nothing

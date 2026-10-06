@@ -12,7 +12,7 @@ sci =
 
 escapes : Array String
 escapes =
-    [ "\r", "\r", "😀" ]
+    [ "\r", "\r", "\u{1F600}" ]
 
 
 hexAndChars : Array Int

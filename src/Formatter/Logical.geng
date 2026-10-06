@@ -10,6 +10,7 @@ parsed module. The AST walk itself lives in `Formatter.Logical.MakeLogical`
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Ctx
 import Formatter.Logical.Comments exposing (lptAddComments)
+import Formatter.Logical.Escapes exposing (keepEscapes)
 import Formatter.Logical.LogicalPrintingTree exposing (LPNode)
 import Formatter.Logical.MakeLogical exposing (lptFromAst)
 import Formatter.Logical.SortSymbols exposing (sortSymbols)
@@ -22,6 +23,9 @@ The pipeline runs in five stages:
 
 1. `lptFromAst` (in `Formatter.Logical.MakeLogical`) walks the `Src.Module` and
    emits one `OriginalRows` child per top-level declaration, in source order.
+   `Formatter.Logical.Escapes.keepEscapes` then spells each code point a
+   literal's author wrote as `\u{...}` that way again, which the decoded
+   strings in the AST cannot say (geng-lang D601).
 2. `Formatter.Logical.Comments.lptAddComments` weaves in comment nodes from the
    parse `Ctx.Context`, as siblings of the declarations they belong to.
 3. `Formatter.Logical.SortSymbols.sortSymbols` reorders the symbols inside
@@ -53,7 +57,7 @@ makeLogicalPrintingTree ast ctx =
         Ok lpt ->
             let
                 withComments =
-                    lptAddComments ctx lpt
+                    lptAddComments ctx (keepEscapes ctx lpt)
 
                 sorted =
                     sortSymbols withComments
