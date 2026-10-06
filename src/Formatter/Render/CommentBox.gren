@@ -753,76 +753,165 @@ comment-bearing cases, so the two cannot drift apart.
 -}
 pairInlineComments : (Box -> Bool) -> (RenderNode -> Result String Box) -> Array RenderNode -> Result String (Array Box)
 pairInlineComments leadMayRide renderItem children =
-    Array.foldl
-        (\node accResult ->
-            accResult
-                |> Result.andThen
-                    (\acc ->
-                        if nodeIsComment node then
-                            commentNodeBox node
-                                |> Result.andThen
-                                    (\cbox ->
-                                        if commentLeadsNext node then
-                                            -- Rule C2: written across the unrecorded
-                                            -- `,` between two items, so it belongs to
-                                            -- the item AFTER it (`[ 1, {- c -} 2 ]`).
-                                            -- Held with the opener run in `lead`.
-                                            --
-                                            -- `atOpener = False`: this run must GLUE
-                                            -- whatever the item looks like. Stacking it
-                                            -- would put the comment inside the caller's
-                                            -- `, ` prefix, and the reparse then reads it
-                                            -- as written BEFORE the separator, which is a
-                                            -- different comment with a different role.
-                                            Ok { acc | lead = Array.pushLast cbox acc.lead, atOpener = False }
+    -- Two passes, so that nothing is grown one element at a time (a fold that
+    -- `pushLast`s each box copies the boxes so far at every step, and a long
+    -- list literal has a child per item): render every child, then hand each
+    -- item the comment slices on either side of it.
+    children
+        |> traverseResult
+            (\node ->
+                if nodeIsComment node then
+                    commentNodeBox node
+                        |> Result.map
+                            (\cbox ->
+                                if commentLeadsNext node then
+                                    LeadsNextComment cbox
 
-                                        else
-                                            when Array.popLast acc.boxes is
-                                                Just { last, initial } ->
-                                                    Ok { acc | boxes = Array.pushLast (glueCommentSuffix cbox last) initial }
+                                else
+                                    TrailsPrevComment cbox
+                            )
 
-                                                Nothing ->
-                                                    -- No item yet: the comment was written
-                                                    -- just after the opening bracket
-                                                    -- (`[ {- c -} 1, 2 ]`), so it leads the
-                                                    -- FIRST item instead of trailing a
-                                                    -- previous one. Held until that item
-                                                    -- renders — see `lead`. No separator
-                                                    -- prefix stands between it and the
-                                                    -- item, so this run may stack.
-                                                    Ok { acc | lead = Array.pushLast cbox acc.lead }
-                                    )
+                else
+                    renderItem node |> Result.map ItemBox
+            )
+        |> Result.map (assemblePaired leadMayRide)
 
-                        else
-                            renderItem node
-                                |> Result.map
-                                    (\box ->
-                                        { boxes =
-                                            Array.pushLast
-                                                (glueLeadBoxes
-                                                    (if acc.atOpener then
-                                                        leadMayRide
 
-                                                     else
-                                                        \_ -> True
-                                                    )
-                                                    acc.lead
-                                                    box
-                                                )
-                                                acc.boxes
-                                        , lead = []
-                                        , atOpener = True
-                                        }
-                                    )
+type PairedPiece
+    = ItemBox Box
+    -- Rule C2: written across the unrecorded `,` between two items, so it
+    -- belongs to the item AFTER it (`[ 1, {- c -} 2 ]`).
+    | LeadsNextComment Box
+    | TrailsPrevComment Box
+
+
+assemblePaired : (Box -> Bool) -> Array PairedPiece -> Array Box
+assemblePaired leadMayRide pieces =
+    let
+        itemIndices =
+            pieces
+                |> Array.indexedMap
+                    (\i piece ->
+                        when piece is
+                            ItemBox _ ->
+                                Just i
+
+                            _ ->
+                                Nothing
                     )
-        )
-        (Ok { boxes = [], lead = [], atOpener = True })
-        children
+                |> Array.mapAndKeepJust identity
+
+        itemCount =
+            Array.length itemIndices
+
+        between lo hi =
+            Array.slice (lo + 1) hi pieces
+
+        leadsNext piece =
+            when piece is
+                LeadsNextComment cbox ->
+                    Just cbox
+
+                _ ->
+                    Nothing
+
+        trailsPrev piece =
+            when piece is
+                TrailsPrevComment cbox ->
+                    Just cbox
+
+                _ ->
+                    Nothing
+
+        anyComment piece =
+            when piece is
+                LeadsNextComment cbox ->
+                    Just cbox
+
+                TrailsPrevComment cbox ->
+                    Just cbox
+
+                ItemBox _ ->
+                    Nothing
+
+        itemBoxes =
+            itemIndices
+                |> Array.indexedMap
+                    (\k at ->
+                        let
+                            -- Not `Array.get (k - 1)` alone: a negative index
+                            -- counts from the END, so for k = 0 it would answer
+                            -- the last item.
+                            prevAt =
+                                if k == 0 then
+                                    -1
+
+                                else
+                                    Array.get (k - 1) itemIndices |> Maybe.withDefault -1
+
+                            nextAt =
+                                Array.get (k + 1) itemIndices |> Maybe.withDefault (Array.length pieces)
+
+                            before =
+                                between prevAt at
+
+                            -- Before the first item there is no box to trail,
+                            -- so a comment of either role leads the first item
+                            -- (`[ {- c -} 1, 2 ]`). After that, only the
+                            -- leads-next ones do; the rest glued onto the
+                            -- previous item.
+                            lead =
+                                if k == 0 then
+                                    Array.mapAndKeepJust anyComment before
+
+                                else
+                                    Array.mapAndKeepJust leadsNext before
+
+                            -- `atOpener = False` once a leads-next comment is
+                            -- held: that run must GLUE whatever the item looks
+                            -- like. Stacking it would put the comment inside
+                            -- the caller's `, ` prefix, and the reparse then
+                            -- reads it as written BEFORE the separator, which
+                            -- is a different comment with a different role.
+                            atOpener =
+                                not (Array.any (\piece -> leadsNext piece /= Nothing) before)
+
+                            box =
+                                when Array.get at pieces is
+                                    Just (ItemBox b) ->
+                                        b
+
+                                    _ ->
+                                        -- unreachable: `at` indexes an ItemBox
+                                        B.blankLine
+                        in
+                        Array.foldl glueCommentSuffix
+                            (glueLeadBoxes
+                                (if atOpener then
+                                    leadMayRide
+
+                                 else
+                                    \_ -> True
+                                )
+                                lead
+                                box
+                            )
+                            (Array.mapAndKeepJust trailsPrev (between at nextAt))
+                    )
+
         -- A `lead` run with no item left to lead cannot arise from the
         -- classifier (an opener always has a first item, and `LeadsNext` is only
         -- assigned when an item follows), but dropping it would silently delete a
         -- comment, so it falls back to a box of its own.
-        |> Result.map (\acc -> acc.boxes ++ acc.lead)
+        unled =
+            when Array.last itemIndices is
+                Just lastAt ->
+                    Array.mapAndKeepJust leadsNext (between lastAt (Array.length pieces))
+
+                Nothing ->
+                    Array.mapAndKeepJust anyComment pieces
+    in
+    itemBoxes ++ unled
 
 
 {-| Glue held leading comment boxes onto the front of the item's box, in source

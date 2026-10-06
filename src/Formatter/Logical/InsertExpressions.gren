@@ -42,7 +42,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnShape
     , lpnWithBracketStart
     )
-import Formatter.Results exposing (resultFoldl)
+import Formatter.Results exposing (resultFoldl, traverseResult)
 
 
 {-| Returns True for the pipeline operators `|>` and `<|`.
@@ -361,7 +361,7 @@ insertExpression locExpr =
             -- absorbed the comment into the surrounding field on reparse
             -- (non-idempotent: `{ z | next0 = [] } -- c` re-broken as
             -- `{ z | next0 = [] -- c }` collapsed back to one line).
-            resultFoldl folderInsertExprAsItem [] exprArray
+            traverseResult insertExpressionAsItem exprArray
                 |> Result.map
                     (\itemNodes ->
                         [ authoredBracketList ListSquare (itemsSpanRows exprArray || itemsAlwaysBreak exprArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
@@ -686,7 +686,8 @@ insertCall { fn = fnExpr, args = argsExprs } =
     insertExpression fnExpr
         |> Result.andThen
             (\fnNodes ->
-                resultFoldl folderInsertExprAsItem fnNodes argsExprs
+                traverseResult insertExpressionAsItem argsExprs
+                    |> Result.map (\argNodes -> fnNodes ++ argNodes)
                     |> Result.map
                         (\allNodes ->
                             let
@@ -1142,17 +1143,6 @@ insertExpressionAsItem locExpr =
                         else
                             Ok (lpnNode BodyBlock nodes)
             )
-
-
-{-| `resultFoldl` folder that builds one `LPNode` per expression (via
-`insertExpressionAsItem`) and appends it. Used for array-literal items and
-function-call arguments alike: every container literal now derives its
-inline-vs-vertical shape from the author's layout, so an argument needs no
-position-specific rewriting. -}
-folderInsertExprAsItem : Src.Expression -> Array LPNode -> Result String (Array LPNode)
-folderInsertExprAsItem expr accNodes =
-    insertExpressionAsItem expr
-        |> Result.map (\node -> Array.pushLast node accNodes)
 
 
 {-| Wrap an expression as a single block node of the given kind.

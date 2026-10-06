@@ -166,19 +166,41 @@ stackPrime b1 b2 =
 
 andThen : Array Box -> Box -> Box
 andThen rest first =
-    Array.foldl (\b acc -> stackPrime acc b) first rest
+    stack1 (Array.pushFirst first rest)
 
 
-{-| `stack1` = `foldr1 stackPrime`. -}
+{-| `stack1` = `foldr1 stackPrime`.
+
+`stackPrime` only concatenates its two boxes' lines, so the fold is the
+concatenation of every child's lines, built here in one pass. Folding
+`stackPrime` itself copied the accumulated lines at every step, which made a
+long stack (a list literal of n items) cost n * n / 2 line copies.
+-}
 stack1 : Array Box -> Box
 stack1 children =
-    when Array.popLast children is
-        Nothing ->
+    let
+        lines =
+            Array.mapAndFlatten
+                (\b ->
+                    when b is
+                        SingleLine l ->
+                            [ l ]
+
+                        Stack st ->
+                            [ st.first, st.second ] ++ st.rest
+                )
+                children
+    in
+    when { first = Array.get 0 lines, second = Array.get 1 lines } is
+        { first = Nothing } ->
             -- elm errors on empty; a blank line is a harmless stand-in here
             blankLine
 
-        Just { last = lastB, initial = initial } ->
-            Array.foldr (\b acc -> stackPrime b acc) lastB initial
+        { first = Just l1, second = Nothing } ->
+            SingleLine l1
+
+        { first = Just l1, second = Just l2 } ->
+            Stack { first = l1, second = l2, rest = Array.dropFirst 2 lines }
 
 
 mapFirstLine : (Line -> Line) -> (Line -> Line) -> Box -> Box
@@ -266,22 +288,26 @@ allJoinable boxes =
 
 allBy : (Box -> Result Box Line) -> Array Box -> Result (Array Box) (Array Line)
 allBy test boxes =
-    Array.foldl
-        (\b acc ->
-            when acc is
-                Err _ ->
-                    acc
-
-                Ok ls ->
+    let
+        -- `Array.mapAndKeepJust`, not a fold that `pushLast`s each line:
+        -- that copies the accumulated lines at every step.
+        lines =
+            Array.mapAndKeepJust
+                (\b ->
                     when test b is
                         Ok l ->
-                            Ok (Array.pushLast l ls)
+                            Just l
 
                         Err _ ->
-                            Err boxes
-        )
-        (Ok [])
-        boxes
+                            Nothing
+                )
+                boxes
+    in
+    if Array.length lines == Array.length boxes then
+        Ok lines
+
+    else
+        Err boxes
 
 
 {-| Add the prefix to the first line, pad the other lines with spaces of the
