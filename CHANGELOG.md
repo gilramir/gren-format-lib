@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A module with thousands of declarations, or a list with thousands of
+  items, formats in time proportional to its size.** Six places built an
+  array one element at a time with `Array.pushLast` (or `++`) inside a fold.
+  Each call copies the whole array, so n siblings cost n * n / 2 copies:
+  `RenderTree.lowerChildren` and `segmentsBrokenAtArrow` (which ran on every
+  node, the RootBox included), `Box.stack1` / `Box.andThen` / `Box.allBy`,
+  the list-item and call-argument folds in `InsertExpressions`, and
+  `CommentBox.pairInlineComments`. Each now builds its result with whole-array
+  operations. Output is unchanged. A module of 40,000 one-line declarations
+  went from 137 s to 19 s and from 1.1 GB to 560 MB peak; a 40,000-item list
+  from 73 s to 14 s. Files of ordinary size are unaffected. What is still
+  superlinear is in `gren-lang/compiler-common`'s parser.
+- **`Compiler.Ast.Compare` compares two arrays in time proportional to their
+  length.** `compareArrayItems` took the first element of each array with
+  `popFirst` at every step, which copies the rest, so comparing two arrays of
+  `n` items copied `n * n / 2` of them. It now walks both by index. On a
+  formatter run over a large source tree this was 141 MB of the 6.5 GB it
+  allocates.
+
 ## [1.1.1] - 2026-09-04
 
 ### Fixed

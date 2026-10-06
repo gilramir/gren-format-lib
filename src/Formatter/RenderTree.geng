@@ -308,20 +308,61 @@ must not move the answer -- writing one changes neither token's row.
 -}
 lowerChildren : Array LPNode -> Array RenderNode
 lowerChildren children =
-    (Array.foldl
-        (\child acc ->
-            { prev =
-                if LPT.shapeIsComment (lpnShape child) then
-                    acc.prev
+    let
+        -- Ascending indices of the non-comment children. Each child's `prev`
+        -- is the last of these below its own index, found by binary search:
+        -- a fold carrying `prev` would have to build `out` with `pushLast`,
+        -- which copies, and the RootBox has a child per declaration.
+        codeIndices =
+            children
+                |> Array.indexedMap
+                    (\i child ->
+                        if LPT.shapeIsComment (lpnShape child) then
+                            Nothing
+
+                        else
+                            Just i
+                    )
+                |> Array.mapAndKeepJust identity
+    in
+    Array.indexedMap
+        (\i child ->
+            let
+                prev =
+                    lastIndexBelow i codeIndices
+                        |> Maybe.andThen (\j -> Array.get j children)
+            in
+            lowerNode (startsOnRowOf prev child) child
+        )
+        children
+
+
+{-| The largest element of an ascending `Array Int` that is below `limit`. -}
+lastIndexBelow : Int -> Array Int -> Maybe Int
+lastIndexBelow limit sorted =
+    lastIndexBelowHelp limit sorted 0 (Array.length sorted) Nothing
+
+
+lastIndexBelowHelp : Int -> Array Int -> Int -> Int -> Maybe Int -> Maybe Int
+lastIndexBelowHelp limit sorted lo hi found =
+    if lo >= hi then
+        found
+
+    else
+        let
+            mid =
+                (lo + hi) // 2
+        in
+        when Array.get mid sorted is
+            Just v ->
+                if v < limit then
+                    lastIndexBelowHelp limit sorted (mid + 1) hi (Just v)
 
                 else
-                    Just child
-            , out = Array.pushLast (lowerNode (startsOnRowOf acc.prev child) child) acc.out
-            }
-        )
-        { prev = Nothing, out = [] }
-        children
-    ).out
+                    lastIndexBelowHelp limit sorted lo mid found
+
+            Nothing ->
+                found
 
 
 {-| Do `prev` and `node` share the source row their first positioned tokens sit
@@ -382,75 +423,55 @@ line -- so only the row-reading halves are here.
 -}
 segmentsBrokenAtArrow : Array LPNode -> Bool
 segmentsBrokenAtArrow children =
-    (Array.foldl
-        (\seg acc ->
-            let
-                first =
-                    segFirstRow seg
-
-                last =
-                    segLastRow seg
-            in
+    let
+        -- One pass, closing a segment at each `->` and at the end, rather than
+        -- materialising the segments: `splitAtArrows` grew the open segment
+        -- with `pushLast`, which copies, and this runs on every node --
+        -- including the RootBox, whose children are every declaration.
+        closeSegment acc =
             { broken =
                 acc.broken
-                    || (acc.prevLast >= 0 && first >= 0 && first > acc.prevLast)
+                    || (acc.prevLast >= 0 && acc.segFirst >= 0 && acc.segFirst > acc.prevLast)
             , prevLast =
-                if last >= 0 then
-                    last
+                if acc.segLast >= 0 then
+                    acc.segLast
 
                 else
                     acc.prevLast
+            , segFirst = -1
+            , segLast = -1
             }
+    in
+    Array.foldl
+        (\node acc ->
+            if isSegmentArrow node then
+                closeSegment acc
+
+            else if LPT.shapeIsComment (lpnShape node) then
+                acc
+
+            else
+                { acc
+                    | segFirst = minRow acc.segFirst (nodeFirstRow node)
+                    , segLast = max acc.segLast (lpnMaxRow node)
+                }
         )
-        { broken = False, prevLast = -1 }
-        (splitAtArrows (dropThroughColon children))
-    ).broken
+        { broken = False, prevLast = -1, segFirst = -1, segLast = -1 }
+        (dropThroughColon children)
+        |> closeSegment
+        |> .broken
 
 
 {-| Everything after the first top-level `:` leaf, or the whole array when there
 is none. Mirrors `MakeRenderBox.makeSignatureBox`'s own colon split. -}
 dropThroughColon : Array LPNode -> Array LPNode
 dropThroughColon children =
-    if Array.any (\n -> leafText n == Just ":") children then
-        (Array.foldl
-            (\node acc ->
-                if acc.pastColon then
-                    { acc | out = Array.pushLast node acc.out }
+    when Array.findFirst (\n -> leafText n == Just ":") children is
+        Just { index } ->
+            Array.dropFirst (index + 1) children
 
-                else if leafText node == Just ":" then
-                    { acc | pastColon = True }
-
-                else
-                    acc
-            )
-            { pastColon = False, out = [] }
+        Nothing ->
             children
-        ).out
-
-    else
-        children
-
-
--- Split at each top-level `->`: the first segment is the leading type, each
--- later one begins with its `->`. The renderer's `splitSignatureSegments` does
--- the same, on `RenderNode`s.
-splitAtArrows : Array LPNode -> Array (Array LPNode)
-splitAtArrows nodes =
-    Array.foldl
-        (\node acc ->
-            if isSegmentArrow node then
-                Array.pushLast [ node ] acc
-
-            else
-                when Array.popLast acc is
-                    Just { last = seg, initial = front } ->
-                        Array.pushLast (Array.pushLast node seg) front
-
-                    Nothing ->
-                        [ [ node ] ]
-        )
-        []
-        nodes
 
 
 {-| A signature segment starts at an arrow, and `=>` is one of them: the
@@ -474,63 +495,42 @@ leafText node =
             Nothing
 
 
--- A segment's first content row, ignoring the leading arrow and any comment.
+-- A segment node's first content row (-1 when it has none).
 --
--- A segment beginning with a bracketed type (`{ … }`, `( … )`) starts where its
+-- A node beginning with a bracketed type (`{ … }`, `( … )`) starts where its
 -- *opening bracket* sits, not at its first inner token — the bracket has no leaf,
 -- so `firstRowInSubtree` alone would report the first field's row, and a break
 -- just inside the bracket would masquerade as a break between `->` segments,
 -- flipping the whole signature to multi-line.
-segFirstRow : Array LPNode -> Int
-segFirstRow seg =
-    Array.foldl
-        (\node acc ->
-            if isSegmentArrow node || LPT.shapeIsComment (lpnShape node) then
-                acc
+nodeFirstRow : LPNode -> Int
+nodeFirstRow node =
+    let
+        leafR =
+            firstRowInSubtree node
+    in
+    when lpnBracketStart node is
+        Just open ->
+            if leafR < 0 then
+                open.row
 
             else
-                let
-                    leafR =
-                        firstRowInSubtree node
+                min open.row leafR
 
-                    r =
-                        when lpnBracketStart node is
-                            Just open ->
-                                if leafR < 0 then
-                                    open.row
-
-                                else
-                                    min open.row leafR
-
-                            Nothing ->
-                                leafR
-                in
-                if acc < 0 then
-                    r
-
-                else if r < 0 then
-                    acc
-
-                else
-                    min acc r
-        )
-        -1
-        seg
+        Nothing ->
+            leafR
 
 
--- A segment's last content row, ignoring the leading arrow and any comment.
-segLastRow : Array LPNode -> Int
-segLastRow seg =
-    Array.foldl
-        (\node acc ->
-            if isSegmentArrow node || LPT.shapeIsComment (lpnShape node) then
-                acc
+-- `min` over rows where -1 means "none".
+minRow : Int -> Int -> Int
+minRow acc r =
+    if acc < 0 then
+        r
 
-            else
-                max acc (lpnMaxRow node)
-        )
-        -1
-        seg
+    else if r < 0 then
+        acc
+
+    else
+        min acc r
 
 
 -- ═══ ACCESSORS ═══
