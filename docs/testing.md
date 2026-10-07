@@ -68,11 +68,13 @@ which performs three independent checks on one dirty/formatted pair:
 
 ```bash
 cd gren-format-lib/tests
-./run-tests.sh   # builds tests/app via devbox, then runs it
+./run-tests.sh   # builds tests/app with the Geng fork, then runs it
 ```
 
 `run-tests.sh` runs `check-divergence-index.py` first, then
-recompiles the test harness against the formatter source in `src/` directly —
+recompiles the test harness with the Geng fork beside this checkout
+(`vendor/gren-lang/compiler`, built by its `devbox run build`), which reads
+`tests/geng.toml`, against the formatter source in `src/` directly —
 the `tests/` app depends on the package locally — so editing formatter source
 and re-running `run-tests.sh` is enough; there's no separate library build
 step.

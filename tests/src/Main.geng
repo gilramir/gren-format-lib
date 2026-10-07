@@ -1,0 +1,24 @@
+module Main exposing (main)
+
+import FileSystem
+import Node
+import Task exposing (Task)
+import Test.Formatter.Format
+import Test.Runner.UnitNode as U
+
+
+main : Task Never {}
+main =
+    Node.getEnvironment
+        |> Task.andThen
+            (\env ->
+                U.runWith env
+                    { name = "gren-format-lib-tests"
+                    , version = "1.0.0"
+                    , init = FileSystem.initialize |> Task.map (\fs -> { fs = fs })
+                    , fileSystem = \perms -> Just perms.fs
+                    , globalSetUp = \_ -> Task.succeed {}
+                    , globalTearDown = \_ -> Task.succeed {}
+                    , suites = \perms -> Test.Formatter.Format.suites perms.fs
+                    }
+            )

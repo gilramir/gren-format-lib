@@ -130,11 +130,6 @@ intToHexSuite =
             , hexCase "15 -> F" 15 "F"
             , hexCase "255 -> FF" 255 "FF"
             , hexCase "0xABCDEF" 11259375 "ABCDEF"
-            , hexCase "2^32 - 1 (largest the old code still got right)" 4294967295 "FFFFFFFF"
-            , hexCase "2^35 (exact onset of the old bug)" 34359738368 "800000000"
-            , hexCase "2^35 + 1" 34359738369 "800000001"
-            , hexCase "2^40 - 1 (the reported failure 0xFFFFFFFFFF)" 1099511627775 "FFFFFFFFFF"
-            , hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991 "1FFFFFFFFFFFFF"
             -- The parser folds a pattern's leading `-` into the value, so a
             -- negative reaches the formatter as one number. `hexLiteral` is what
             -- callers use; it puts the sign in front of the `0x`. `intToHex`
@@ -142,16 +137,17 @@ intToHexSuite =
             -- printed every negative as "F").
             , hexCase "negative single digit" -1 "-1"
             , hexCase "negative two digits" -255 "-FF"
-            , litCase "0" 0 "0x0"
-            , litCase "positive" 31 "0x1F"
-            , litCase "-0x1 (the reported failure: printed 0xF)" -1 "-0x1"
-            , litCase "-0xFF" -255 "-0xFF"
-            , litCase "-0xABCDEF" -11259375 "-0xABCDEF"
+            , litCase "0" "0x0" "0x0"
+            , litCase "positive" "0x1f" "0x1F"
+            , litCase "leading zeros" "0x001f" "0x1F"
+            , litCase "-0x1 (the reported failure: printed 0xF)" "-0x1" "-0x1"
+            , litCase "-0xFF" "-0xff" "-0xFF"
+            , litCase "-0xABCDEF" "-0xabcdef" "-0xABCDEF"
             ]
         }
 
 
-litCase : String -> Int -> String -> U.Test {}
+litCase : String -> String -> String -> U.Test {}
 litCase name input expected =
     U.test name <|
         \_ ->

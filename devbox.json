@@ -9,13 +9,8 @@
       "build": [
         "gren make"
       ],
-      "build_test": [
-        "cd tests/",
-        "gren make Main"
-      ],
       "test": [
-        "cd tests/",
-        "gren run Main"
+        "tests/run-tests.sh"
       ],
       "cov": [
         "cd tests/",

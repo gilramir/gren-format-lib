@@ -28,15 +28,25 @@ fi
 # surfacing as a missing-file error inside the suite.
 python3 "$(dirname "$(realpath "$0")")/check-divergence-index.py" || exit 1
 
+# Built with the Geng fork beside this checkout (geng-lang's vendor/), which
+# reads tests/geng.toml and the [sources] paths it names, as ../../gren-format's
+# build.sh does. It needs `devbox run build` to have been run in
+# vendor/gren-lang/compiler, and its runtime needs that checkout's Node.
+cd "$(dirname "$(realpath "$0")")"
+geng_lang="$(cd ../../../.. && pwd)"
+compiler="$geng_lang/vendor/gren-lang/compiler"
+if [ ! -f "$compiler/app" ]; then
+  echo "run-tests.sh: no Geng front end at $compiler/app; run \`devbox run build\` there" >&2
+  exit 1
+fi
+export PATH="$geng_lang/.devbox/nix/profile/default/bin:$PATH"
+
 # A failed build must NOT fall through to `node app` — the app from the previous
 # build is still sitting there, so running it reports a green for the code as it
-# was BEFORE the edit that broke the compile.
-pushd ..
-devbox run build_test || {
-  popd
-  echo "run-tests.sh: build failed — not running the previously-built app" >&2
+# was BEFORE the edit that broke the compile. It is removed first for that.
+rm -f app
+GENG_BIN="$compiler/geng" node "$compiler/app" make Main --output=app || {
+  echo "run-tests.sh: build failed" >&2
   exit 1
 }
-
-popd
 node app "$@"
