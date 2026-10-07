@@ -21,7 +21,7 @@ import UnifiedDiff exposing (unifiedDiffStrings)
 
 suites : FileSystem.Permission -> Array U.Suite
 suites fsPerm =
-    [ intToHexSuite
+    [ multilineContentSuite
     , importSuite fsPerm
     , coreExpressionsSuite fsPerm
     , binopsAndPipelinesSuite fsPerm
@@ -77,7 +77,7 @@ divergenceCatalogueSuite fsPerm =
             , entry "#5 a single-line comment after a `->` in a wrapped signature is glued to that `->`" "D05SignatureArrowComment"
             , entry "#6 a union written on one row stays on one row" "D06UnionOnOneLine"
             , entry "#7 a record pattern broken across rows stays broken" "D07RecordPatternAuthorDriven"
-            , entry "#9 a float literal keeps the author's exact spelling; an int and a string escape are canonicalized by the parser before the formatter sees them" "D09VerbatimLiterals"
+            , entry "#9 every literal keeps the author's exact spelling -- a float, a hex integer, a string's escapes and raw characters alike, a multi-line string, a character, in expressions and patterns (geng-lang D602); elm-format normalizes floats, hex and escapes" "D09VerbatimLiterals"
             , entry "#10 a redundant paren is kept in every position" "D10RedundantParens"
             , entry "#11 a comment's text is never rewritten, only its placement" "D11DocCommentBody"
             , entry "#12 a comment written after the last code on a row stays beside it" "D12TrailingCommentStays"
@@ -103,62 +103,39 @@ divergenceCatalogueSuite fsPerm =
             , entry "#32 a lambda head broken across rows keeps its `->` on the row of whatever precedes it; elm-format gives the arrow a row of its own. Only a comment can reach the shape -- layout is author-driven, so nothing else breaks a parameter list -- and it is the same rule a one-row head follows, where both formatters agree. The body's own position must not move the head" "D32LambdaHeadKeepsArrow"
             , entry "#33 a lambda after `<|` keeps its head on the operator's row (R1) and a body that is itself another `<| \\p ->` starts at the same column (R2), so a chain of continuations is n rows at one column closed by a body at +4 -- always, even where the author wrote that closing body on the `->` row (R3); elm-format staircases every step by 8. Both spellings normalize to the aligned form, and so does a chain written entirely on one row, the exemption being a SINGLE `<|`. Four boundaries ride on this fixture: a multi-line left-hand side turns R1 off, a one-row lambda is untouched, a comment-broken HEAD still glues, and a comment between the `<|` and the `\\` glues only where it can ride the row. A comment beside the `->` leads the BODY and the head still glues -- refusing the split over it made format 1 decline R1 and format 2 accept it" "D33BackPipeLambdaAligned"
             , entry "#34 a bare (unparenthesized) `|>` operand -- a lambda, an `if`, a `when` or a `let` -- keeps its head on the operator's row; elm-format wraps that operand in parens it ADDS and glues the `(` there instead. gren never introduces a paren (the other side of #10), and gluing is what keeps `|>` off a row of its own. Both spellings the author can write come back glued, and the parenthesized form the author DID write is reproduced identically by both formatters" "D34BarePipeOperandNoParens"
-            , entry "#35 U+3000 IDEOGRAPHIC SPACE is written as the character; elm-format escapes it along with the rest of the Zs separators. A full-width space is a full character cell wide and lines up with the ideographs around it, so the escape is what would hide it -- real spinner-animation frames are laid out with it. Every other space separator is still escaped, a no-break space above all, since that one really can pass for a plain space" "D35IdeographicSpace"
             ]
         }
 
 
-{-| Pure unit tests for `LiteralFormat.intToHex` (no fixture, no I/O). The large
-cases pin the fix for the 32-bit-`//` truncation bug: before it, `intToHex`
-corrupted any value >= 2^35 (the first quotient `n // 16` that reaches 2^31
-overflowed negative under JS `(a / b) | 0`), so the formatter emitted a wrong
-hex literal — e.g. `intToHex (2^35)` returned `"F0"` instead of `"800000000"` —
-and the AST check then refused to format valid input like `0x800000000`. These
-cases fail on the old code and pass on `floor (toFloat n / 16)`.
+{-| Pure unit tests for `LiteralFormat.multilineContentLines` (no fixture, no
+I/O): a multi-line string loses the indentation of the column its quotes are
+in, and nothing else, so it can be written at another (geng-lang D602, D603).
 -}
-intToHexSuite : U.Suite
-intToHexSuite =
+multilineContentSuite : U.Suite
+multilineContentSuite =
     U.suite
-        { name = "intToHex"
+        { name = "multilineContentLines"
         , setUpSuite = U.noSuiteFixture
         , tearDownSuite = U.noTearDown
         , setUp = U.noFixture
         , tearDown = U.noTearDown
         , tests =
-            [ hexCase "0" 0 "0"
-            , hexCase "single digit 10 uppercases to A" 10 "A"
-            , hexCase "15 -> F" 15 "F"
-            , hexCase "255 -> FF" 255 "FF"
-            , hexCase "0xABCDEF" 11259375 "ABCDEF"
-            -- The parser folds a pattern's leading `-` into the value, so a
-            -- negative reaches the formatter as one number. `hexLiteral` is what
-            -- callers use; it puts the sign in front of the `0x`. `intToHex`
-            -- itself no longer falls through to `hexDigit`'s wildcard (which
-            -- printed every negative as "F").
-            , hexCase "negative single digit" -1 "-1"
-            , hexCase "negative two digits" -255 "-FF"
-            , litCase "0" "0x0" "0x0"
-            , litCase "positive" "0x1f" "0x1F"
-            , litCase "leading zeros" "0x001f" "0x1F"
-            , litCase "-0x1 (the reported failure: printed 0xF)" "-0x1" "-0x1"
-            , litCase "-0xFF" "-0xff" "-0xFF"
-            , litCase "-0xABCDEF" "-0xabcdef" "-0xABCDEF"
+            [ contentCase "aligned with the quotes" 5 "\"\"\"\n    one\n    two\n    \"\"\"" [ "one", "two" ]
+            , contentCase "a deeper line keeps what is past the quotes' column" 5 "\"\"\"\n    one\n      two\n    \"\"\"" [ "one", "  two" ]
+            , contentCase "a blank line shorter than the indentation" 5 "\"\"\"\n    one\n  \n    two\n    \"\"\"" [ "one", "", "two" ]
+            , contentCase "trailing spaces and escapes stay" 3 "\"\"\"\n  one  \n  \\u{0020}\\n\n  \"\"\"" [ "one  ", "\\u{0020}\\n" ]
+            , contentCase "a carriage return before a line break goes" 1 "\"\"\"\r\none\r\n\"\"\"" [ "one" ]
+            , contentCase "empty" 5 "\"\"\"\n    \"\"\"" []
+            , contentCase "column 1 takes nothing off" 1 "\"\"\"\n  one\n\"\"\"" [ "  one" ]
             ]
         }
 
 
-litCase : String -> String -> String -> U.Test {}
-litCase name input expected =
+contentCase : String -> Int -> String -> Array String -> U.Test {}
+contentCase name col text expected =
     U.test name <|
         \_ ->
-            Task.succeed (Expect.equal (LiteralFormat.hexLiteral input) expected)
-
-
-hexCase : String -> Int -> String -> U.Test {}
-hexCase name input expected =
-    U.test name <|
-        \_ ->
-            Task.succeed (Expect.equal (LiteralFormat.intToHex input) expected)
+            Task.succeed (Expect.equal (LiteralFormat.multilineContentLines col text) expected)
 
 
 {-| Format a dirty fixture and return the result.
@@ -553,14 +530,14 @@ patternsAndLiteralsSuite fsPerm =
             , assertPrettyIn fsPerm "PatternsAndLiterals" "let destructure pattern too long to fit on one line" "LetDestructLong"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "let destructure of a ctor-with-payload or as-alias keeps its parens" "LetDestructParens"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "string escape sequences preserved" "StringEscapes"
-            , assertPrettyIn fsPerm "PatternsAndLiterals" "non-printable ASCII in strings escaped as \\u{XXXX}" "NonPrintableEscapes"
-            , assertPrettyIn fsPerm "PatternsAndLiterals" "an invisible code point keeps its \\u{XXXX} escape in a string and a char alike, while a printable one is written as itself" "InvisibleCharacters"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "a \\u{XXXX} escape of a control character is written as the author wrote it, lower-case hex included" "NonPrintableEscapes"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "an invisible code point is written as the author wrote it, as an escape or raw, in a string, a char and a multi-line string alike (geng-lang D602)" "InvisibleCharacters"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "an integer literal past 2^53, decimal or hex, in an expression or a pattern, comes back as written" "LargeIntegerLiterals"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "string and char escape sequences in when patterns" "StringAndCharPatterns"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "multiline (triple-quoted) strings preserved" "MultilineString"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "lambda with record and array destructure patterns" "LambdaPatterns"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "binary operators, negation, hex literals" "BinaryOps"
-            , assertPrettyIn fsPerm "PatternsAndLiterals" "hex literals are reformatted to uppercase across the whole digit table, in expressions and in patterns; a wrong digit trips the AST-equivalence check" "HexLiteralDigits"
+            , assertPrettyIn fsPerm "PatternsAndLiterals" "hex literals keep their spelling across the whole digit table, in expressions and in patterns (geng-lang D602); a changed digit trips the AST-equivalence check" "HexLiteralDigits"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "hex literals above 2^35 (up to 2^53 - 1) round-trip in expressions and patterns; before the intToHex `//` 32-bit-truncation fix the formatter corrupted them and refused to format valid input" "HexLiteralLarge"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "extensible record types in signatures and aliases" "ExtensibleRecords"
             , assertPrettyIn fsPerm "PatternsAndLiterals" "an extensible record TYPE carries its closing `}` as `lastBracketEnd` (built via `lpnBracketNode`, like a record-update expression and a plain record type), so a trailing `--` after `}` stays at the declaration column and an own-line comment before `}` stays inside — previously the type path used plain `lpnNode` with no close position and both oscillated" "ExtensibleRecordTypeTrailingComment"
@@ -608,9 +585,9 @@ recordUpdatesSuite fsPerm =
             , assertPrettyIn fsPerm "RecordUpdates" "a paren-wrapped block/broken-binop/broken-record indents its body to the next TAB STOP after whatever precedes `(`, so the offset is emergent, not chosen: `(`+2 after `+ `, `(`+3 after `-`, `(`+4 when `(` starts its line, `(`+5 after `&& `/`++ `/`|> `. Covers a DOUBLED paren (`((if/when/let ...) |> gn)`/`+ rest`, a call argument that's itself a paren-wrapped binop/pipeline operand): `else`/`in` and the inner `)` must anchor to the INNER `(`, not the outer one. Also covers an author-broken binop/record literal glued after a 2-char operator or as a pipeline's direct operand (`|> (aaa\n    ++ bbb)`, `|> ({ a = 1, b = 2 })`): the paren must pad every continuation line, or a 3-char prefix (`&& `/`++ `/`|> `) falls one Tab stop short instead of crossing it. All cases are byte-identical to elm-format (checked with the elm-format binary; the broken-record case differs only by the settled #10 divergence — gren keeps the parens elm-format strips). Formerly PrefixAnchorDivergence: gren deliberately used a uniform indent rather than elm's tab stops, which is why the `&&`/`-(` cases diverged; 2026-07-14 the user chose to match elm-format exactly instead" "ParenBlockTabStops"
             , assertPrettyIn fsPerm "RecordUpdates" "a bare `if` as a direct list item indents its branches +4 with `else` under `if`, matching elm-format (was over-indented +8 until the item-wrapper double-indent fix)" "BareIfListItem"
             , assertPrettyIn fsPerm "RecordUpdates" "a bare `let` as a direct list item indents its bindings +4 with `in`/result under `let`, matching elm-format (same item-wrapper double-indent fix)" "BareLetListItem"
-            , assertPrettyIn fsPerm "RecordUpdates" "multi-line string content escapes backslashes and embedded triple quotes but leaves isolated quotes verbatim" "MultilineStringContent"
+            , assertPrettyIn fsPerm "RecordUpdates" "multi-line string content is written as the author wrote it, an escaped quote and a doubled backslash included (geng-lang D602)" "MultilineStringContent"
             , assertPrettyIn fsPerm "RecordUpdates" "trailing whitespace on triple-quoted string content lines is significant and preserved verbatim" "MultilineStringTrailingWhitespace"
-            , assertPrettyIn fsPerm "RecordUpdates" "in a triple-quoted string a horizontal tab is preserved verbatim while a non-printable control character is written as a \\u{...} escape" "MultilineStringControlChars"
+            , assertPrettyIn fsPerm "RecordUpdates" "in a triple-quoted string a horizontal tab and a \\u{...} escape of a control character are both written as the author wrote them" "MultilineStringControlChars"
             , assertPrettyIn fsPerm "RecordUpdates" "a `--` trailing a multi-line string's closing delimiter glues onto that row and stays put (was non-idempotent: prevLineGlueRow/prevBlockGlueRow had no MultilineString case, so it defaulted to -1 and always classified LeadsLine)" "MultilineStringTrailingLineComment"
             , assertPrettyIn fsPerm "RecordUpdates" "a `{- -}` written PAST a record update's `}` stays outside it (glued onto the `}` row), like arrays and record literals — the update's `}` is a real tracked bracket, so a same-row comment past it is not pulled inside onto the last field" "RecordUpdateFieldTrailingComment"
             , assertPrettyIn fsPerm "RecordUpdates" "a `--` written past a single-field record update's `}` stays outside and the update stays flat, like `[ 1 ] -- c` — the comment is not absorbed into the (empty-`[]`) field" "EmptyBracketFieldTrailingLineComment"

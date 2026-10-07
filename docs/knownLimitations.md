@@ -562,18 +562,14 @@ from data) until both fixes ship.
 
 ### Where it showed up
 
-In this repo's own test suite. `tests/src/Test/Formatter/Format.gren` pins
-`intToHex` at the `2^53 - 1` boundary:
-
-```gren
-, hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991 "1FFFFFFFFFFFFF"
-```
-
-Running `gren-format` over `gren-format-lib` rewrites that `…991` to `…992` and
-the test then fails, because `intToHex` correctly reports `20000000000000` for
-the number it was actually given. **Formatting this repo will keep re-breaking
-that line** until core#134 ships and the dependency is bumped; repair it by hand
-after formatting, and do not "fix" the expectation string to match.
+In this repo's own test suite, which pinned `intToHex` at the `2^53 - 1`
+boundary (`hexCase "2^53 - 1 (max exact JS integer)" 9007199254740991
+"1FFFFFFFFFFFFF"`): running `gren-format` over `gren-format-lib` rewrote that
+`…991` to `…992`, and the test then failed, because `intToHex` correctly
+reported `20000000000000` for the number it was actually given. On the `geng`
+branch the row is gone: a literal is written as its text (geng-lang D602), so
+`intToHex` went with the hex normalization it served, and Geng's `Int` is 32
+bits, which the row was past.
 
 No fuzzer here will ever reach the boundary on its own: `gen-random.py` draws
 decimal literals from `0..99` and hex literals from at most 44 bits, so its

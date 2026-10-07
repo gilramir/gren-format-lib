@@ -9,17 +9,17 @@ onset =
 
 
 fortyBits =
-    0xFFFFFFFFFF
+    0xffffffffff
 
 
 maxSafe =
-    0x1FFFFFFFFFFFFF
+    0x1fffffffffffff
 
 
 -- The pattern path (InsertPatterns) reaches intToHex separately.
 classify n =
     when n is
-        0xDEADBEEF00 ->
+        0xdeadbeef00 ->
             "big"
 
         _ ->

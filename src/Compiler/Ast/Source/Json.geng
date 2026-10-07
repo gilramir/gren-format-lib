@@ -431,13 +431,15 @@ encPattern_ pat =
         Src.PChr char ->
             Json.object
                 [ { key = "type", value = Json.string "char" }
-                , { key = "value", value = Json.string (String.fromChar char) }
+                , { key = "value", value = Json.string (String.fromChar char.value) }
+                , { key = "text", value = Json.string char.text }
                 ]
 
         Src.PStr str ->
             Json.object
                 [ { key = "type", value = Json.string "string" }
-                , { key = "value", value = Json.string str }
+                , { key = "value", value = Json.string str.value }
+                , { key = "text", value = Json.string str.text }
                 ]
 
         Src.PInt { text, isHex } ->
@@ -470,13 +472,15 @@ encExpression_ expr =
         Src.CharLiteral char ->
             Json.object
                 [ { key = "type", value = Json.string "char" }
-                , { key = "value", value = Json.string (String.fromChar char) }
+                , { key = "value", value = Json.string (String.fromChar char.value) }
+                , { key = "text", value = Json.string char.text }
                 ]
 
         Src.StringLiteral str ->
             Json.object
                 [ { key = "type", value = Json.string "string" }
-                , { key = "value", value = Json.string str }
+                , { key = "value", value = Json.string str.value }
+                , { key = "text", value = Json.string str.text }
                 ]
 
         Src.NumberLiteral outcome ->

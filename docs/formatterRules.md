@@ -1333,111 +1333,58 @@ following the same author-layout rules.
 
 ## String literals
 
-A regular string keeps its content and its escape sequences:
+**A literal is written exactly as you wrote it** (geng-lang D602). That holds
+for a string, a multi-line string, a character and a number, in an expression
+and in a pattern. The parser keeps each literal's text, quotes and escapes
+included, and the formatter writes that text back. So the rule fits in a line:
+`gren-format` never respells anything between the quotes.
 
 ```gren
-greeting =
-    "Hello, World!"
+written =
+    [ "e\u{0301}", "é", "\u{000d}", "\r", "\u{1f600}", "😀" ]
 
 
-withEscapes =
-    "line one\nline two\t!\\"
+hex =
+    [ 0xff, 0xFF, 0x00Ff ]
 ```
 
-The parser hands the formatter the decoded string, in which `"\u{0041}"` and
-`"A"` are the same thing, so it writes every character back out under one rule.
-On the `geng` branch the parser also records which code points each literal
-spelled as `\u{...}`, and those keep their escape (below). The rule is the same
-for `"..."`, `"""..."""` and `'x'`:
+Each of those comes back as it is. A combining accent you spelled as an escape
+stays visible beside its letter, a named escape stays named, an escape stays in
+the case you wrote its digits in, and a hex literal keeps its digits.
 
-- Tab, newline, carriage return, a backslash, and the quote that would close
-  this literal take their two-character escapes: `\t`, `\n`, `\r`, `\\`, and
-  `\"` or `\'`. (Inside a `"""` string a real newline and a real tab stand for
-  themselves, which is the whole point of the form.)
-- A character you can **see** is written as itself. Letters, marks, numbers,
-  punctuation and symbols all qualify, in any script — `"é"`, `"日本"` and `"😀"`
-  come back untouched, and so do `'é'` and `'☃'`.
-- **Unless you spelled it as an escape.** A code point a literal spells as
-  `\u{...}` is written as an escape everywhere in that literal, so
-  `"e\u{0301}"` keeps the combining accent it would otherwise hide beside the
-  `e`, and `"🏳\u{FE0F}\u{200D}🌈"` keeps its variation selector. elm-format
-  writes these as the characters; this is
-  [divergence #36](elmFormatComparison.md#divergence-36). The parser records the
-  code points a literal escaped, not each place it escaped them, so a literal
-  that holds the same code point both ways comes back with every one escaped.
-  A named escape stays named: `"\u{000d}"` is still written `"\r"`.
-- A character you **cannot** see keeps a `\u{...}` escape, which is what makes
-  it visible in the source at all: control characters; every space separator
-  except a plain space and a full-width space, so a no-break space cannot
-  masquerade as a plain one; the line and paragraph separators; format
-  characters, which is where the byte order mark, the zero-width space, the
-  bidi controls and an emoji sequence's zero-width joiner live; surrogates;
-  private-use code points; and noncharacters.
-
-```gren
-byteOrderMark =
-    "\u{FEFF}"
-
-
-noBreakSpace =
-    "\u{00A0}"
-
-
-family =
-    "👨\u{200D}👩\u{200D}👧"
-```
-
-This works in the other direction too. Paste a no-break space or a zero-width
-space straight into a string and the formatter writes it back as an escape,
-turning something invisible into something you can read, `grep` for, and see in
-a diff.
-
-The full-width space, U+3000, is the one member of the space-separator category
-that is written as itself. It is not invisible: it is a full character cell
-wide, it lines up with the ideographs around it, and it is the space of CJK
-text, so an escape is what would hide it. elm-format escapes it with the rest
-of the category; this is [divergence #35](elmFormatComparison.md#divergence-35).
-
-The hex digits are uppercase, and at least four wide: `\u{001B}`, `\u{FEFF}`,
-`\u{1F600}`. Which case *you* wrote is not recorded — `\u{001B}`, `\u{001b}`
-and a raw ESC byte all arrive at the formatter as one and the same character —
-so the case is a choice rather than a preservation, and the choice matches
-elm-format.
+The other side of the same rule: a character you wrote raw stays raw, an
+invisible one included. A no-break space or a zero-width space pasted into a
+string is not turned into an escape. elm-format writes every printable escape
+as its character and every invisible character as an escape; it has only the
+decoded string to work from, so it has to choose a spelling for each character.
+This is [divergence #9](elmFormatComparison.md#divergence-9).
 
 ### Character literals
 
-A character uses single quotes and follows exactly the rule above, so a string
-and a char never disagree about the same code point:
-
-```gren
-tab = '\t'
-newline = '\n'
-carriageReturn = '\r'
-singleQuote = '\''
-backslash = '\\'
-letter = 'a'
-accented = 'é'
-snowman = '☃'
-byteOrderMark = '\u{FEFF}'
-```
+A character follows the same rule: `'\u{00e9}'`, `'é'` and `'\t'` each come
+back as written.
 
 ### Multi-line (triple-quoted) strings
 
-A `"""` string always stays in triple-quoted form. The opening `"""` sits at
-the binding's body column, and the content lines and closing `"""` sit at that
-same indentation:
+A `"""` string always stays in triple-quoted form, and its content is written
+as you wrote it. The opening `"""` sits at the binding's body column, and the
+content lines and closing `"""` sit at that same indentation:
 
 ```gren
 message =
     """
     Hello, World!
+      indented two more
     """
 ```
 
-Content lines are re-indented to line up with the `"""` delimiters. This is
-safe because Gren strips the closing delimiter's column from every content line
-before the formatter sees them; only relative indentation within the block is
-preserved.
+The one thing the formatter changes is where the lines start. A multi-line
+string's indentation is the column of its opening quotes, every line has at
+least that many spaces (a blank line may have fewer), and those spaces are not
+part of the string (geng-lang D603). So when the string moves, its lines move
+with it: the formatter takes off the indentation it was written at and puts on
+the new one, and everything past it is kept, a deeper line's extra spaces, a
+space at the end of a line, a blank last line and every escape included.
 
 ---
 

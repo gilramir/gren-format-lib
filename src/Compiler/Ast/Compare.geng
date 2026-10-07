@@ -8,7 +8,6 @@ module Compiler.Ast.Compare exposing (compareModules)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Number as Number
 import Compiler.SourcePosition as SP
-import Formatter.Logical.LiteralFormat as LiteralFormat
 
 
 {-| Compare two parsed modules for semantic equivalence. Returns `Ok {}` when
@@ -503,14 +502,14 @@ comparePattern_ a b =
             compareArray "pattern array" comparePattern pa pb
 
         { fst = Src.PChr ca, snd = Src.PChr cb } ->
-            compareChar "pattern char" ca cb
+            compareChar "pattern char" ca.value cb.value
 
         { fst = Src.PStr sa, snd = Src.PStr sb } ->
-            compareStr "pattern string" sa sb
+            compareStr "pattern string" sa.value sb.value
 
         { fst = Src.PInt ia, snd = Src.PInt ib } ->
             chainAll
-                [ compareStr "pattern int" (normalise ia) (normalise ib)
+                [ compareStr "pattern int" ia.text ib.text
                 , compareBool "pattern int isHex" ia.isHex ib.isHex
                 ]
 
@@ -553,10 +552,10 @@ compareExpr_ : String -> Src.Expression_ -> Src.Expression_ -> Result String {}
 compareExpr_ ctx a b =
     when { fst = a, snd = b } is
         { fst = Src.CharLiteral ca, snd = Src.CharLiteral cb } ->
-            compareChar ctx ca cb
+            compareChar ctx ca.value cb.value
 
         { fst = Src.StringLiteral sa, snd = Src.StringLiteral sb } ->
-            compareStr ctx sa sb
+            compareStr ctx sa.value sb.value
 
         { fst = Src.NumberLiteral na, snd = Src.NumberLiteral nb } ->
             compareNumber ctx na nb
@@ -871,17 +870,6 @@ compareBool ctx a b =
             )
 
 
--- A pattern's integer literal, in the form the formatter would write it: the
--- text as it stands for a decimal, normalised for a hex. See `compareNumber`.
-normalise : { text : String, isHex : Bool } -> String
-normalise lit =
-    if lit.isHex then
-        LiteralFormat.hexLiteral lit.text
-
-    else
-        lit.text
-
-
 compareNumber : String -> Number.Outcome -> Number.Outcome -> Result String {}
 compareNumber ctx a b =
     when { fst = a, snd = b } is
@@ -904,14 +892,10 @@ compareNumber ctx a b =
                 Err (ctx ++ ": " ++ fa.text ++ " vs " ++ fb.text)
 
         { fst = Number.Hex ha, snd = Number.Hex hb } ->
-            -- Normalised rather than raw, and this is the one numeric literal
-            -- where the two differ: the formatter upper-cases a hex literal's
-            -- digits and drops its leading zeros, so `0x001f` and `0x1F` are
-            -- the same literal written twice and comparing the text as written
-            -- would call the formatter's own output a bug. `hexLiteral` is a
-            -- string operation, so this stays exact at a width no `Int` holds
-            -- (`docs/m1b-int.md` §I16).
-            if LiteralFormat.hexLiteral ha.text == LiteralFormat.hexLiteral hb.text then
+            -- The text as written, as for the others: the formatter keeps a
+            -- hex literal's spelling (geng-lang D602), so `0xff` and `0xFF`
+            -- are two different outputs.
+            if ha.text == hb.text then
                 Ok {}
 
             else

@@ -23,11 +23,7 @@ import Formatter.Logical.LPTHelpers exposing
     , plainAcross
     , syntheticParens
     )
-import Formatter.Logical.LiteralFormat exposing
-    ( charLiteralString
-    , escapeStringContent
-    , hexLiteral
-    )
+import Formatter.Logical.LiteralFormat exposing (multilineContentLines)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
@@ -143,21 +139,26 @@ insertPattern locPat =
                         [ authoredBracketList ListSquare (itemsSpanRows patterns) locPat.start locPat.end (lpnLeaf (mkText locPat.start "[]")) itemNodes ]
                     )
 
-        Src.PChr c ->
-            Ok [ lpnLeaf (mkText locPat.start (charLiteralString c)) ]
+        -- A literal is written as the author wrote it (geng-lang D602).
+        Src.PChr literal ->
+            Ok [ lpnLeaf (mkText locPat.start literal.text) ]
 
-        Src.PStr s ->
-            Ok [ lpnLeaf (mkText locPat.start ("\"" ++ escapeStringContent s ++ "\"")) ]
+        Src.PStr literal ->
+            if String.startsWith "\"\"\"" literal.text then
+                Ok
+                    [ lpnLeaf
+                        (MultilineString
+                            { start = locPat.start
+                            , end = locPat.end
+                            , value = multilineContentLines locPat.start.col literal.text
+                            }
+                        )
+                    ]
 
-        Src.PInt { text = written, isHex = isHex } ->
-            let
-                text =
-                    if isHex then
-                        hexLiteral written
+            else
+                Ok [ lpnLeaf (mkText locPat.start literal.text) ]
 
-                    else
-                        written
-            in
+        Src.PInt { text } ->
             Ok [ lpnLeaf (mkText locPat.start text) ]
 
 

@@ -26,7 +26,7 @@ import Formatter.Logical.LPTHelpers exposing
     , syntheticParens
     , tryMapLastLeaf
     )
-import Formatter.Logical.LiteralFormat exposing (charLiteralString, escapeMultilineContent, escapeStringContent, hexLiteral)
+import Formatter.Logical.LiteralFormat exposing (multilineContentLines)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
@@ -281,23 +281,23 @@ for wrapping the result in a container shape (e.g. `AcrossOrVertical`,
 insertExpression : Src.Expression -> Result String (Array LPNode)
 insertExpression locExpr =
     when locExpr.value is
-        Src.StringLiteral s ->
-            if locExpr.start.row /= locExpr.end.row then
-                -- Triple-quoted strings still process `\` as an escape
-                -- introducer (e.g. `\n`, `\u{1F4A9}`). The AST stores the
-                -- *decoded* string, so we must re-escape backslashes
-                -- before splitting on real newlines for emission.
-                let
-                    mlsLoc =
-                        { start = locExpr.start
-                        , end = locExpr.end
-                        , value = String.split "\n" (escapeMultilineContent s)
-                        }
-                in
-                Ok [ lpnLeaf (MultilineString mlsLoc) ]
+        Src.StringLiteral literal ->
+            -- Written as the author wrote it (geng-lang D602). A multi-line
+            -- string's lines move with it, so its leaf holds them with the
+            -- indentation of the column it was written in taken off.
+            if String.startsWith "\"\"\"" literal.text then
+                Ok
+                    [ lpnLeaf
+                        (MultilineString
+                            { start = locExpr.start
+                            , end = locExpr.end
+                            , value = multilineContentLines locExpr.start.col literal.text
+                            }
+                        )
+                    ]
 
             else
-                Ok [ lpnLeaf (mkText locExpr.start ("\"" ++ escapeStringContent s ++ "\"")) ]
+                Ok [ lpnLeaf (mkText locExpr.start literal.text) ]
 
         Src.NumberLiteral outcome ->
             when outcome is
@@ -308,10 +308,10 @@ insertExpression locExpr =
                     Ok [ lpnLeaf (mkText locExpr.start (n.text)) ]
 
                 PN.Hex n ->
-                    Ok [ lpnLeaf (mkText locExpr.start (hexLiteral n.text)) ]
+                    Ok [ lpnLeaf (mkText locExpr.start n.text) ]
 
-        Src.CharLiteral c ->
-            Ok [ lpnLeaf (mkText locExpr.start (charLiteralString c)) ]
+        Src.CharLiteral literal ->
+            Ok [ lpnLeaf (mkText locExpr.start literal.text) ]
 
         Src.Var { varType = _, name = name } ->
             Ok [ lpnLeaf (mkText locExpr.start name) ]
@@ -1104,14 +1104,17 @@ simpleExprText locExpr =
         Src.Accessor field ->
             "." ++ field
 
-        Src.CharLiteral c ->
-            charLiteralString c
+        Src.CharLiteral literal ->
+            literal.text
 
-        Src.StringLiteral s ->
-            -- `escapeStringContent` escapes a literal newline as `\n`, so
-            -- this is safe even for a string the author wrote as a
-            -- triple-quoted (multi-row) literal.
-            "\"" ++ escapeStringContent s ++ "\""
+        Src.StringLiteral literal ->
+            -- A multi-line string cannot be written on one line without
+            -- respelling it, which the formatter does not do (geng-lang D602).
+            if String.contains "\n" literal.text then
+                ""
+
+            else
+                literal.text
 
         Src.NumberLiteral outcome ->
             when outcome is
@@ -1122,7 +1125,7 @@ simpleExprText locExpr =
                     n.text
 
                 PN.Hex n ->
-                    hexLiteral n.text
+                    n.text
 
         Src.Operator opString ->
             -- The parser wraps an operator-as-value (`(+)`) in a `Parens`

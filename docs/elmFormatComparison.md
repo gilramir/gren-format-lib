@@ -28,7 +28,7 @@ code, and why the places they *don't* look the way they do.
   - [#6 Union variants one-per-line (elm)](#divergence-6)
   - [#7 Record/array patterns aren't author-driven (elm)](#divergence-7)
   - #8 Retired
-  - [#9 Verbatim literals vs normalization](#divergence-9)
+  - [#9 Every literal keeps its spelling](#divergence-9)
   - [#10 Redundant parens kept](#divergence-10)
   - [#11 Doc-comment body contents](#divergence-11)
   - [#12 Comment after code stays on the line](#divergence-12)
@@ -54,6 +54,8 @@ code, and why the places they *don't* look the way they do.
   - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
   - [#33 A lambda after `<|` keeps its head on the operator's row](#divergence-33)
   - [#34 A bare operand after `|>` keeps its head; elm-format adds parens](#divergence-34)
+  - #35 Retired
+  - #36 Retired
 - [Out of scope for comparison](#out-of-scope-for-comparison)
 
 
@@ -162,7 +164,7 @@ at all but an upstream parser bug
 kept here because it is real today and a fixture pins it. It says so at the top
 of the entry, and it retires when the fix ships.
 
-**Every entry has a fixture** except retired #8, in
+**Every entry has a fixture** except retired #8, #35 and #36, in
 `tests/testfiles/Divergence/`, built from that entry's own example: the
 `.dirty.geng` is what the entry says you wrote and the `.formatted.geng` is what
 it says gren-format produces. The mapping is 1:1 in both directions and
@@ -378,45 +380,36 @@ entry with no fixture, or a fixture with no entry.
    Effect modules are refused by the parser now (geng-lang `m1b-source.md`
    §SO20), so there is no header to format. The number is not reused.
 
-9. <a id="divergence-9"></a>**Float literals keep the spelling you gave them; elm-format
-   normalizes them.** elm-format rewrites scientific notation (`1e5` → `1.0e5`,
-   `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`); gren-format prints a float exactly as
-   written (see [String literals](formatterRules.md#string-literals)). This was a
-   considered design choice, not an oversight.
+9. <a id="divergence-9"></a>**Every literal keeps the spelling you gave it; elm-format
+   normalizes them.** A float, a hex integer, a string, a multi-line string and
+   a character are each written exactly as the author wrote them, in
+   expressions and in patterns (geng-lang D602). elm-format rewrites scientific
+   notation (`1e5` → `1.0e5`, `1.5E3` → `1.5e3`, `1.5e+3` → `1.5e3`), upper-cases
+   a hex literal's digits and drops its leading zeros (`0xff` → `0xFF`), expands
+   a named escape (`\r` → `\u{000D}`), writes a printable escape as its
+   character (`"\u{1F600}"` → `"😀"`, `"e\u{0301}"` → `"é"` with the accent
+   hidden), and writes an invisible character as an escape (a pasted no-break
+   space → `\u{00A0}`). gren-format does none of these: the rule is that nothing
+   between the quotes is respelled. See
+   [String literals](formatterRules.md#string-literals).
 
-   **This does not extend to every literal, and the entry used to say it did.**
-   Two kinds are canonicalized before the formatter ever sees them, because the
-   parser hands it a decoded value rather than the source text:
+   elm-format's choices follow from what its parser hands it: the decoded
+   value, in which `"\u{0041}"` and `"A"` are the same thing, so it has to pick
+   a spelling for every character. The fork's parser keeps each literal's text
+   beside its value, as it already did for numbers
+   ([compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34)),
+   and the formatter writes the text. The one thing it changes is where a
+   multi-line string's lines start, since the string moves with the code
+   around it, and its indentation is the column of its opening quotes
+   (geng-lang D603).
 
-   - **Integers.** `0xff` and `0x00Ff` both print as `0xFF`. elm-format does the
-     same, so this is not a divergence at all — just not preservation.
-   - **String and character escapes.** A `\u{…}` escape for a code point with
-     a named escape is re-emitted named: `"\u{000d}"` prints as `"\r"`. This
-     *is* a divergence, and it runs the **opposite** way from the rest of this
-     entry — elm-format expands named escapes (`\r` → `\u{000D}`) where
-     gren-format contracts them.
+   This replaces two entries that were choices made inside elm-format's rule
+   and have nothing left to describe: #35, a full-width space written as
+   itself where the other space separators were escaped, and #36, an escape the
+   author wrote kept as an escape.
 
-     Any other escape stays an escape. On `main` an escape whose code point is
-     *printable* was re-emitted as the character, `'\u{0041}'` as `'A'` and
-     `"\u{1F600}"` as `"😀"`, which elm-format does too. On the `geng` branch
-     the parser records which code points a literal escaped, and they keep
-     their escape: [#36](#divergence-36).
-
-     An escape whose code point is **not** printable is left as an escape, by
-     the same rule elm-format uses and in the same uppercase spelling —
-     `"\u{FEFF}"`, `'\u{FEFF}'` and `"\u{200B}"` all survive untouched. See
-     [String literals](formatterRules.md#string-literals). Only the *case* of
-     the hex digits is invented rather than preserved (the parser hands over a
-     decoded value, so `\u{001B}` and `\u{001b}` arrive identical); the case
-     invented is elm-format's.
-
-   Fixture: `Divergence/D09VerbatimLiterals`, which pins all three. Both sides
-   are verified against the `elm-format` binary; its `"\u{1F600}"` now pins
-   #36's kept escape as well.
-
-   Filed upstream as
-   [compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34);
-   the write-up is `parser-literal-spelling-bug.md`.
+   Fixture: `Divergence/D09VerbatimLiterals`, which holds every case the three
+   entries held.
 
 10. <a id="divergence-10"></a>**Redundant parens: gren-format keeps the ones you wrote, elm-format
     strips them.** If you put parens somewhere they aren't needed, gren-format
@@ -2148,76 +2141,12 @@ entry with no fixture, or a fixture with no entry.
     compiles, and can typecheck; the four-column indent is the only signal.
 
 
-35. <a id="divergence-35"></a>**A full-width space is written as itself;
-    elm-format escapes it.** Both formatters write an invisible code point as a
-    `\u{...}` escape rather than as the character itself — a no-break space, a
-    zero-width space, a byte order mark; see
-    [String literals](formatterRules.md#string-literals). elm-format decides
-    that from the Unicode general category, so **U+3000 IDEOGRAPHIC SPACE** is
-    escaped along with the rest of the Zs separators. gren-format exempts it,
-    and escapes every other member of the category.
+35. **Retired: a full-width space written as itself where elm-format escapes
+    it.** Every literal keeps its spelling now (#9), so there is no escaping
+    rule left to exempt U+3000 from. The number is not reused.
 
-    A full-width space is not invisible. It is a full character cell wide, the
-    same width as the ideographs it sits among, and it lines up with them on the
-    rows above and below. It is the space of CJK text, and nothing else in a
-    Gren file has that shape — escaping it is what would hide it.
-
-    The corpus settled this, not the argument. `blaix/gren-tui` lays its spinner
-    animations out with U+3000 as the padding between the glyphs:
-
-    ```gren
-    , frames = [ "🤜　　　　🤛 ", "　🤜　　🤛　 ", "　　🤜🤛　　 " ]
-    ```
-
-    Respelled as `"🤜\u{3000}\u{3000}\u{3000}\u{3000}🤛 "` those frames stop
-    being something a person can read or edit, and the alignment that is their
-    entire point is no longer visible in the source.
-
-    A no-break space keeps its escape, because a no-break space really can pass
-    for a plain space — which is the hazard the rule exists for, and the one a
-    full-width space does not present. Every other member of the category was
-    weighed at the same time and kept its escape for that reason. Chosen by the
-    maintainer, 2026-09-04.
-
-    Verified against the `elm-format` binary, which escapes `\u{3000}`,
-    `\u{00A0}` and `\u{2003}` alike and agrees with gren-format on every other
-    code point the rule touches — `\u{feff}` → `"\u{FEFF}"`, `\u{001b}` →
-    `"\u{001B}"`, a ZWJ sequence → `"👨\u{200D}👩"`. Of the escapes of
-    *invisible* code points, this entry is the whole of the difference between
-    the two formatters; an escape of a visible one is [#36](#divergence-36).
-
-    Fixture: `Divergence/D35IdeographicSpace` — which has to carry it alone,
-    because `matrix-syntax.py`'s parity oracle cannot see this rule at all. Its
-    literal atoms are `'c'` and `"s"`, plain ASCII, so no cell it generates holds
-    an escape or a non-ASCII character, and no entry in
-    `matrix-parity-baseline.json` moves when the rule changes.
-
-
-36. <a id="divergence-36"></a>**An escape the author wrote stays an escape;
-    elm-format writes the character.** elm-format decides a literal's spelling
-    from each code point alone, so `"e\u{0301}"` comes back as an `e` followed
-    by a combining acute written as itself, which no reader can tell from a
-    precomposed `é`, and `"🏳\u{FE0F}\u{200D}🌈"` loses its variation selector
-    into the flag beside it. gren-format on the `geng` branch writes a code
-    point as `\u{…}` wherever the author's literal did, in strings, multi-line
-    strings, characters and patterns, as well as wherever the code point is
-    invisible (#35's rule). A visible character written as itself is still
-    written as itself, so text in a script built on combining marks, written
-    as text, is untouched.
-
-    The parser hands the formatter a decoded string
-    ([compiler-common#34](https://github.com/gren-lang/compiler-common/issues/34)),
-    so the fork's parser records, for each literal that has a `\u{…}` escape,
-    where the literal starts and which code points it spelled that way
-    (`Compiler.Parse.Context`'s `escapes`), and `Formatter.Logical.Escapes`
-    respells them. The record is per code point, not per place, so a literal
-    holding the same code point both ways comes back with each one escaped.
-    The digits are uppercase and at least four wide, as #35's are; a named
-    escape stays named (#9). Chosen by the maintainer, 2026-10-06 (geng-lang
-    D601), after the formatter turned the escapes of two of geng-lang's
-    benchmark sources into invisible marks.
-
-    Fixture: `Divergence/D36KeptEscapes`.
+36. **Retired: an escape the author wrote kept as an escape.** Every literal
+    keeps its spelling now (#9), escapes included. The number is not reused.
 
 
 ## Out of scope for comparison

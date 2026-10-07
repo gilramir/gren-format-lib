@@ -695,10 +695,9 @@ def _inline(n, s):
 
 
 def _int_text(v, is_hex):
-    """Source text for an int literal. Hex is emitted with LOWERCASE digits so
-    the formatter's uppercasing (intToHex) is exercised; the value round-trips
-    up to 2^53 - 1 (the exact-integer limit) since the intToHex 32-bit-`//` bug
-    was fixed."""
+    """Source text for an int literal. Hex is emitted with LOWERCASE digits,
+    which the formatter keeps as written (geng-lang D602; it used to upper-case
+    them), so a changed digit shows up as an AST difference."""
     return ("0x" + format(v, "x")) if is_hex else str(v)
 
 

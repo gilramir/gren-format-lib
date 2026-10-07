@@ -8,15 +8,15 @@ byteOrderMark =
 
 
 zeroWidthSpace =
-    "\u{200B}"
+    "\u{200b}"
 
 
 noBreakSpace =
-    "\u{00A0}"
+    "\u{00a0}"
 
 
 charByteOrderMark =
-    '\u{FEFF}'
+    '\u{feff}'
 
 
 -- A code point with a glyph is written as itself, in both kinds, but one the
@@ -26,7 +26,7 @@ letters =
 
 
 charAccented =
-    '\u{00E9}'
+    '\u{00e9}'
 
 
 charSnowman =
@@ -36,14 +36,14 @@ charSnowman =
 -- A zero-width joiner is a format character, so an emoji sequence comes back
 -- with its joiners spelled out rather than hidden between the glyphs.
 family =
-    "👨\u{200D}👩\u{200D}👧"
+    "👨‍👩‍👧"
 
 
 -- The edges of those ranges: U+00A1 and U+D7FF are the printable neighbours of
 -- the C1 block and of the surrogates, and written as themselves stay
 -- characters.
 boundaries =
-    "\u{009F}¡퟿"
+    "\u{009f}¡퟿"
 
 
 -- Private-use and noncharacter code points are escaped as well.
@@ -53,13 +53,13 @@ oddities =
 
 -- Written as raw characters, the invisible ones are made visible.
 pastedFromElsewhere =
-    "one\u{00A0}two\u{200B}three"
+    "one two​three"
 
 
 -- The same rule inside a triple-quoted string, where a real tab still stands
 -- for itself.
 block =
     """
-    one	two\u{00A0}three\u{200B}four
-    a\u{FEFF}b
+    one	two three​four
+    a\u{feff}b
     """

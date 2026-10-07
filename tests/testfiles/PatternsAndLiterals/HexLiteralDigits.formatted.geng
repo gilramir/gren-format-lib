@@ -10,14 +10,14 @@ midDigits =
 
 
 lowerToUpper =
-    0xABC
+    0xabc
 
 
 -- A hex literal in a pattern reaches a separate reformatting call site
 -- (InsertPatterns), independent of the expression path above.
 classify n =
     when n is
-        0x3F ->
+        0x3f ->
             "low"
 
         0x90 ->

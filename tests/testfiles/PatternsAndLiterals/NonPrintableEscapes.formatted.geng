@@ -3,7 +3,7 @@ module NonPrintableEscapes exposing (..)
 
 -- Non-printable ASCII control characters in string literals must be re-escaped.
 escPrefix =
-    "\u{001B}["
+    "\u{001b}["
 
 
 nullChar =
@@ -15,18 +15,18 @@ bell =
 
 
 del =
-    "\u{007F}"
+    "\u{007f}"
 
 
 -- Control characters whose hex spans the remaining code-point digits
 -- (A, D, E) — none is one of the specially-escaped chars (tab/newline/CR).
 sub =
-    "\u{001A}"
+    "\u{001a}"
 
 
 groupSep =
-    "\u{001D}"
+    "\u{001d}"
 
 
 shiftOut =
-    "\u{000E}"
+    "\u{000e}"

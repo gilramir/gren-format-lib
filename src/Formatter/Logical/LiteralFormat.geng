@@ -1,523 +1,60 @@
-module Formatter.Logical.LiteralFormat exposing
-    ( charLiteralString
-    , escapeMultilineContent
-    , escapeStringContent
-    , hexLiteral
-    , intToHex
-    , respellEscapes
-    )
+module Formatter.Logical.LiteralFormat exposing (multilineContentLines)
 
 {-|
-Source-text formatting of primitive literals: strings, chars, and hex
-integers. Pure string-to-string conversions; no LPT awareness.
+Source-text handling of literals. A literal is written as its author wrote it
+(geng-lang D602): the parser keeps each string, character and number
+literal's text, quotes and escapes included, and the formatter writes that
+text. The one thing it changes is where a multi-line string's lines start,
+since the string moves with the code around it.
 
 This module is exposed only so that the unit tests can reach it — `tests/` is
 a separate application that depends on this package, so it can import nothing
 that is not in `exposed-modules`. An application using the formatter has no
-reason to call these; it goes through `Formatter.prettyPrint`, which applies
-them for you.
+reason to call it; it goes through `Formatter.prettyPrint`, which applies it
+for you.
 
-@docs escapeStringContent, escapeMultilineContent, charLiteralString
-@docs respellEscapes, hexLiteral, intToHex
+@docs multilineContentLines
 
 -}
 
-import Char
-import Math
 
+{-| The content lines of the multi-line string literal written as `text`,
+whose opening quotes are in column `col`, with that indentation taken off.
+What is left is written after the indentation of wherever the string goes now,
+and the closing quotes in its column.
 
-{-| Escape content for embedding in a single-quoted `"..."` literal: tab,
-newline, carriage return, `"` and `\` become their two-character escapes, and
-every other code point goes through `escapeUnlessPrintable` — verbatim if it is
-printable, a `\u{HEX}` escape if it is not.
+Every line of the content starts with `col - 1` spaces, except a blank line,
+which may have fewer, and those spaces are not part of the string (geng-lang
+D603). So moving the string moves them, and nothing else is touched: an escape
+stays an escape, and a space the author left at the end of a line stays. A
+carriage return before a line break is dropped, since the parser reads `\r\n`
+as a line break.
+
+    multilineContentLines 5 "\"\"\"\n    one\n      two\\u{0020}\n    \"\"\""
+        == [ "one", "  two\\u{0020}" ]
+
 -}
-escapeStringContent : String -> String
-escapeStringContent s =
-    let
-        escapeChar c =
-            let
-                code =
-                    Char.toCode c
-            in
-            when code is
-                -- HT (Horizontal Tab)
-                9 ->
-                    "\\t"
-
-                -- LF (Line Feed)
-                10 ->
-                    "\\n"
-
-                -- CR (Carriage Return)
-                13 ->
-                    "\\r"
-
-                -- QUOTATION MARK
-                34 ->
-                    "\\\""
-
-                -- REVERSE SOLIDUS
-                92 ->
-                    "\\\\"
-
-                _ ->
-                    escapeUnlessPrintable c
-    in
-    String.foldl (\c acc -> acc ++ escapeChar c) "" s
-
-
-{-| Escape content for embedding in a triple-quoted `"""..."""` literal.
-These strings still process `\` as an escape introducer, so literal
-backslashes must be doubled or the parser will misinterpret the next
-character (e.g. `\.` is rejected as "invalid escape sequence"). But
-newlines and tabs are preserved as themselves — the whole point of `"""`
-is that real newlines stand for newlines.
-
-A double quote only needs escaping when it is part of a run of three or
-more (which would terminate the literal, or embed a stray `"""`). An
-isolated `"` (or a run of one or two mid-content) is left verbatim. This
-mirrors elm-format's `escapeMultiQuote`: an isolated quote in an embedded
-template or fixture (e.g. `Debug.log "u"`) is preserved as-is rather than
-backslash-escaped.
--}
-escapeMultilineContent : String -> String
-escapeMultilineContent s =
-    let
-        escapeChar c =
-            let
-                code =
-                    Char.toCode c
-            in
-            when code is
-                -- HT (Horizontal Tab) — preserved verbatim in triple-quoted strings
-                9 ->
-                    String.fromChar c
-
-                -- LF (Line Feed) — preserved verbatim
-                10 ->
-                    String.fromChar c
-
-                -- CR (Carriage Return) — escaped, NOT preserved verbatim.
-                -- The one control character `"""` cannot hold as itself: a raw
-                -- CR emitted just before a content newline renders as CRLF, and
-                -- the parser folds a CRLF to a single LF, so the reparsed string
-                -- is missing the CR (`"ab\r\nc"` came back as `"ab\nc"`, an AST
-                -- mismatch that refused the file). `\r` is a legal escape inside
-                -- a triple-quoted string — the input this protects was written
-                -- that way — so escaping round-trips where the raw byte does not.
-                13 ->
-                    "\\r"
-
-                -- QUOTATION MARK — handled by escapeQuoteRuns below, not here
-                34 ->
-                    String.fromChar c
-
-                -- REVERSE SOLIDUS
-                92 ->
-                    "\\\\"
-
-                _ ->
-                    escapeUnlessPrintable c
-    in
-    escapeQuoteRuns (String.foldl (\c acc -> acc ++ escapeChar c) "" s)
-
-
--- Adapted from elm-format's `escapeMultiQuote`. Walk the string, counting each
--- run of consecutive `"`. A run is escaped (each `"` becomes `\"`) only when it
--- is 3+ long — a run that would otherwise embed a literal `"""` and terminate
--- the string early. Runs of one or two quotes pass through verbatim.
---
--- Unlike elm-format, a *trailing* run of one or two quotes is **not** escaped:
--- `gren format` always emits the closing `"""` on its own line, so the last
--- content character is followed by a newline + indentation, never adjacent to
--- the delimiter. (elm-format lays the whole string flat, so its trailing quote
--- really does abut the closing `"""` and must be escaped.) The backslashes
--- inserted here are *not* re-escaped — this runs after backslash-doubling, so
--- an inserted `\"` is a genuine escaped quote.
-escapeQuoteRuns : String -> String
-escapeQuoteRuns s =
-    let
-        emitRun quotes =
-            if quotes >= 3 then
-                String.repeat quotes "\\\""
-
-            else
-                String.repeat quotes "\""
-
-        step acc quotes c =
-            if c == '"' then
-                { acc = acc, quotes = quotes + 1 }
-
-            else
-                { acc = acc ++ emitRun quotes ++ String.fromChar c, quotes = 0 }
-
-        folded =
-            String.foldl (\c st -> step st.acc st.quotes c) { acc = "", quotes = 0 } s
-    in
-    folded.acc ++ emitRun folded.quotes
-
-
-{-| The source text of a character literal, quotes included: `'a'`, `'\n'`,
-`'\u{FEFF}'`. Tab, newline, carriage return, `'` and `\` take their
-two-character escapes; every other code point goes through
-`escapeUnlessPrintable`, exactly as a string's does — so `'é'` is a letter and
-`'\u{FEFF}'` keeps its escape.
--}
-charLiteralString : Char -> String
-charLiteralString c =
-    let
-        code =
-            Char.toCode c
-
-        inner =
-            when code is
-                9 ->
-                    "\\t"
-
-                10 ->
-                    "\\n"
-
-                13 ->
-                    "\\r"
-
-                39 ->
-                    "\\'"
-
-                92 ->
-                    "\\\\"
-
-                _ ->
-                    escapeUnlessPrintable c
-    in
-    "'" ++ inner ++ "'"
-
-
--- The tail all three literal escapers share: a code point that is none of the
--- kind-specific special cases above (the two-character escapes, and whichever
--- quote would close this particular literal). It is written as itself if a
--- reader can see it, and kept as a `\u{HEX}` escape if not.
---
--- One function, so the three kinds cannot drift apart. They used to: a string
--- emitted every code point from U+0080 up verbatim, so `"\u{FEFF}"` came back
--- as a byte order mark with nothing visible between the quotes, while
--- `'\u{FEFF}'` kept its escape.
-escapeUnlessPrintable : Char -> String
-escapeUnlessPrintable c =
-    let
-        code =
-            Char.toCode c
-    in
-    if isPrintable code then
-        String.fromChar c
-
-    else
-        "\\u{" ++ codePointHex code ++ "}"
-
-
--- Is this code point safe to write into the source file as itself?
---
--- The rule is elm-format's (`ElmFormat/Render/Box.hs`, `fix`): emit verbatim
--- when the character is printable and is not a space separator other than
--- U+0020. Letters, marks, numbers, punctuation and symbols stay readable — `é`,
--- `日本` and `😀` are untouched — while anything a reader cannot see keeps the
--- escape that made it visible.
---
--- Escaped, by Unicode general category:
---
---   * Cc — C0 controls, DEL, C1 controls
---   * Zs — every space separator but U+0020 and U+3000 (see
---     `isSeparatorOtherThanSpace`). A no-break space is indistinguishable from
---     a plain space by eye, by `grep`, and in a diff
---   * Zl, Zp — LINE and PARAGRAPH SEPARATOR
---   * Cf — format characters, which is where U+FEFF, U+200B and the bidi
---     controls live. The zero-width joiner of an emoji sequence is one of
---     these, so a family emoji comes back with its `\u{200D}`s spelled out
---   * Cs — surrogates
---   * Co — private use
---   * Cn — noncharacters: U+FDD0–U+FDEF and the last two of every plane
---
--- The one place this is an approximation of elm-format rather than a copy: Cn
--- also covers every *unassigned* code point, which elm-format escapes because
--- Haskell's `Char.isPrint` consults the full Unicode database. Gren's `Char`
--- carries no category data, so the ranges below are written out by hand, and a
--- table of every assigned code point is not worth shipping in a formatter. An
--- unassigned code point that is not a noncharacter is therefore emitted
--- verbatim. It has no glyph today, but it is also not one of the characters an
--- author deliberately spells as an escape.
---
--- The ranges were checked against Python's Unicode 15.0 tables over all of
--- U+0000–U+10FFFF: for the seven categories above they agree exactly, in both
--- directions, U+3000 being the single deliberate exemption.
-isPrintable : Int -> Bool
-isPrintable code =
-    not
-        (isControlOrFormat code
-            || isSeparatorOtherThanSpace code
-            || isSurrogateOrPrivateUse code
-            || isNoncharacter code
-        )
-
-
--- General categories Cc and Cf.
-isControlOrFormat : Int -> Bool
-isControlOrFormat code =
-    -- Cc: the C0 block, DEL, and the C1 block
-    (code < 0x20)
-        || (code >= 0x7F && code <= 0x9F)
-        -- Cf
-        || (code == 0xAD)
-        || (code >= 0x600 && code <= 0x605)
-        || (code == 0x61C)
-        || (code == 0x6DD)
-        || (code == 0x70F)
-        || (code >= 0x890 && code <= 0x891)
-        || (code == 0x8E2)
-        || (code == 0x180E)
-        || (code >= 0x200B && code <= 0x200F)
-        || (code >= 0x202A && code <= 0x202E)
-        || (code >= 0x2060 && code <= 0x2064)
-        || (code >= 0x2066 && code <= 0x206F)
-        || (code == 0xFEFF)
-        || (code >= 0xFFF9 && code <= 0xFFFB)
-        || (code == 0x110BD)
-        || (code == 0x110CD)
-        || (code >= 0x13430 && code <= 0x1343F)
-        || (code >= 0x1BCA0 && code <= 0x1BCA3)
-        || (code >= 0x1D173 && code <= 0x1D17A)
-        || (code == 0xE0001)
-        || (code >= 0xE0020 && code <= 0xE007F)
-
-
--- General categories Zs, Zl and Zp, less the two separators that are meant to
--- be written as themselves.
---
--- U+0020 is one of them, obviously. The other is **U+3000 IDEOGRAPHIC SPACE**,
--- where we part company with elm-format (divergence #35). A full-width space is
--- the space of CJK text and is as visible as the characters around it: it is a
--- full character cell wide, it lines up with the ideographs on the rows above
--- and below, and nothing else in a Gren file is that shape. Escaping it is what
--- would hide it. The corpus makes the case better than the argument does —
--- `blaix/gren-tui`'s spinner variants lay out animation frames with U+3000 as
--- the padding (`"🤜　　　　🤛 "`), and `\u{3000}` for each of those would turn a
--- readable strip of frames into something nobody can edit.
-isSeparatorOtherThanSpace : Int -> Bool
-isSeparatorOtherThanSpace code =
-    -- Zs
-    (code == 0xA0)
-        || (code == 0x1680)
-        || (code >= 0x2000 && code <= 0x200A)
-        || (code == 0x202F)
-        || (code == 0x205F)
-        -- Zl and Zp
-        || (code == 0x2028)
-        || (code == 0x2029)
-
-
--- General categories Cs and Co.
-isSurrogateOrPrivateUse : Int -> Bool
-isSurrogateOrPrivateUse code =
-    (code >= 0xD800 && code <= 0xDFFF)
-        || (code >= 0xE000 && code <= 0xF8FF)
-        || (code >= 0xF0000 && code <= 0xFFFFD)
-        || (code >= 0x100000 && code <= 0x10FFFD)
-
-
--- The 66 permanent noncharacters: one run inside the Arabic Presentation Forms
--- block, plus the last two code points of each of the seventeen planes.
-isNoncharacter : Int -> Bool
-isNoncharacter code =
-    (code >= 0xFDD0 && code <= 0xFDEF)
-        || (modBy 0x10000 code >= 0xFFFE)
-
-
-{-| A literal's content as the escapers above wrote it, with each code point
-of `codes` that it holds as itself spelled `\u{HEX}` instead: the code points
-the author spelled that way (geng-lang D601). The parser hands the formatter a
-decoded string, so `"e\u{0301}"` and `"e" ++` a literal combining acute arrive
-the same; `Compiler.Parse.Context`'s `escapes` says which code points a literal
-spelled as escapes, and `Formatter.Logical.Escapes` calls this on its leaf.
-
-`text` is the content alone, without its quotes, and every `\` in it starts an
-escape the escapers wrote, which is copied whole: the `u` of `\u{200D}` is not
-a `u` the author may have spelled `\u{0075}`.
-
-    respellEscapes [ 0x2603 ] "☃ \\u{200D}u" == "\\u{2603} \\u{200D}u"
--}
-respellEscapes : Array Int -> String -> String
-respellEscapes codes text =
-    if Array.isEmpty codes then
-        text
-
-    else
-        let
-            step c st =
-                if st.inUnicode then
-                    { acc = String.pushLast c st.acc, afterBackslash = False, inUnicode = c /= '}' }
-
-                else if st.afterBackslash then
-                    { acc = String.pushLast c st.acc, afterBackslash = False, inUnicode = c == 'u' }
-
-                else if c == '\\' then
-                    { acc = String.pushLast c st.acc, afterBackslash = True, inUnicode = False }
-
-                else if Array.member (Char.toCode c) codes then
-                    { acc = st.acc ++ "\\u{" ++ codePointHex (Char.toCode c) ++ "}", afterBackslash = False, inUnicode = False }
+multilineContentLines : Int -> String -> Array String
+multilineContentLines col text =
+    text
+        |> String.split "\n"
+        |> Array.map
+            (\line ->
+                if String.endsWith "\r" line then
+                    String.dropLast 1 line
 
                 else
-                    { acc = String.pushLast c st.acc, afterBackslash = False, inUnicode = False }
-        in
-        (String.foldl step { acc = "", afterBackslash = False, inUnicode = False } text).acc
+                    line
+            )
+        |> Array.dropFirst 1
+        |> Array.dropLast 1
+        |> Array.map (dropIndentation (col - 1))
 
 
-{-| A hex integer literal, normalised: `0x1F`, or `-0x1`.
-
-**The argument is the literal as written** -- `"0x001f"`, or `"-0x1F"` -- and
-what comes back is the same number with the digits upper-cased and any leading
-zeros dropped. It is a string operation and no arithmetic happens, which is the
-point: `0xFFFFFFFFFFFFFFFF` is a `UInt64.maxValue` a host `Int` cannot hold, and
-reading one in to print it back out is how the formatter used to rewrite wide
-literals (`docs/m1b-int.md` §I16). A negative can reach here because the parser
-folds a leading `-` into the text it stores, so the sign is placed in front of
-the `0x` rather than left to the digits.
--}
-hexLiteral : String -> String
-hexLiteral written =
-    let
-        negative =
-            String.startsWith "-" written
-
-        digits =
-            written
-                |> String.dropFirst
-                    (if negative then
-                        3
-
-                     else
-                        2
-                    )
-                |> String.toUpper
-
-        trimmed =
-            dropLeadingZeros digits
-    in
-    (if negative then
-        "-0x"
-
-     else
-        "0x"
-    )
-        ++ trimmed
-
-
--- Every leading zero but the last one, so that `0x0000` stays `0x0`.
-dropLeadingZeros : String -> String
-dropLeadingZeros digits =
-    if String.count digits > 1 && String.startsWith "0" digits then
-        dropLeadingZeros (String.dropFirst 1 digits)
+dropIndentation : Int -> String -> String
+dropIndentation count line =
+    if count > 0 && String.startsWith " " line then
+        dropIndentation (count - 1) (String.dropFirst 1 line)
 
     else
-        digits
-
-
-{-| The hex digits of `n`, uppercase and unpadded.
-
-Nothing in the formatter reaches this any more -- a hex *literal* is normalised
-from its own text by [hexLiteral](#hexLiteral), which is exact at every width --
-and it stays because it is this module's published way to write a number in
-hex. A negative reaching here still gets a `-` rather than a wrong digit.
--}
-intToHex : Int -> String
-intToHex n =
-    let
-        -- Annotated because a number pattern needs a known type (D172): without
-        -- it `hexDigit` generalizes to every numeric type, and `0 ->` would mean
-        -- a different value at each.
-        hexDigit : Int -> String
-        hexDigit d =
-            when d is
-                0 ->
-                    "0"
-
-                1 ->
-                    "1"
-
-                2 ->
-                    "2"
-
-                3 ->
-                    "3"
-
-                4 ->
-                    "4"
-
-                5 ->
-                    "5"
-
-                6 ->
-                    "6"
-
-                7 ->
-                    "7"
-
-                8 ->
-                    "8"
-
-                9 ->
-                    "9"
-
-                10 ->
-                    "A"
-
-                11 ->
-                    "B"
-
-                12 ->
-                    "C"
-
-                13 ->
-                    "D"
-
-                14 ->
-                    "E"
-
-                _ ->
-                    "F"
-    in
-    if n < 0 then
-        "-" ++ intToHex (negate n)
-
-    else if n < 16 then
-        hexDigit n
-
-    else
-        -- `n // 16` would truncate to 32-bit signed: Gren's `//` compiles to JS
-        -- `(a / b) | 0`, so the first quotient that reaches 2^31 (i.e. any input
-        -- `n >= 2^35`) overflows negative and the recursion collapses — the
-        -- formatter then emitted a wrong hex literal (caught by the AST check,
-        -- which refused to format valid input like `0x800000000`). `floor
-        -- (toFloat n / 16)` divides in Float (exact for n < 2^53, since /16 just
-        -- shifts the exponent) and takes the exact quotient with no 32-bit
-        -- coercion, so hex round-trips up to the real 2^53 parser limit.
-        -- `modBy` is unaffected (not a bitwise op) and stays as-is. It moved out
-        -- of `Math` into `Basics` with `Integral` (`m1b-int.md` §I12); the
-        -- operation it names did not change.
-        intToHex (Math.floor (toFloat n / 16)) ++ hexDigit (modBy 16 n)
-
-
--- Format a code point for a `\u{...}` escape: uppercase hex, padded to at least
--- four digits — `\u{001B}`, `\u{FEFF}`, `\u{1F600}`.
---
--- The author's digits are not available to copy. The parser hands the
--- formatter a decoded `String`/`Char`, so `\u{001B}`, `\u{001b}` and a raw ESC
--- byte all arrive here identical (compiler-common#34, and divergence #9 in
--- docs/elmFormatComparison.md); on the `geng` branch the parser records which
--- code points were escapes (`respellEscapes`), but not how their digits were
--- written. The case is therefore invented rather than preserved, and the one
--- invented is elm-format's, which prints `%04X`.
-codePointHex : Int -> String
-codePointHex n =
-    let
-        digits =
-            intToHex n
-    in
-    String.repeat (max 0 (4 - String.count digits)) "0" ++ digits
+        line
