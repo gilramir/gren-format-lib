@@ -20,6 +20,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , commentTrailsHead
     , firstRowInSubtree
     , gluesTrailingComment
+    , hasValue
     , lastRowInSubtree
     , lpnBracketEndElastic
     , lpnBracketEndExact
@@ -36,6 +37,7 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnMaxRow
     , lpnNode
     , lpnReplaceChildren
+    , lpnReplaceChildrenGrown
     , lpnSetCommentRole
     , lpnShape
     , lpnWithBracketStart
@@ -1237,19 +1239,23 @@ lpnWithBracketStart openStart node =
             LPNode
                 { r
                     | bracketStart = Just openStart
-                    , firstPos =
-                        when r.firstPos is
-                            Just p ->
-                                if openStart.row < p.row || (openStart.row == p.row && openStart.col < p.col) then
-                                    Just openStart
-
-                                else
-                                    Just p
-
-                            Nothing ->
-                                Just openStart
+                    , firstPos = pullBackToBracketStart openStart r.firstPos
                     , minRow = min openStart.row r.minRow
                 }
+
+
+pullBackToBracketStart : Position -> Maybe Position -> Maybe Position
+pullBackToBracketStart openStart firstPos =
+    when firstPos is
+        Just p ->
+            if openStart.row < p.row || (openStart.row == p.row && openStart.col < p.col) then
+                Just openStart
+
+            else
+                Just p
+
+        Nothing ->
+            Just openStart
 
 
 {-| Replace a node's shape, keeping its children and cached POSITION bounds
@@ -1315,25 +1321,8 @@ lpnNode shape children =
             Array.findLast (\child -> hasValue (lpnLastBracketEnd child)) children
 
         merged =
-            { firstPos =
-                when self.firstPos is
-                    Just _ ->
-                        self.firstPos
-
-                    Nothing ->
-                        when Array.findFirst (\child -> hasValue (lpnFirstPos child)) children is
-                            Just found ->
-                                lpnFirstPos found.value
-
-                            Nothing ->
-                                Nothing
-            , lastPos =
-                when Array.findLast (\child -> hasValue (lpnLastPos child)) children is
-                    Just found ->
-                        lpnLastPos found.value
-
-                    Nothing ->
-                        self.lastPos
+            { firstPos = mergedFirstPos self.firstPos children
+            , lastPos = mergedLastPos self.lastPos children
             , minRow = Array.foldl (\child acc -> min (lpnMinRow child) acc) self.minRow children
             , maxRow = Array.foldl (\child acc -> max (lpnMaxRow child) acc) self.maxRow children
             , lastBracketEnd =
@@ -1404,6 +1393,35 @@ lpnNode shape children =
         , bracketStart = Nothing
         , hasComment = merged.hasComment
         }
+
+
+{-| A node's first position: its shape's own, or else the first child's that has
+one. A search that stops where it finds it. -}
+mergedFirstPos : Maybe Position -> Array LPNode -> Maybe Position
+mergedFirstPos selfFirstPos children =
+    when selfFirstPos is
+        Just _ ->
+            selfFirstPos
+
+        Nothing ->
+            when Array.findFirst (\child -> hasValue (lpnFirstPos child)) children is
+                Just found ->
+                    lpnFirstPos found.value
+
+                Nothing ->
+                    Nothing
+
+
+{-| A node's last position: the last child's that has one, or else its shape's
+own. -}
+mergedLastPos : Maybe Position -> Array LPNode -> Maybe Position
+mergedLastPos selfLastPos children =
+    when Array.findLast (\child -> hasValue (lpnLastPos child)) children is
+        Just found ->
+            lpnLastPos found.value
+
+        Nothing ->
+            selfLastPos
 
 
 {-| Like `lpnNode`, but for a bracketed container (record/array literal,
@@ -1522,6 +1540,88 @@ lpnReplaceChildren old newChildren =
                             , bracketEndExact = lpnBracketEndExact old
                             , bracketEndElastic = lpnBracketEndElastic old
                         }
+
+
+{-| `lpnReplaceChildren old newChildren`, where `newChildren` is `old`'s children
+with `removed` taken out and `added` put in, computed from `old`'s bounds and the
+nodes that changed instead of from every child. Placing a comment rebuilds its
+container, and rebuilding it over all its children made a container's comments
+quadratic in its children (geng-lang m3-sweep.md §SW35).
+
+The answer is `lpnReplaceChildren`'s exactly, and the conditions say why:
+
+  - The positions are found as `lpnNode` finds them, by searches that stop at
+    the first and the last child that has one, and the opening bracket pulls
+    the first back as `lpnWithBracketStart` does.
+  - The row range is `old`'s widened by `added`'s. That is the range of the
+    new children only when every removed node's range lies inside `added`'s,
+    which holds of a comment placed into a child, since the child only grows.
+    Otherwise this is `lpnReplaceChildren`.
+  - The bracket end is `old`'s when `old` has one, as `lpnReplaceChildren`
+    keeps it. When it has none, no child had one, and the rebuild has none
+    either if `old` is no bracket list itself and no node added or removed
+    has one. Otherwise this is `lpnReplaceChildren`.
+
+A node of 16 children or fewer is rebuilt by `lpnReplaceChildren`: there the
+record update and the tests cost more than the rebuild, and an operator chain,
+which nests one two-child node in the next, took 60% longer with them.
+-}
+lpnReplaceChildrenGrown : LPNode -> Array LPNode -> Array LPNode -> Array LPNode -> LPNode
+lpnReplaceChildrenGrown old removed added newChildren =
+    when old is
+        LPNode r ->
+            if Array.length newChildren <= 16 then
+                lpnReplaceChildren old newChildren
+
+            else
+                let
+                    self =
+                        selfShapeBounds r.shape
+
+                    addedMinRow =
+                        Array.foldl (\child acc -> min (lpnMinRow child) acc) beyondEveryRow added
+
+                    addedMaxRow =
+                        Array.foldl (\child acc -> max (lpnMaxRow child) acc) -1 added
+
+                    removedInsideAdded =
+                        Array.all (\child -> lpnMinRow child >= addedMinRow && lpnMaxRow child <= addedMaxRow) removed
+
+                    hasNoBracketEnd child =
+                        not (hasValue (lpnLastBracketEnd child))
+
+                    bracketEndUnmoved =
+                        hasValue r.lastBracketEnd
+                            || (not self.isBracket && Array.all hasNoBracketEnd added && Array.all hasNoBracketEnd removed)
+                in
+                if removedInsideAdded && bracketEndUnmoved then
+                    let
+                        firstPos =
+                            mergedFirstPos self.firstPos newChildren
+                    in
+                    LPNode
+                        { r
+                            | children = newChildren
+                            , firstPos =
+                                when r.bracketStart is
+                                    Just openStart ->
+                                        pullBackToBracketStart openStart firstPos
+
+                                    Nothing ->
+                                        firstPos
+                            , lastPos = mergedLastPos self.lastPos newChildren
+                            , minRow = min r.minRow addedMinRow
+                            , maxRow = max r.maxRow addedMaxRow
+                            , bracketEndExact = hasValue r.lastBracketEnd && r.bracketEndExact
+                            , bracketEndElastic = hasValue r.lastBracketEnd && r.bracketEndElastic
+                            , hasComment =
+                                shapeIsComment r.shape
+                                    || Array.any lpnHasComment added
+                                    || Array.any lpnHasComment newChildren
+                        }
+
+                else
+                    lpnReplaceChildren old newChildren
 
 
 {-| The bounds a shape contributes by itself (independent of children).
