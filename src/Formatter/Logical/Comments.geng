@@ -887,8 +887,22 @@ tryLeadingGluedAttach locComment state =
                 -- `commentLeadsDecl` — the rule differs for imports, whose keyword
                 -- carries no real column), and whose gluing does not steal a
                 -- comment that trails a previous declaration (`coveredByOtherDecl`).
+                --
+                -- The children are in source order, so the search stops at the
+                -- first one starting past the comment's end row, whose first
+                -- token, and every later one's, is past it too. Searching all of
+                -- them for each block comment was quadratic in a module's
+                -- declarations (geng-lang m3-sweep.md §SW34).
                 target =
-                    findIndexed
+                    findIndexedBefore
+                        (\child ->
+                            when lpnShape child is
+                                OriginalRows { first } ->
+                                    first > endPos.row
+
+                                _ ->
+                                    False
+                        )
                         (\i child ->
                             when lpnShape child is
                                 OriginalRows { stype } ->
@@ -924,15 +938,12 @@ tryLeadingGluedAttach locComment state =
                             lpnSetCommentRole LeadsInline (lpnLeaf (mkCommentLpShape locComment))
 
                         updatedChildren =
-                            Array.indexedMap
-                                (\i child ->
-                                    if i == index then
-                                        attachLeadingChild startPos commentNode child
+                            when Array.get index activeChildren is
+                                Just child ->
+                                    Array.set index (attachLeadingChild startPos commentNode child) activeChildren
 
-                                    else
-                                        child
-                                )
-                                activeChildren
+                                Nothing ->
+                                    activeChildren
                     in
                     Just (restoreState state updatedChildren)
 
@@ -1101,21 +1112,31 @@ covers `row` in its `[first, last]` range — i.e. the comment starts inside a
 previous declaration and should trail it, not lead this one. -}
 coveredByOtherDecl : Int -> Int -> Array LPNode -> Bool
 coveredByOtherDecl skipIndex row nodes =
-    Array.indexedMap
+    -- In source order, the first other declaration that does not end before
+    -- `row` is the only one that can cover it; every later one starts after it
+    -- (§SW34).
+    findIndexed
         (\i node ->
-            if i == skipIndex then
-                False
+            i /= skipIndex
+                && (when lpnShape node is
+                        OriginalRows { last, stype } ->
+                            isDeclStype stype && row <= last
 
-            else
-                when lpnShape node is
-                    OriginalRows { first, last, stype } ->
-                        isDeclStype stype && first <= row && row <= last
+                        _ ->
+                            False
+                   )
+        )
+        nodes
+        |> Maybe.map
+            (\found ->
+                when lpnShape found.value is
+                    OriginalRows { first } ->
+                        first <= row
 
                     _ ->
                         False
-        )
-        nodes
-        |> Array.any (\x -> x)
+            )
+        |> Maybe.withDefault False
 
 
 isDeclStype : SyntaxType -> Bool
@@ -1165,24 +1186,49 @@ posStrictlyBefore a b =
     a.row < b.row || (a.row == b.row && a.col < b.col)
 
 
+{-| The first element passing a test that is also given its index. It stops
+there, where a fold went on through the rest of the array (geng-lang
+m3-sweep.md §SW34). -}
 findIndexed : (Int -> a -> Bool) -> Array a -> Maybe { index : Int, value : a }
 findIndexed predicate arr =
-    Array.foldl
-        (\v acc ->
-            when acc.found is
-                Just _ ->
-                    acc
+    findIndexedFrom predicate 0 arr
 
-                Nothing ->
-                    if predicate acc.index v then
-                        { acc | found = Just { index = acc.index, value = v } }
 
-                    else
-                        { acc | index = acc.index + 1 }
-        )
-        { index = 0, found = Nothing }
-        arr
-        |> .found
+findIndexedFrom : (Int -> a -> Bool) -> Int -> Array a -> Maybe { index : Int, value : a }
+findIndexedFrom predicate index arr =
+    when Array.get index arr is
+        Just v ->
+            if predicate index v then
+                Just { index = index, value = v }
+
+            else
+                findIndexedFrom predicate (index + 1) arr
+
+        Nothing ->
+            Nothing
+
+
+{-| `findIndexed`, giving up at the first element `past` holds of. -}
+findIndexedBefore : (a -> Bool) -> (Int -> a -> Bool) -> Array a -> Maybe { index : Int, value : a }
+findIndexedBefore past predicate arr =
+    findIndexedBeforeFrom past predicate 0 arr
+
+
+findIndexedBeforeFrom : (a -> Bool) -> (Int -> a -> Bool) -> Int -> Array a -> Maybe { index : Int, value : a }
+findIndexedBeforeFrom past predicate index arr =
+    when Array.get index arr is
+        Just v ->
+            if past v then
+                Nothing
+
+            else if predicate index v then
+                Just { index = index, value = v }
+
+            else
+                findIndexedBeforeFrom past predicate (index + 1) arr
+
+        Nothing ->
+            Nothing
 
 
 -- PHASE 1: FIND THE TOP-LEVEL SLOT
@@ -1211,90 +1257,114 @@ findOrCreateOrigRow :
         }
 findOrCreateOrigRow row stype nodes =
     let
-        -- This runs once per top-level comment (called from
-        -- `lptAddCommentGeneric`'s per-comment loop), each time scanning the
-        -- WHOLE root-children array built so far — already O(n) per call. Both
-        -- folds below used to additionally build `before`/`after` with
-        -- `Array.pushLast`, which is itself O(n) per call (`Array.toSpliced`,
-        -- a full-array copy) — one O(n) rebuild PER NODE VISITED inside an
-        -- already O(n)-per-call scan, i.e. O(n^2) work inside a routine that's
-        -- itself called O(n) times: cubic on a file that's mostly top-level
-        -- comments. `Array.Builder` makes each fold's own accumulation O(n),
-        -- leaving the overall cost at O(n) per call / O(n^2) total — matching
-        -- every other per-comment or per-declaration site in this pipeline,
-        -- not worse.
+        -- This runs once per top-level comment that leaves the current target,
+        -- over the root children not yet passed. Each search stops at the
+        -- node it finds, and `before`/`after` are slices: a fold that went on
+        -- through the rest of the array to build `after` cost every remaining
+        -- declaration on every comment, quadratic in a module whose
+        -- declarations each carry one (geng-lang m3-sweep.md §SW34).
         --
-        -- First: try to find an existing OriginalRows containing 'row'
+        -- First: try to find an existing OriginalRows containing 'row'. The
+        -- root's children are in source order (`sortOriginalRows`, and a
+        -- fresh one is inserted in order below), so the first that does not
+        -- end before the comment is the only one that can: one past it starts
+        -- after it. The search stops there rather than proving, through every
+        -- remaining declaration, that a comment between two of them is in
+        -- none.
         searchResult =
-            Array.foldl
-                (\node acc ->
-                    when acc.found is
-                        Just _ ->
-                            { acc | after = Builder.pushLast node acc.after }
+            Array.findFirst
+                (\node ->
+                    when lpnShape node is
+                        OriginalRows { last = last } ->
+                            row <= last
 
-                        Nothing ->
-                            when lpnShape node is
-                                OriginalRows { first = first, last = last } ->
-                                    if first <= row && row <= last then
-                                        { acc | found = Just node }
-
-                                    else
-                                        { acc | before = Builder.pushLast node acc.before }
-
-                                _ ->
-                                    { acc | before = Builder.pushLast node acc.before }
+                        _ ->
+                            False
                 )
-                { before = Builder.empty (Array.length nodes), after = Builder.empty 0, found = Nothing }
                 nodes
     in
-    when searchResult.found is
-        Just existing ->
-            { origRowNode = existing
-            , before = Builder.toArray searchResult.before
-            , after = Builder.toArray searchResult.after
-            , created = False
-            }
+    when searchResult is
+        Just found ->
+            when lpnShape found.value is
+                OriginalRows { first = first } ->
+                    if first <= row then
+                        existingOrigRow found nodes
+
+                    else
+                        createOrigRow row stype nodes
+
+                _ ->
+                    createOrigRow row stype nodes
 
         Nothing ->
-            -- Own-line comment below a top-level declaration: always detach to a
-            -- fresh column-1 OriginalRows, matching elm-format. (An earlier rule,
-            -- `columnClaim`, could claim such a comment as the construct's
-            -- trailing comment and place it by column depth; that was the source
-            -- of the trailing-comment drift/oscillation — the claim and the
-            -- placement had to agree about a column that the formatting itself
-            -- moved. Detaching everything is both the fix and full elm-format
-            -- parity.)
-            let
-                -- Create a new OriginalRows node inserted in sorted order
-                newNode =
-                    lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
+            createOrigRow row stype nodes
 
-                insertResult =
-                    Array.foldl
-                        (\node acc ->
-                            if acc.done then
-                                { acc | after = Builder.pushLast node acc.after }
 
-                            else
-                                when lpnShape node is
-                                    OriginalRows { first = first } ->
-                                        if row < first then
-                                            { acc | after = Builder.pushLast node acc.after, done = True }
+existingOrigRow :
+    { index : Int, value : LPNode }
+    -> Array LPNode
+    ->
+        { origRowNode : LPNode
+        , before : Array LPNode
+        , after : Array LPNode
+        , created : Bool
+        }
+existingOrigRow found nodes =
+    { origRowNode = found.value
+    , before = Array.takeFirst found.index nodes
+    , after = Array.dropFirst (found.index + 1) nodes
+    , created = False
+    }
 
-                                        else
-                                            { acc | before = Builder.pushLast node acc.before }
 
-                                    _ ->
-                                        { acc | before = Builder.pushLast node acc.before }
-                        )
-                        { before = Builder.empty (Array.length nodes), after = Builder.empty 0, done = False }
-                        nodes
-            in
-            { origRowNode = newNode
-            , before = Builder.toArray insertResult.before
-            , after = Builder.toArray insertResult.after
-            , created = True
-            }
+createOrigRow :
+    Int
+    -> SyntaxType
+    -> Array LPNode
+    ->
+        { origRowNode : LPNode
+        , before : Array LPNode
+        , after : Array LPNode
+        , created : Bool
+        }
+createOrigRow row stype nodes =
+    -- Own-line comment below a top-level declaration: always detach to a
+    -- fresh column-1 OriginalRows, matching elm-format. (An earlier rule,
+    -- `columnClaim`, could claim such a comment as the construct's
+    -- trailing comment and place it by column depth; that was the source
+    -- of the trailing-comment drift/oscillation — the claim and the
+    -- placement had to agree about a column that the formatting itself
+    -- moved. Detaching everything is both the fix and full elm-format
+    -- parity.)
+    let
+        -- Create a new OriginalRows node inserted in sorted order
+        newNode =
+            lpnLeaf (OriginalRows { first = row, last = row, stype = stype })
+
+        insertAt =
+            when
+                Array.findFirst
+                    (\node ->
+                        when lpnShape node is
+                            OriginalRows { first = first } ->
+                                row < first
+
+                            _ ->
+                                False
+                    )
+                    nodes
+            is
+                Just found ->
+                    found.index
+
+                Nothing ->
+                    Array.length nodes
+    in
+    { origRowNode = newNode
+    , before = Array.takeFirst insertAt nodes
+    , after = Array.dropFirst insertAt nodes
+    , created = True
+    }
 
 
 -- PHASE 2: DESCEND INTO THE OWNING SUBTREE
@@ -1328,30 +1398,58 @@ insertCommentIntoSubtree commentNode row col node =
         -- about all its later siblings again was quadratic in the children,
         -- and cubic in the comments of one body, since each is a child by
         -- the time the next is inserted (geng-lang m3-sweep.md §SW33).
+        -- Searched from the end, so it costs the siblings after the comment:
+        -- comments arrive in source order, and the one being placed is
+        -- usually near the end (§SW34).
         lastStartingAtOrBefore =
-            Array.foldl
-                (\sib acc ->
-                    when lpnFirstPos sib is
-                        Just pos ->
-                            if pos.row < row || (pos.row == row && pos.col <= col) then
-                                { last = acc.index, index = acc.index + 1 }
+            when
+                Array.findLast
+                    (\sib ->
+                        when lpnFirstPos sib is
+                            Just pos ->
+                                pos.row < row || (pos.row == row && pos.col <= col)
 
-                            else
-                                { acc | index = acc.index + 1 }
+                            Nothing ->
+                                False
+                    )
+                    children
+            is
+                Just found ->
+                    found.index
 
-                        Nothing ->
-                            { acc | index = acc.index + 1 }
-                )
-                { last = -1, index = 0 }
-                children
-                |> .last
+                Nothing ->
+                    -1
 
-        -- Try to find the first child that has its own children and contains the row
-        result =
-            Array.foldl
-                (\child acc ->
-                    if acc.done then
-                        acc
+        -- No child before `lastStartingAtOrBefore` can own the comment, since
+        -- a later sibling claims it; the search starts there.
+        ownerSearchStart =
+            max 0 lastStartingAtOrBefore
+
+        -- `childHasBody` below, for the search's quick refusal.
+        childMayHaveBody child =
+            not (Array.isEmpty (lpnChildren child)) || commentInsideEmptyBracket child row col
+
+        -- Find the first child that has its own children and contains the row,
+        -- from `ownerSearchStart`, stopping there.
+        ownerFrom index =
+            when Array.get index children is
+                Nothing ->
+                    Nothing
+
+                Just child ->
+                    if lastStartingAtOrBefore > index || not (childMayHaveBody child) || subtreeStartsAfter child row col then
+                        -- `laterSiblingClaims`, `childHasBody` and the start
+                        -- test of `childOwnsComment` below, asked first: the
+                        -- bindings after them are computed whether they are
+                        -- read or not, and a sibling with no body, one a later
+                        -- sibling claims, or one starting after the comment
+                        -- owns nothing. (`commentAfterBracketOpen` cannot hold
+                        -- of the last: a recorded opening bracket is never
+                        -- after the node's first position, which
+                        -- `lpnWithBracketStart` pulls back to it.) The rest of
+                        -- the walk asked them all of every sibling after the
+                        -- comment, for every comment (§SW34).
+                        ownerFrom (index + 1)
 
                     else
                         let
@@ -1359,7 +1457,7 @@ insertCommentIntoSubtree commentNode row col node =
                                 lpnChildren child
 
                             laterSiblingClaims =
-                                lastStartingAtOrBefore > acc.index
+                                lastStartingAtOrBefore > index
 
                             -- True when the next sibling is a *flow boundary* — the
                             -- position-less `in` of a `let … in`, the position-less
@@ -1383,7 +1481,7 @@ insertCommentIntoSubtree commentNode row col node =
                             -- before that record's `}` belongs inside it, so widening
                             -- the test there reintroduces non-idempotency.
                             nextSiblingIsBoundary =
-                                when Array.get (acc.index + 1) children is
+                                when Array.get (index + 1) children is
                                     Just sib ->
                                         when lpnShape sib is
                                             IndentedBlock ->
@@ -1408,7 +1506,7 @@ insertCommentIntoSubtree commentNode row col node =
                                 not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col
 
                             hasNoFollowingSibling =
-                                when Array.get (acc.index + 1) children is
+                                when Array.get (index + 1) children is
                                     Nothing ->
                                         True
 
@@ -1602,13 +1700,13 @@ insertCommentIntoSubtree commentNode row col node =
                                     && not trailingCommentEscapes
                         in
                         if childOwnsComment then
-                            { done = True, owner = Just { index = acc.index, child = child }, index = acc.index + 1 }
+                            Just { index = index, child = child }
 
                         else
-                            { acc | index = acc.index + 1 }
-                )
-                { done = False, owner = Nothing, index = 0 }
-                children
+                            ownerFrom (index + 1)
+
+        owner =
+            ownerFrom ownerSearchStart
     in
     let
         -- The comment is landing somewhere in this node's subtree, so an
@@ -1620,18 +1718,20 @@ insertCommentIntoSubtree commentNode row col node =
         grown =
             lpnExtendElasticBracket (lastRowInSubtree commentNode)
     in
-    when result.owner is
-        Just owner ->
+    when owner is
+        Just found ->
             -- The one child that owns it takes it; the rest stay as they are.
-            grown (lpnReplaceChildren node (Array.set owner.index (insertCommentIntoSubtree commentNode row col owner.child) children))
+            grown (lpnReplaceChildren node (Array.set found.index (insertCommentIntoSubtree commentNode row col found.child) children))
 
         Nothing ->
             -- No matching child found; insert at this level
+            let
+                inserted =
+                    insertAmongChildren (lpnShape node) commentNode row col children
+            in
             grown
                 (lpnReplaceChildren node
-                    (insertAmongChildren (lpnShape node) commentNode row col children
-                        |> repairTornGapRun (lpnShape node)
-                    )
+                    (repairTornGapRun (lpnShape node) inserted.at inserted.children)
                 )
 
 
@@ -1661,9 +1761,31 @@ can share the previous item's line and `TrailsPrevious` where it cannot, and
 that choice is made by the branch above `leadsAcrossItemSeparator`. Naming a
 replacement here would be a second copy of it — the failure mode
 `feedback_fallback_layout_consistency` records, where a fallback that is not
-literally the same call silently diverges from the path it stands in for. -}
-repairTornGapRun : LPShape -> Array LPNode -> Array LPNode
-repairTornGapRun containerShape children =
+literally the same call silently diverges from the path it stands in for.
+
+**Only the neighbourhood the insertion changed is re-asked.** `at` is where
+`insertAmongChildren` put the comment, or the sibling it put the comment inside.
+A `LeadsNext` comment's role is read from its own gap-run, the items bounding
+that run, and whether anything but comments precedes it; an item between it and
+`at` keeps all of those as they were. So the window is the comment run ending
+just before `at`, through `at`'s own run, the item after it and that item's
+run, and nothing outside it can change. Re-asking every `LeadsNext` comment of
+the container, each over all its siblings, on every insertion was cubic in a
+list whose items each carry a crossing `{- c -}` (geng-lang m3-sweep.md §SW34).
+And only a bracket container is asked at all: `classifyCommentKind` answers
+`LeadsNext` only for one, and a comment is classified by the container it is
+spliced into, so no other container holds such a comment. -}
+repairTornGapRun : LPShape -> Int -> Array LPNode -> Array LPNode
+repairTornGapRun containerShape at children =
+    if not (isBracketContainerShape containerShape) then
+        children
+
+    else
+        repairTornGapRunAt containerShape at children
+
+
+repairTornGapRunAt : LPShape -> Int -> Array LPNode -> Array LPNode
+repairTornGapRunAt containerShape at children =
     let
         reclassifyAt index child =
             if not (commentLeadsNext child) then
@@ -1686,8 +1808,49 @@ repairTornGapRun containerShape children =
                         (firstRowInSubtree child)
                     )
                     child
+
+        length =
+            Array.length children
+
+        commentAt index =
+            when Array.get index children is
+                Just child ->
+                    isCommentNode child
+
+                Nothing ->
+                    False
+
+        runStart index =
+            if index > 0 && commentAt (index - 1) then
+                runStart (index - 1)
+
+            else
+                index
+
+        runEnd index =
+            if commentAt index then
+                runEnd (index + 1)
+
+            else
+                index
+
+        windowStart =
+            runStart at
+
+        windowEnd =
+            let
+                pastAtsRun =
+                    runEnd at
+            in
+            if pastAtsRun < length then
+                runEnd (pastAtsRun + 1)
+
+            else
+                length
     in
-    Array.indexedMap reclassifyAt children
+    Array.slice 0 windowStart children
+        ++ Array.indexedMap (\offset child -> reclassifyAt (windowStart + offset) child) (Array.slice windowStart windowEnd children)
+        ++ Array.slice windowEnd length children
 
 
 {-
@@ -1696,37 +1859,34 @@ repairTornGapRun containerShape children =
    is an IndentedBlock, redirect the comment as its first child so it renders
    at IndentedBlock indentation.
 -}
-insertAmongChildren : LPShape -> LPNode -> Int -> Int -> Array LPNode -> Array LPNode
+insertAmongChildren : LPShape -> LPNode -> Int -> Int -> Array LPNode -> { children : Array LPNode, at : Int }
 insertAmongChildren containerShape commentNode row col children =
     if Array.isEmpty children then
         -- No siblings to classify against. A comment inside a bracket container
         -- (`{ {- c -} }`) classifies via the bracket branch (leads its own line);
         -- otherwise keep the role the caller pre-set (`Standalone` for a fresh
         -- top-level slot, else the `LeadsLine` default).
-        [ if isBracketContainerShape containerShape then
-            lpnSetCommentRole (classifyCommentKind containerShape commentNode [] [] row) commentNode
+        { at = 0
+        , children =
+            [ if isBracketContainerShape containerShape then
+                lpnSetCommentRole (classifyCommentKind containerShape commentNode [] [] row) commentNode
 
-          else
-            commentNode
-        ]
+              else
+                commentNode
+            ]
+        }
 
     else
         let
+            -- Just past the last child that ends before the comment, searched
+            -- from the end (§SW34).
             insertionIndex =
-                let
-                    result =
-                        Array.foldl
-                            (\child acc ->
-                                if subtreeEndsBefore child row col then
-                                    { arrayIndex = acc.arrayIndex + 1, insertAt = acc.arrayIndex + 1 }
+                when Array.findLast (\child -> subtreeEndsBefore child row col) children is
+                    Just found ->
+                        found.index + 1
 
-                                else
-                                    { acc | arrayIndex = acc.arrayIndex + 1 }
-                            )
-                            { arrayIndex = 0, insertAt = 0 }
-                            children
-                in
-                result.insertAt
+                    Nothing ->
+                        0
 
             { before, after } =
                 splitAt insertionIndex children
@@ -1764,25 +1924,33 @@ insertAmongChildren containerShape commentNode row col children =
             -- the skip.
             { before = skippedBefore, after = skippedAfter } =
                 let
-                    helper b a =
-                        when Array.popFirst a is
+                    skipped =
+                        when
+                            Array.findFirst
+                                (\nextNode ->
+                                    when lpnShape nextNode is
+                                        BodyBlock ->
+                                            True
+
+                                        _ ->
+                                            when lpnLastPos nextNode is
+                                                Just _ ->
+                                                    True
+
+                                                Nothing ->
+                                                    False
+                                )
+                                after
+                        is
+                            Just found ->
+                                found.index
+
                             Nothing ->
-                                { before = b, after = a }
-
-                            Just { first = nextNode, rest = restOfAfter } ->
-                                when lpnShape nextNode is
-                                    BodyBlock ->
-                                        { before = b, after = a }
-
-                                    _ ->
-                                        when lpnLastPos nextNode is
-                                            Nothing ->
-                                                helper (Array.pushLast nextNode b) restOfAfter
-
-                                            Just _ ->
-                                                { before = b, after = a }
+                                Array.length after
                 in
-                helper before after
+                { before = before ++ Array.takeFirst skipped after
+                , after = Array.dropFirst skipped after
+                }
 
             -- …and step BACK over a type's `->`, for the one comment shape that
             -- keeps the row it was written on. See
@@ -1814,164 +1982,167 @@ insertAmongChildren containerShape commentNode row col children =
             leadingComment =
                 lpnSetCommentRole LeadsLine commentNode
         in
-        when Array.popFirst finalAfter is
-            Just { first = nextNode, rest = afterRest } ->
-                when lpnShape nextNode is
-                    IndentedBlock ->
-                        -- Redirect into the IndentedBlock as its first child,
-                        -- where it leads that body on a line of its own — a
-                        -- `let` binding's value, a `when` branch's body.
-                        --
-                        -- Not inside a BRACKET, where the same shape is an ITEM:
-                        -- `folderInsertRecordField` builds a field holding a
-                        -- lambda as an `IndentedBlock`, and an item does not
-                        -- start its own line — it renders after the container's
-                        -- `, `. This is the `BodyBlock` arm's premise
-                        -- (`16a9b2e`) one constructor over: "the body always
-                        -- starts a line of its own" is a fact about the
-                        -- CONTAINER, not about the shape. A comment in the `,` gap
-                        -- classifies `LeadsNext` and renders `, {- c -} fld =`
-                        -- for every other field shape; redirected inside a
-                        -- lambda field it became that field's first child, where
-                        -- nothing precedes it, so it stacked above `fld =` — and
-                        -- the reparse, seeing it alone on the row after the `,`,
-                        -- read it as own-line and moved it in front of the
-                        -- separator, for ever.
-                        --
-                        -- Unconditional inside a bracket, including
-                        -- `LeadsLine`: there the comment renders at the
-                        -- BRACKET's column, above the `,` — which is what the
-                        -- same comment before a non-lambda field has always
-                        -- done. Redirected inside, it came out glued after the
-                        -- `, ` instead, and that shape reparses to the twin's,
-                        -- so this authoring oscillated too.
-                        if isBracketContainerShape containerShape then
-                            finalBefore ++ [ classifiedComment ] ++ finalAfter
+        { at = Array.length finalBefore
+        , children =
+            when Array.popFirst finalAfter is
+                Just { first = nextNode, rest = afterRest } ->
+                    when lpnShape nextNode is
+                        IndentedBlock ->
+                            -- Redirect into the IndentedBlock as its first child,
+                            -- where it leads that body on a line of its own — a
+                            -- `let` binding's value, a `when` branch's body.
+                            --
+                            -- Not inside a BRACKET, where the same shape is an ITEM:
+                            -- `folderInsertRecordField` builds a field holding a
+                            -- lambda as an `IndentedBlock`, and an item does not
+                            -- start its own line — it renders after the container's
+                            -- `, `. This is the `BodyBlock` arm's premise
+                            -- (`16a9b2e`) one constructor over: "the body always
+                            -- starts a line of its own" is a fact about the
+                            -- CONTAINER, not about the shape. A comment in the `,` gap
+                            -- classifies `LeadsNext` and renders `, {- c -} fld =`
+                            -- for every other field shape; redirected inside a
+                            -- lambda field it became that field's first child, where
+                            -- nothing precedes it, so it stacked above `fld =` — and
+                            -- the reparse, seeing it alone on the row after the `,`,
+                            -- read it as own-line and moved it in front of the
+                            -- separator, for ever.
+                            --
+                            -- Unconditional inside a bracket, including
+                            -- `LeadsLine`: there the comment renders at the
+                            -- BRACKET's column, above the `,` — which is what the
+                            -- same comment before a non-lambda field has always
+                            -- done. Redirected inside, it came out glued after the
+                            -- `, ` instead, and that shape reparses to the twin's,
+                            -- so this authoring oscillated too.
+                            if isBracketContainerShape containerShape then
+                                finalBefore ++ [ classifiedComment ] ++ finalAfter
 
-                        else
-                            let
-                                newNextNode =
-                                    lpnNode IndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
-                            in
-                            finalBefore ++ [ newNextNode ] ++ afterRest
-
-                    PipelineStep _ ->
-                        -- Redirect into the PipelineStep as its first child —
-                        -- UNLESS the comment can ride the row it was written on.
-                        --
-                        -- A pipeline step is not like the three unconditional
-                        -- wrappers: `seed |> f |> g` stays on one row, so a
-                        -- single-line `{- c -}` the author wrote between the seed
-                        -- and the operator has a flat line to ride and belongs on
-                        -- it (`seed {- c -} |> f`, which is where elm-format puts
-                        -- it and where a reparse re-derives it from). Redirecting
-                        -- it inside made it the step's first child, where nothing
-                        -- precedes it, so it classified `LeadsLine` and forced
-                        -- the whole chain vertical — a comment creating line
-                        -- breaks the code never needed. Same reasoning as the
-                        -- `SoftIndentedBlock` arm below, and the same test: only
-                        -- a `RidesInline` comment stays outside; a `--` (which
-                        -- ends its line) or a multi-line `{- … -}` breaks the row
-                        -- regardless, so it leads the step body as before.
-                        if classifiedRole == RidesInline then
-                            finalBefore ++ [ classifiedComment ] ++ finalAfter
-
-                        else
-                            let
-                                -- `lpnReplaceChildren`, not `lpnNode PipelineStep …`:
-                                -- the step's own `forceVertical` is part of its
-                                -- shape now, and rebuilding it from the
-                                -- constructor would silently reset it to False.
-                                newNextNode =
-                                    lpnReplaceChildren nextNode (Array.pushFirst leadingComment (lpnChildren nextNode))
-                            in
-                            finalBefore ++ [ newNextNode ] ++ afterRest
-
-                    BodyBlock ->
-                        -- A `BodyBlock` under `OriginalRows` wraps a declaration's
-                        -- VALUE. A comment the author wrote on its OWN line
-                        -- between `=` and the value belongs to the value, not to
-                        -- the head — so redirect it inside, exactly as the
-                        -- `IndentedBlock` arm above does for a `let` binding's
-                        -- value (which is why the identical comment under a `let`
-                        -- binding's `=` already rendered own-line while a
-                        -- top-level `x =` glued it onto the head as
-                        -- `x = {- c -}`).
-                        --
-                        -- Unconditional THERE, like those two arms, and for the
-                        -- same reason: a declaration's value always starts its own
-                        -- line. There is no flat line for a comment to ride, and
-                        -- the row the author wrote it on cannot change that —
-                        -- `x = {- c -}` and `x =` ⏎ `{- c -}` are the same layout
-                        -- question, and elm-format answers both with the comment
-                        -- on its own line above the body.
-                        --
-                        -- Everywhere else `BodyBlock` is a plain grouping wrapper
-                        -- around a multi-node value — an array item, a `<|`/`|>`
-                        -- step body, a call argument — and it renders through
-                        -- `buildFlowBox`, with NO hard newline. `[ \q -> q + one ]`
-                        -- is one row, so the premise above is simply false there,
-                        -- and applying it anyway let a single-line `{- c -}` break
-                        -- the container open (`[ {- c -}` ⏎ `\q -> q + one` ⏎ `]`)
-                        -- — rule C3, a comment never forces a break. It reached
-                        -- only lambdas, since a lambda is the multi-node value
-                        -- that gets this wrapper while `one` / `{ a = 1 }` / `fn x`
-                        -- stay bare children and rode the row correctly.
-                        --
-                        -- Same test as the `PipelineStep` arm above, for the same
-                        -- reason: only a `RidesInline` comment has a flat row to
-                        -- stay on. A `--` ends its row and a multi-line `{- … -}`
-                        -- brings its own newlines, so both still lead the body
-                        -- from inside, and a line-leading comment classifies
-                        -- `LeadsLine` and is redirected as before.
-                        if isDeclValueContainer containerShape || classifiedRole /= RidesInline then
-                            let
-                                newNextNode =
-                                    lpnNode BodyBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
-                            in
-                            finalBefore ++ [ newNextNode ] ++ afterRest
-
-                        else
-                            finalBefore ++ [ classifiedComment ] ++ finalAfter
-
-                    SoftIndentedBlock ->
-                        -- Unlike the three wrappers above, a `SoftIndentedBlock`
-                        -- CAN share the head's row — it is a lambda body the
-                        -- author started on the `->` row — so a `{- c -}` before
-                        -- it legitimately rides that row, and the render side's
-                        -- `pairLeadingComments` carries the comment down with the
-                        -- body if the body turns out to wrap. That is a fixed
-                        -- point, and this arm must not disturb it.
-                        --
-                        -- A `--` is different, and only in one way that decides
-                        -- everything: it ends its line. The body is therefore
-                        -- forced onto the next row no matter what, and a reparse
-                        -- reads a body starting on a later row as an
-                        -- `IndentedBlock` — whose arm above puts the comment
-                        -- INSIDE it. So leaving a `--` outside emits a shape that
-                        -- reparses into the other structure and moves:
-                        -- `\q -> -- c` / `{ … }` became `\q ->` / `-- c` /
-                        -- `{ … }` on the second format. Redirecting it here makes
-                        -- the first format land on the shape every later one
-                        -- settles on, and matches what the `IndentedBlock` arm
-                        -- already does for the identical comment written one row
-                        -- lower.
-                        when lpnShape commentNode is
-                            SingleLineComment _ ->
+                            else
                                 let
                                     newNextNode =
-                                        lpnNode SoftIndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
+                                        lpnNode IndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
                                 in
                                 finalBefore ++ [ newNextNode ] ++ afterRest
 
-                            _ ->
+                        PipelineStep _ ->
+                            -- Redirect into the PipelineStep as its first child —
+                            -- UNLESS the comment can ride the row it was written on.
+                            --
+                            -- A pipeline step is not like the three unconditional
+                            -- wrappers: `seed |> f |> g` stays on one row, so a
+                            -- single-line `{- c -}` the author wrote between the seed
+                            -- and the operator has a flat line to ride and belongs on
+                            -- it (`seed {- c -} |> f`, which is where elm-format puts
+                            -- it and where a reparse re-derives it from). Redirecting
+                            -- it inside made it the step's first child, where nothing
+                            -- precedes it, so it classified `LeadsLine` and forced
+                            -- the whole chain vertical — a comment creating line
+                            -- breaks the code never needed. Same reasoning as the
+                            -- `SoftIndentedBlock` arm below, and the same test: only
+                            -- a `RidesInline` comment stays outside; a `--` (which
+                            -- ends its line) or a multi-line `{- … -}` breaks the row
+                            -- regardless, so it leads the step body as before.
+                            if classifiedRole == RidesInline then
                                 finalBefore ++ [ classifiedComment ] ++ finalAfter
 
-                    _ ->
-                        finalBefore ++ [ classifiedComment ] ++ finalAfter
+                            else
+                                let
+                                    -- `lpnReplaceChildren`, not `lpnNode PipelineStep …`:
+                                    -- the step's own `forceVertical` is part of its
+                                    -- shape now, and rebuilding it from the
+                                    -- constructor would silently reset it to False.
+                                    newNextNode =
+                                        lpnReplaceChildren nextNode (Array.pushFirst leadingComment (lpnChildren nextNode))
+                                in
+                                finalBefore ++ [ newNextNode ] ++ afterRest
 
-            Nothing ->
-                finalBefore ++ [ classifiedComment ]
+                        BodyBlock ->
+                            -- A `BodyBlock` under `OriginalRows` wraps a declaration's
+                            -- VALUE. A comment the author wrote on its OWN line
+                            -- between `=` and the value belongs to the value, not to
+                            -- the head — so redirect it inside, exactly as the
+                            -- `IndentedBlock` arm above does for a `let` binding's
+                            -- value (which is why the identical comment under a `let`
+                            -- binding's `=` already rendered own-line while a
+                            -- top-level `x =` glued it onto the head as
+                            -- `x = {- c -}`).
+                            --
+                            -- Unconditional THERE, like those two arms, and for the
+                            -- same reason: a declaration's value always starts its own
+                            -- line. There is no flat line for a comment to ride, and
+                            -- the row the author wrote it on cannot change that —
+                            -- `x = {- c -}` and `x =` ⏎ `{- c -}` are the same layout
+                            -- question, and elm-format answers both with the comment
+                            -- on its own line above the body.
+                            --
+                            -- Everywhere else `BodyBlock` is a plain grouping wrapper
+                            -- around a multi-node value — an array item, a `<|`/`|>`
+                            -- step body, a call argument — and it renders through
+                            -- `buildFlowBox`, with NO hard newline. `[ \q -> q + one ]`
+                            -- is one row, so the premise above is simply false there,
+                            -- and applying it anyway let a single-line `{- c -}` break
+                            -- the container open (`[ {- c -}` ⏎ `\q -> q + one` ⏎ `]`)
+                            -- — rule C3, a comment never forces a break. It reached
+                            -- only lambdas, since a lambda is the multi-node value
+                            -- that gets this wrapper while `one` / `{ a = 1 }` / `fn x`
+                            -- stay bare children and rode the row correctly.
+                            --
+                            -- Same test as the `PipelineStep` arm above, for the same
+                            -- reason: only a `RidesInline` comment has a flat row to
+                            -- stay on. A `--` ends its row and a multi-line `{- … -}`
+                            -- brings its own newlines, so both still lead the body
+                            -- from inside, and a line-leading comment classifies
+                            -- `LeadsLine` and is redirected as before.
+                            if isDeclValueContainer containerShape || classifiedRole /= RidesInline then
+                                let
+                                    newNextNode =
+                                        lpnNode BodyBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
+                                in
+                                finalBefore ++ [ newNextNode ] ++ afterRest
+
+                            else
+                                finalBefore ++ [ classifiedComment ] ++ finalAfter
+
+                        SoftIndentedBlock ->
+                            -- Unlike the three wrappers above, a `SoftIndentedBlock`
+                            -- CAN share the head's row — it is a lambda body the
+                            -- author started on the `->` row — so a `{- c -}` before
+                            -- it legitimately rides that row, and the render side's
+                            -- `pairLeadingComments` carries the comment down with the
+                            -- body if the body turns out to wrap. That is a fixed
+                            -- point, and this arm must not disturb it.
+                            --
+                            -- A `--` is different, and only in one way that decides
+                            -- everything: it ends its line. The body is therefore
+                            -- forced onto the next row no matter what, and a reparse
+                            -- reads a body starting on a later row as an
+                            -- `IndentedBlock` — whose arm above puts the comment
+                            -- INSIDE it. So leaving a `--` outside emits a shape that
+                            -- reparses into the other structure and moves:
+                            -- `\q -> -- c` / `{ … }` became `\q ->` / `-- c` /
+                            -- `{ … }` on the second format. Redirecting it here makes
+                            -- the first format land on the shape every later one
+                            -- settles on, and matches what the `IndentedBlock` arm
+                            -- already does for the identical comment written one row
+                            -- lower.
+                            when lpnShape commentNode is
+                                SingleLineComment _ ->
+                                    let
+                                        newNextNode =
+                                            lpnNode SoftIndentedBlock (Array.pushFirst leadingComment (lpnChildren nextNode))
+                                    in
+                                    finalBefore ++ [ newNextNode ] ++ afterRest
+
+                                _ ->
+                                    finalBefore ++ [ classifiedComment ] ++ finalAfter
+
+                        _ ->
+                            finalBefore ++ [ classifiedComment ] ++ finalAfter
+
+                Nothing ->
+                    finalBefore ++ [ classifiedComment ]
+        }
 
 
 -- PREDICATES: POSITION & BOX-KIND TESTS
@@ -2336,26 +2507,24 @@ second — a real item between two comments means a different gap. -}
 gapRunCrossesTogether : Array LPNode -> Array LPNode -> Bool
 gapRunCrossesTogether before after =
     let
-        -- `Array.any (not ...)` rather than an `all`: the comment being
-        -- classified is excluded from both arrays and tested by the caller.
-        anyStays nodes =
-            Array.any (\n -> not (commentIsSingleLineBlock n)) nodes
+        -- The first node that is not a comment ends the run; the run stays if
+        -- a comment comes first that is not a single-line block. The comment
+        -- being classified is excluded from both arrays and tested by the
+        -- caller. Searched from each end and stopping at the run's end, where
+        -- copying the run out was quadratic in it (§SW34).
+        runStays found =
+            when found is
+                Just { value } ->
+                    isCommentNode value
 
-        contiguousComments nodes =
-            Array.foldl
-                (\n acc ->
-                    if acc.stopped || not (isCommentNode n) then
-                        { acc | stopped = True }
+                Nothing ->
+                    False
 
-                    else
-                        { acc | run = Array.pushLast n acc.run }
-                )
-                { run = [], stopped = False }
-                nodes
-                |> .run
+        endsRunOrStays n =
+            not (isCommentNode n) || not (commentIsSingleLineBlock n)
     in
-    not (anyStays (contiguousComments (Array.reverse before)))
-        && not (anyStays (contiguousComments after))
+    not (runStays (Array.findLast endsRunOrStays before))
+        && not (runStays (Array.findFirst endsRunOrStays after))
 
 
 {-| True when this comment was written BEFORE a record update's base name — the
@@ -3092,7 +3261,9 @@ classifyCommentKind containerShape commentNode before after row =
                     -1
 
         -- Last rendered row of the last non-comment sibling before the comment.
-        refRow =
+        -- A function, as `chainedRefRow` is, so that only the branches that
+        -- read it fold over every sibling before the comment (§SW34).
+        refRow {} =
             Array.foldl
                 (\n acc ->
                     if isCommentNode n then
@@ -3118,7 +3289,7 @@ classifyCommentKind containerShape commentNode before after row =
         --
         -- to its own row below the chain — where the reparse, seeing a comment
         -- past the declaration's last token, re-homes it to column 1.
-        chainedRefRow =
+        chainedRefRow {} =
             Array.foldl
                 (\n acc ->
                     if isCommentNode n && firstRowInSubtree n <= acc then
@@ -3127,7 +3298,7 @@ classifyCommentKind containerShape commentNode before after row =
                     else
                         acc
                 )
-                refRow
+                (refRow {})
                 before
 
         prev =
@@ -3182,8 +3353,8 @@ classifyCommentKind containerShape commentNode before after row =
                 OriginalRows info ->
                     info.stype == StModule
                         && not (isCommentNode p)
-                        && refRow >= 0
-                        && row >= refRow
+                        && refRow {} >= 0
+                        && row >= refRow {}
                         && row <= info.last
                         && Array.all (\n -> lpnFirstPos n == Nothing) after
 
@@ -3202,7 +3373,7 @@ classifyCommentKind containerShape commentNode before after row =
                     else
                         when containerShape is
                             OriginalRows _ ->
-                                refRow
+                                refRow {}
 
                             _ ->
                                 g
@@ -3244,7 +3415,7 @@ classifyCommentKind containerShape commentNode before after row =
                     else
                         when { prev = lpnShape p, container = containerShape } is
                             { prev = SynthesizedText _, container = OriginalRows _ } ->
-                                refRow
+                                refRow {}
 
                             _ ->
                                 g
@@ -3312,7 +3483,7 @@ classifyCommentKind containerShape commentNode before after row =
                 && gapRunCrossesTogether before after
                 && bracketNextItemRow >= 0
                 && (row == bracketPrevRow || row == bracketNextItemRow)
-                && not nextItemBlocksFrontGlue
+                && not (nextItemBlocksFrontGlue {})
 
         -- The same question inside a record update, whose separator is the
         -- unrecorded `|` and whose "previous item" is the base name — not a
@@ -3332,34 +3503,40 @@ classifyCommentKind containerShape commentNode before after row =
                 && gapRunCrossesTogether before after
                 && bracketNextItemRow >= 0
                 && (row == updateBaseRow || row == bracketNextItemRow)
-                && not nextItemBlocksFrontGlue
+                && not (nextItemBlocksFrontGlue {})
 
-        -- The real (non-comment) siblings after the comment; only the first of
-        -- them is the one a front-glued comment lands on.
-        nextItems =
-            Array.keepIf (\n -> not (isCommentNode n)) after
+        -- The first real (non-comment) sibling after the comment, the one a
+        -- front-glued comment lands on. Found by a search that stops there,
+        -- where keeping every real sibling after the comment cost all of them
+        -- (§SW34). A function, as `refRow` is: the item's whole subtree is
+        -- searched, and only the bracket branch reads it.
+        nextItemBlocksFrontGlue {} =
+            when Array.findFirst (\n -> not (isCommentNode n)) after is
+                Just found ->
+                    subtreeHasMultilineString found.value
 
-        nextItemBlocksFrontGlue =
-            Array.any subtreeHasMultilineString (Array.slice 0 1 nextItems)
+                Nothing ->
+                    False
 
         -- First row of the next real ITEM after the comment (-1 when only
-        -- comments follow, or nothing does).
+        -- comments follow, or nothing does): the first real sibling's row that
+        -- is not negative, every reader asking only whether it is one.
         bracketNextItemRow =
-            Array.foldl
-                (\n acc ->
-                    if acc >= 0 then
-                        acc
+            let
+                itemRow n =
+                    when lpnShape n is
+                        UnbreakableText l ->
+                            l.start.row
 
-                    else
-                        when lpnShape n is
-                            UnbreakableText l ->
-                                l.start.row
+                        _ ->
+                            (subtreeRowRange n).minRow
+            in
+            when Array.findFirst (\n -> not (isCommentNode n) && itemRow n >= 0) after is
+                Just found ->
+                    itemRow found.value
 
-                            _ ->
-                                (subtreeRowRange n).minRow
-                )
-                -1
-                nextItems
+                Nothing ->
+                    -1
 
         -- The comment is somewhere in the container's OPENER RUN: the leading
         -- comments, with no item yet before them (`[ {- a -} {- b -} 1`). Rule
@@ -3381,7 +3558,10 @@ classifyCommentKind containerShape commentNode before after row =
         -- consults is a stored fact free to be wrong -- and it is why
         -- `commentRidesInline`'s docstring has to warn that a shape-ridable
         -- comment may not be role-ridable. It no longer can be.
-        inOpenerRun =
+        --
+        -- A function, read only by the bracket branch: in a body that is all
+        -- comments so far, every sibling before the comment is one (§SW34).
+        inOpenerRun {} =
             Array.all isCommentNode before
 
         -- A comment that glues to whatever precedes it inside a bracket, by its
@@ -3461,14 +3641,14 @@ classifyCommentKind containerShape commentNode before after row =
             -- (`RidesInline`, the only kind `literalCommentsRideFlatLine` keeps
             -- flat); a `--` or a multi-line `{- … -}` glues but breaks the line
             -- (`TrailsPrevious`).
-            leadsAcrossItemSeparator && not inOpenerRun
+            leadsAcrossItemSeparator && not (inOpenerRun {})
         then
             LeadsNext
 
-        else if not (Array.isEmpty before) && not inOpenerRun && (bracketPrevRow < 0 || row /= bracketPrevRow) then
+        else if not (Array.isEmpty before) && not (inOpenerRun {}) && (bracketPrevRow < 0 || row /= bracketPrevRow) then
             LeadsLine
 
-        else if inOpenerRun && nextItemBlocksFrontGlue then
+        else if inOpenerRun {} && nextItemBlocksFrontGlue {} then
             -- The opener slot (`[ {- c -} item`), where the first item holds a
             -- `"""…"""`. Same reason a `LeadsNext` comment gives way there: the
             -- front glue shifts the item's first row by the comment's width
@@ -3485,7 +3665,7 @@ classifyCommentKind containerShape commentNode before after row =
         -- Same-row-as-operand trails inline; a later-row comment leads its own
         -- line at the operator indent (relative to `chainedRefRow` — the last
         -- operand, plus any trailing comment run written on from its row).
-        if row > chainedRefRow then
+        if row > chainedRefRow {} then
             LeadsLine
 
         else

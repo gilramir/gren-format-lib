@@ -33,6 +33,7 @@ module Formatter.Render.FlowAssembly exposing
 {-| Flow-assembly support: the `FlowItem`/`SoftGlueAlignment` types and the pure helpers that lay pre-rendered flow items out into a `Box`.
 -}
 
+import Array.Builder as Builder
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
@@ -991,38 +992,74 @@ pairLeadingComments items =
         -- row on the second, where a SINGLE comment there has always dropped to
         -- its own row above the body. 27 cells of the run axis, one per
         -- construct.
+        --
+        -- Each index's answer is found in one pass from the right, where
+        -- walking the run from every member of it was quadratic in the run
+        -- (geng-lang m3-sweep.md §SW34).
         target i =
-            when at i is
+            when Array.get i targetIndexes is
+                Just index ->
+                    at index
+
                 Nothing ->
                     Nothing
 
-                Just it ->
-                    if pairableComment it then
-                        target (i + 1)
+        count =
+            Array.length items
 
-                    else
-                        Just it
+        -- For each index, the first index at or after it that holds no
+        -- pairable comment, `count` when none does.
+        targetIndexes =
+            Array.foldr
+                (\it acc ->
+                    let
+                        here =
+                            if pairableComment it then
+                                acc.next
+
+                            else
+                                acc.index
+                    in
+                    { index = acc.index - 1, next = here, out = Builder.pushLast here acc.out }
+                )
+                { index = count - 1, next = count, out = Builder.empty count }
+                items
+                |> .out
+                |> Builder.toArray
+                |> Array.reverse
 
         -- The first member of the comment run `i` belongs to. The glue question
         -- is asked of IT, not of `i`: a later member's role is `RidesInline`
         -- *relative to the member before it*, which says nothing about whether
         -- the run may stay on the preceding line. Only the leader answers that,
         -- and C3 makes it the whole run's answer.
+        --
+        -- Found for every index in one pass from the left, as `target` is.
         runLeader i =
-            if
-                i > 0
-                    && (when at (i - 1) is
-                            Just prev ->
-                                pairableComment prev
+            Array.get i leaderIndexes
+                |> Maybe.withDefault i
 
-                            Nothing ->
-                                False
-                       )
-            then
-                runLeader (i - 1)
+        leaderIndexes =
+            Array.foldl
+                (\it acc ->
+                    let
+                        here =
+                            if acc.index > 0 && acc.previousPairable then
+                                acc.previousLeader
 
-            else
-                i
+                            else
+                                acc.index
+                    in
+                    { index = acc.index + 1
+                    , previousPairable = pairableComment it
+                    , previousLeader = here
+                    , out = Builder.pushLast here acc.out
+                    }
+                )
+                { index = 0, previousPairable = False, previousLeader = 0, out = Builder.empty count }
+                items
+                |> .out
+                |> Builder.toArray
 
         -- `items[i]` is a comment consumed by the item its run leads. One
         -- predicate answers both directions, so the "drop this entry" pass and
@@ -1052,27 +1089,32 @@ pairLeadingComments items =
                                            )
                            )
 
-        -- Every member of the run immediately before `i`, in source order.
-        leadingFor i =
-            Array.slice 0 i items
-                |> Array.indexedMap (\j _ -> j)
-                |> Array.foldr
-                    (\j acc ->
-                        if acc.done || not (pairsAt j) then
-                            { acc | done = True }
+        -- `pairsAt` of every index, asked once each.
+        pairs =
+            Array.indexedMap (\i _ -> pairsAt i) items
 
-                        else
-                            { acc | run = Array.pushFirst j acc.run }
-                    )
-                    { run = [], done = False }
-                |> .run
-                |> Array.mapAndKeepJust at
+        pairsAtIndex i =
+            Array.get i pairs |> Maybe.withDefault False
+
+        -- Every member of the run immediately before `i`, in source order: the
+        -- items from where the consumed comments before it begin. Walked back
+        -- over the run alone, where a fold over every item before `i` made a
+        -- flow quadratic in its items (§SW34).
+        leadingFor i =
+            Array.slice (consumedRunStart i) i items
+
+        consumedRunStart i =
+            if i > 0 && pairsAtIndex (i - 1) then
+                consumedRunStart (i - 1)
+
+            else
+                i
     in
     items
         |> Array.indexedMap (\i it -> { i = i, it = it })
         |> Array.mapAndKeepJust
             (\{ i, it } ->
-                if pairsAt i then
+                if pairsAtIndex i then
                     -- Consumed: attached to the item its run leads.
                     Nothing
 
