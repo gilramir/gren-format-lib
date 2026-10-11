@@ -5,6 +5,7 @@ module Compiler.Ast.Compare exposing (compareModules)
 @docs compareModules
 -}
 
+import Array.Builder as Builder exposing (Builder)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Number as Number
 import Compiler.SourcePosition as SP
@@ -510,12 +511,8 @@ compareExpr_ ctx a b =
                 , compareArray (ctx ++ " update.fields") (compareRecordField ctx) ua.newValues ub.newValues
                 ]
 
-        { fst = Src.Binops ba, snd = Src.Binops bb } ->
-            chainAll
-                [ compareExpr (ctx ++ " binop.left") ba.left bb.left
-                , compareStr (ctx ++ " binop.op") ba.operator.value bb.operator.value
-                , compareExpr (ctx ++ " binop.right") ba.right bb.right
-                ]
+        { fst = Src.Binops _, snd = Src.Binops _ } ->
+            compareBinops ctx a b
 
         { fst = Src.Lambda la, snd = Src.Lambda lb } ->
             chainAll
@@ -597,6 +594,98 @@ compareLetDef ctx la lb =
 
 
 -- PRIMITIVE HELPERS
+
+
+{-| Two `Binops`, compared as the recursion through `left` would, in the same
+order and with the same answer, but in a loop: the parser nests a chain to the
+left, one level per operator, and recursing down it overflowed node's stack at
+about 2,000 operators.
+
+Each side's left spine is collected, parentheses stripped as `compareExpr` strips
+them, down to the depth where one side stops being a `Binops`. The expressions
+there are compared first, then each level's operator and right operand from the
+bottom up. A context names its depth, `binop.left*k`, where the recursion
+repeated `binop.left` k times: building that for every level was quadratic.
+-}
+compareBinops : String -> Src.Expression_ -> Src.Expression_ -> Result String {}
+compareBinops ctx a b =
+    let
+        spineA =
+            binopSpine a
+
+        spineB =
+            binopSpine b
+
+        depth =
+            min (Array.length spineA.levels) (Array.length spineB.levels)
+
+        levelCtx level =
+            if level == 0 then
+                ctx
+
+            else if level == 1 then
+                ctx ++ " binop.left"
+
+            else
+                ctx ++ " binop.left*" ++ String.fromInt level
+
+        exprAt spine level =
+            when Array.get level spine.levels is
+                Just binops ->
+                    Src.Binops binops
+
+                Nothing ->
+                    spine.base
+    in
+    when compareExpr_ (levelCtx depth) (exprAt spineA depth) (exprAt spineB depth) is
+        Err e ->
+            Err e
+
+        Ok {} ->
+            compareBinopLevels levelCtx spineA.levels spineB.levels (depth - 1)
+
+
+{-| `compareBinops`' levels from `level` up to the outermost, each its operator
+and then its right operand, in a loop. -}
+compareBinopLevels : (Int -> String) -> Array BinopLevel -> Array BinopLevel -> Int -> Result String {}
+compareBinopLevels levelCtx levelsA levelsB level =
+    when { fst = Array.get level levelsA, snd = Array.get level levelsB } is
+        { fst = Just la, snd = Just lb } ->
+            when
+                chainAll
+                    [ compareStr (levelCtx level ++ " binop.op") la.operator.value lb.operator.value
+                    , compareExpr (levelCtx level ++ " binop.right") la.right lb.right
+                    ]
+            is
+                Err e ->
+                    Err e
+
+                Ok {} ->
+                    compareBinopLevels levelCtx levelsA levelsB (level - 1)
+
+        _ ->
+            Ok {}
+
+
+type alias BinopLevel =
+    { left : Src.Expression, operator : SP.Located String, right : Src.Expression }
+
+
+{-| The `Binops` down an expression's left spine, outermost first, parentheses
+stripped, and the first expression that is not one. -}
+binopSpine : Src.Expression_ -> { levels : Array BinopLevel, base : Src.Expression_ }
+binopSpine expr =
+    binopSpineHelp expr (Builder.empty 0)
+
+
+binopSpineHelp : Src.Expression_ -> Builder BinopLevel -> { levels : Array BinopLevel, base : Src.Expression_ }
+binopSpineHelp expr levels =
+    when expr is
+        Src.Binops binops ->
+            binopSpineHelp (stripParens binops.left).value (Builder.pushLast binops levels)
+
+        _ ->
+            { levels = Builder.toArray levels, base = expr }
 
 
 chainAll : Array (Result String {}) -> Result String {}

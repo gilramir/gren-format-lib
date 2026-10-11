@@ -12,6 +12,7 @@ module Formatter.RenderTree exposing
     , rnChildren
     , rnHasComment
     , rnHasSourceContent
+    , rnNestBinopChain
     , rnReplaceChildren
     , rnShape
     , rnSharesRowWithPrevItem
@@ -289,7 +290,7 @@ lowerNode sharesRow node =
     in
     RenderNode
         { shape = lowerShape (lpnShape node)
-        , children = lowerChildren children
+        , children = lowerChildren (lpnShape node) children
         , hasComment = lpnHasComment node
         , sharesRowWithPrevItem = sharesRow
         , hasSourceContent = lpnMaxRow node >= 0
@@ -305,9 +306,13 @@ alone: whether the author wrote it on the same row as the item before it.
 question this replaces: the fn+arg0 glue skips the riding comments between the
 two and refuses outright when either end is a comment, so a comment in the gap
 must not move the answer -- writing one changes neither token's row.
+
+In a `Binop`, the item before an `OpAndRhs` is the last non-comment item of the
+`OpAndRhs` before it, which is where it was when each `OpAndRhs` held the next. `RenderTree.rnNestBinopChain` rebuilds that
+nesting for the renderer that reads it, and keeps this flag.
 -}
-lowerChildren : Array LPNode -> Array RenderNode
-lowerChildren children =
+lowerChildren : LPT.LPShape -> Array LPNode -> Array RenderNode
+lowerChildren containerShape children =
     let
         -- Ascending indices of the non-comment children. Each child's `prev`
         -- is the last of these below its own index, found by binary search:
@@ -328,9 +333,34 @@ lowerChildren children =
     Array.indexedMap
         (\i child ->
             let
-                prev =
+                prevSibling =
                     lastIndexBelow i codeIndices
                         |> Maybe.andThen (\j -> Array.get j children)
+
+                prev =
+                    if isBinopLink child then
+                        when prevSibling is
+                            Just p ->
+                                if isBinopLink p then
+                                    Array.findLast (\n -> not (LPT.shapeIsComment (lpnShape n))) (lpnChildren p)
+                                        |> Maybe.map .value
+
+                                else
+                                    prevSibling
+
+                            Nothing ->
+                                prevSibling
+
+                    else
+                        prevSibling
+
+                isBinopLink n =
+                    when { container = containerShape, shape = lpnShape n } is
+                        { container = LPT.Binop _, shape = LPT.OpAndRhs } ->
+                            True
+
+                        _ ->
+                            False
             in
             lowerNode (startsOnRowOf prev child) child
         )
@@ -569,6 +599,56 @@ rnReplaceChildren old newChildren =
                     | children = newChildren
                     , hasComment = shapeIsComment r.shape || Array.any rnHasComment newChildren
                 }
+
+
+{-| A `Binop`'s children with each `OpAndRhs` holding the next as its last child,
+which is how the chain used to be built: for
+`[a, OpAndRhs(+, b), OpAndRhs(*, c)]`, `[a, OpAndRhs(+, b, OpAndRhs(*, c))]`.
+
+For the one renderer that reads the nesting (`MakeRenderBox.binopChainFlow`, a
+chain carrying a comment that does not break it), so that it renders what it
+always did. Built from the right, one link at a time. Each link keeps its flags,
+and `lowerChildren` gave its `sharesRowWithPrevItem` the nested value;
+`hasComment` comes out as the nested node's, recomputed over the link and all
+after it. A node after the last link (a comment past the chain) stays where it
+is, as it did.
+-}
+rnNestBinopChain : Array RenderNode -> Array RenderNode
+rnNestBinopChain children =
+    let
+        isLink node =
+            when rnShape node is
+                OpAndRhs ->
+                    True
+
+                _ ->
+                    False
+
+        firstLink =
+            Array.findFirst isLink children
+                |> Maybe.map .index
+                |> Maybe.withDefault (Array.length children)
+
+        pastLastLink =
+            Array.findLast isLink children
+                |> Maybe.map (\found -> found.index + 1)
+                |> Maybe.withDefault firstLink
+
+        nested =
+            Array.foldr
+                (\node inner ->
+                    if isLink node then
+                        [ rnReplaceChildren node (rnChildren node ++ inner) ]
+
+                    else
+                        Array.pushFirst node inner
+                )
+                []
+                (Array.slice firstLink pastLastLink children)
+    in
+    Array.takeFirst firstLink children
+        ++ nested
+        ++ Array.dropFirst pastLastLink children
 
 
 {-| Swap a node's shape, keeping its children and flags. `hasComment` is

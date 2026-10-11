@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A long operator chain or pipeline formats, in time proportional to its
+  length.** A chain of 2,000 operators overflowed node's stack: the logical
+  tree nested each `op operand` step inside the one before it, so every walk
+  over the tree, and over the parser's left-nested expression, went one level
+  deeper per operator, and the kth comment of a chain went down k levels to
+  its place. A chain is now flat, one `OpAndRhs` per operator side by side; the
+  comment walk and the renderer that read the nesting reproduce it, so output
+  is unchanged. The parser's chains are walked in loops (`flattenBinop`,
+  `flattenPipeline`, the AST comparison), and five folds that grew an array
+  one element at a time build it whole. Through the CLI, which formats twice,
+  4,000 terms each with a `--` comment take 2.2 s where they took 16.5 s with a
+  raised stack, and 16,000 terms one a line 3.5 s where they could not be
+  formatted. A chain on one row with inline comments still nests when
+  rendered, and overflows at about 1,000 terms as before.
 - **A container with thousands of comments, and a long `let`, format faster
   still.** Placing a comment rebuilt the cached bounds of the node it landed
   in over all its children; they are now updated from the child that changed,

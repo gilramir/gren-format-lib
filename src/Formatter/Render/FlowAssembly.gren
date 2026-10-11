@@ -1339,7 +1339,7 @@ groupBinopByPrecedence operands ops =
                             if binopPrecedence pair.op.text == minPrec then
                                 -- A lowest-precedence operator: close the current group
                                 -- and start a new one led by this operator.
-                                { groups = Array.pushLast { op = acc.curOp, items = acc.curItems } acc.groups
+                                { groups = Builder.pushLast { op = acc.curOp, items = acc.curItems } acc.groups
                                 , curOp = pair.op.text
                                 , curItems = pair.operand
                                 }
@@ -1349,11 +1349,14 @@ groupBinopByPrecedence operands ops =
                                 -- into the current group.
                                 { acc | curItems = acc.curItems ++ [ pair.op.item ] ++ pair.operand }
                         )
-                        { groups = [], curOp = "", curItems = operand0 }
+                        -- The groups go into a Builder, used once per step:
+                        -- pushing each onto an Array copied all before it,
+                        -- which made a long chain quadratic.
+                        { groups = Builder.empty 0, curOp = "", curItems = operand0 }
                         paired
 
                 allGroups =
-                    Array.pushLast { op = final.curOp, items = final.curItems } final.groups
+                    Builder.toArray (Builder.pushLast { op = final.curOp, items = final.curItems } final.groups)
             in
             when Array.popFirst allGroups is
                 Just { first = fg, rest = rg } ->

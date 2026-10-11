@@ -9,6 +9,7 @@ formatting, and shared LPT helpers live in sibling modules.
 
 -}
 
+import Array.Builder as Builder exposing (Builder)
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Number as PN
 import Compiler.SourcePosition exposing (Located)
@@ -58,29 +59,32 @@ The parser builds left-nested trees, so `a |> b |> c` is stored as
 `(a |> b) |> c`. We walk the left spine to collect all steps in order.
 If the top-level expression is not a pipeline, returns it as the seed with
 an empty step list.
+
+A loop, as `flattenBinop` is: recursing down the spine overflowed node's stack
+at 16,000 steps, and pushing each step onto those below it was quadratic.
 -}
 flattenPipeline : Src.Expression -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
 flattenPipeline locExpr =
+    flattenPipelineHelp locExpr (Builder.empty 0)
+
+
+flattenPipelineHelp : Src.Expression -> Builder { op : Located String, body : Src.Expression } -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
+flattenPipelineHelp locExpr rightSteps =
+    let
+        -- What is left of the spine is the seed.
+        finish {} =
+            { seed = locExpr, steps = Array.reverse (Builder.toArray rightSteps) }
+    in
     when locExpr.value is
         Src.Binops { left = lhsExpr, operator = op, right = rhsExpr } ->
             if isPipelineOp op.value then
-                let
-                    inner =
-                        flattenPipeline lhsExpr
-                in
-                if Array.isEmpty inner.steps then
-                    { seed = lhsExpr, steps = [ { op = op, body = rhsExpr } ] }
-
-                else
-                    { seed = inner.seed
-                    , steps = Array.pushLast { op = op, body = rhsExpr } inner.steps
-                    }
+                flattenPipelineHelp lhsExpr (Builder.pushLast { op = op, body = rhsExpr } rightSteps)
 
             else
-                { seed = locExpr, steps = [] }
+                finish {}
 
         _ ->
-            { seed = locExpr, steps = [] }
+            finish {}
 
 
 {-| Render the body of a pipeline step.
@@ -123,25 +127,35 @@ insertStepBody outerOpStr body =
 order. The parser builds left-nested trees (`a + b + c` is `(a + b) + c`),
 so we walk the left spine to collect operands and operators in written order.
 Stops at a pipeline operator or any non-binop, treating it as a single operand.
+
+A loop, collecting the spine from its right end into builders: recursing down
+the spine overflowed node's stack at about 2,000 operators, and appending each
+operand to the ones collected below it was quadratic.
 -}
 flattenBinop : Src.Expression -> { operands : Array Src.Expression, ops : Array (Located String) }
 flattenBinop locExpr =
+    flattenBinopHelp locExpr (Builder.empty 0) (Builder.empty 0)
+
+
+flattenBinopHelp : Src.Expression -> Builder Src.Expression -> Builder (Located String) -> { operands : Array Src.Expression, ops : Array (Located String) }
+flattenBinopHelp locExpr rightOperands rightOps =
+    let
+        -- What is left of the spine is one operand: the chain's first.
+        finish {} =
+            { operands = Array.pushFirst locExpr (Array.reverse (Builder.toArray rightOperands))
+            , ops = Array.reverse (Builder.toArray rightOps)
+            }
+    in
     when locExpr.value is
         Src.Binops { left = lhs, operator = op, right = rhs } ->
             if isPipelineOp op.value then
-                { operands = [ locExpr ], ops = [] }
+                finish {}
 
             else
-                let
-                    rest =
-                        flattenBinop lhs
-                in
-                { operands = rest.operands ++ [ rhs ]
-                , ops = rest.ops ++ [ op ]
-                }
+                flattenBinopHelp lhs (Builder.pushLast rhs rightOperands) (Builder.pushLast op rightOps)
 
         _ ->
-            { operands = [ locExpr ], ops = [] }
+            finish {}
 
 
 {-| True for an operand that's a parenthesized `when`/`if`/`let` — content
@@ -202,7 +216,7 @@ binopForceVertical operands ops =
                         Array.foldl
                             (\pair acc ->
                                 if binopPrecedence pair.op.value == minPrec then
-                                    { groups = Array.pushLast { start = acc.curStart, end = acc.curEnd } acc.groups
+                                    { groups = Builder.pushLast { start = acc.curStart, end = acc.curEnd } acc.groups
                                     , curStart = pair.next.start
                                     , curEnd = pair.next.end
                                     }
@@ -210,40 +224,42 @@ binopForceVertical operands ops =
                                 else
                                     { acc | curEnd = pair.next.end }
                             )
-                            { groups = [], curStart = operand0.start, curEnd = operand0.end }
+                            -- A Builder, as in `FlowAssembly.groupBinopByPrecedence`:
+                            -- pushing each group onto an Array was quadratic in a
+                            -- long chain.
+                            { groups = Builder.empty 0, curStart = operand0.start, curEnd = operand0.end }
                             paired
 
                     groups =
-                        Array.pushLast { start = final.curStart, end = final.curEnd } final.groups
+                        Builder.toArray (Builder.pushLast { start = final.curStart, end = final.curEnd } final.groups)
                 in
                 itemsSpanRows groups
 
 
-{-| Rebuild the right-nested `OpAndRhs` structure from a flattened chain — the
-exact shape the recursive build produced before flattening — so comment insertion
-and the comment-bearing fill renderer stay byte-identical. For operands
-`[a, b, c]` and ops `[+, *]` this yields `[a, OpAndRhs(+, [b, OpAndRhs(*, [c])])]`.
+{-| The chain's children: the first operand's nodes, then one `OpAndRhs` per
+operator, holding the operator and its right operand's nodes. For operands
+`[a, b, c]` and ops `[+, *]` this yields `[a, OpAndRhs(+, b), OpAndRhs(*, c)]`.
+
+Each `OpAndRhs` used to hold the next, so a chain of
+n operators was a tree n deep: every walk over it was as deep, which overflowed
+node's stack at about 2,000 operators, and the kth comment of a chain descended
+k levels and rebuilt each. The comment walk and the one renderer that read the
+nesting reproduce it from the flat chain (`Comments.insertCommentIntoSubtree`'s
+`Binop` arm, `RenderTree.rnNestBinopChain`), so the output is the nested
+chain's.
 -}
-buildNestedOpAndRhs : Array (Array LPNode) -> Array (Located String) -> Array LPNode
-buildNestedOpAndRhs operandNodesList ops =
+buildOpAndRhsChain : Array (Array LPNode) -> Array (Located String) -> Array LPNode
+buildOpAndRhsChain operandNodesList ops =
     when Array.popFirst operandNodesList is
         Nothing ->
             []
 
         Just { first = firstOperandNodes, rest = restOperandNodes } ->
-            when Array.popFirst ops is
-                Nothing ->
-                    firstOperandNodes
-
-                Just { first = op0, rest = restOps } ->
-                    let
-                        opNode =
-                            lpnLeaf (mkTextFromLocString op0)
-
-                        innerNested =
-                            buildNestedOpAndRhs restOperandNodes restOps
-                    in
-                    firstOperandNodes ++ [ lpnNode OpAndRhs ([ opNode ] ++ innerNested) ]
+            firstOperandNodes
+                ++ Array.map2
+                    (\op operandNodes -> lpnNode OpAndRhs (Array.pushFirst (lpnLeaf (mkTextFromLocString op)) operandNodes))
+                    ops
+                    restOperandNodes
 
 
 {-| True when a postfix accessor on this expression must be glued after a
@@ -582,8 +598,11 @@ insertBinops locExpr { operator = locStringOp } =
         insertExpression flattened.seed
             |> Result.andThen
                 (\seedNodes ->
-                    resultFoldl
-                        (\step accNodes ->
+                    -- Each step's node, then the seed's nodes before them: a
+                    -- fold pushing each onto the ones before it was quadratic
+                    -- in a long pipeline.
+                    traverseResult
+                        (\step ->
                             let
                                 opNode =
                                     lpnLeaf (mkTextFromLocString step.op)
@@ -633,42 +652,31 @@ insertBinops locExpr { operator = locStringOp } =
                                                     Nothing ->
                                                         { nodes = bodyNodes, forceVertical = False }
                                         in
-                                        Array.pushLast
-                                            (lpnNode
-                                                (PipelineStep { forceVertical = unwrapped.forceVertical })
-                                                ([ opNode ] ++ unwrapped.nodes)
-                                            )
-                                            accNodes
+                                        lpnNode
+                                            (PipelineStep { forceVertical = unwrapped.forceVertical })
+                                            ([ opNode ] ++ unwrapped.nodes)
                                     )
                         )
-                        seedNodes
                         flattened.steps
                         -- Wrap the seed + steps in a single Pipeline container so the
                         -- renderer can choose inline (fits) vs one-step-per-line.
-                        |> Result.map (\allNodes -> [ lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) allNodes ])
+                        |> Result.map (\stepNodes -> [ lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) (seedNodes ++ stepNodes) ])
                 )
 
     else
         -- Flatten the whole chain (not recurse into it) so the Binop
-        -- container wraps the entire chain exactly once. The nested
-        -- `OpAndRhs` structure is then rebuilt from the flat operands so
-        -- the comment-bearing fill path stays byte-identical.
+        -- container wraps the entire chain exactly once, as one `OpAndRhs`
+        -- per operator (`buildOpAndRhsChain`).
         let
             flat =
                 flattenBinop locExpr
         in
-        resultFoldl
-            (\operand accList ->
-                insertExpression operand
-                    |> Result.map (\nodes -> Array.pushLast nodes accList)
-            )
-            []
-            flat.operands
+        traverseResult insertExpression flat.operands
             |> Result.map
                 (\operandNodesList ->
                     let
                         nested =
-                            buildNestedOpAndRhs operandNodesList flat.ops
+                            buildOpAndRhsChain operandNodesList flat.ops
 
                         forceVertical =
                             binopForceVertical flat.operands flat.ops
