@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A module or a list with thousands of comments formats in time close to
+  proportional to its size.** Placing a comment walked every sibling of the
+  node it landed in, and for each of them computed a dozen tests whether they
+  were needed or not; one test asked every later sibling whether it started
+  before the comment, which made the comments of one body cubic. In a list
+  whose items each carry a trailing `{- c -}`, every such comment was
+  re-classified, over all its siblings, each time another was inserted, which
+  was cubic too. Each search now stops where it has its answer, the
+  re-classification looks only at the comments around the new one, and the
+  tests a branch does not read are not computed. Rebuilding a node's cached
+  positions no longer allocates a record per child, and pairing leading
+  comments with the item they lead no longer folds over every earlier item.
+  Output is unchanged. 1,000 line comments in one function body went from
+  29.3 s to 0.27 s, and a 500-item list with a `{- c -}` on each item from
+  49.7 s to 0.37 s. A module of 4,000 declarations each carrying comments
+  still takes 6.4 s, most of it in `gren-lang/core` 7.4.2's parser, whose
+  `findSubString` scans the rest of the file for each line comment; core 7.5.0
+  fixes that.
 - **A module with thousands of declarations, or a list with thousands of
   items, formats in time proportional to its size.** Six places built an
   array one element at a time with `Array.pushLast` (or `++`) inside a fold.

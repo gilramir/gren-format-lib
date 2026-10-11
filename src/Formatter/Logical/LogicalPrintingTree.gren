@@ -1239,6 +1239,18 @@ lpnWithShape newShape node =
                 }
 
 
+{-| A `Just`, asked by a match rather than by `/= Nothing`, which compares
+the two values in general. -}
+hasValue : Maybe a -> Bool
+hasValue maybe =
+    when maybe is
+        Just _ ->
+            True
+
+        Nothing ->
+            False
+
+
 lpnLeaf : LPShape -> LPNode
 lpnLeaf shape =
     lpnNode shape []
@@ -1253,76 +1265,63 @@ lpnNode shape children =
         self =
             selfShapeBounds shape
 
-        -- Combine children's cached bounds with self's contribution.
+        -- Combine children's cached bounds with self's contribution: the
+        -- first child with a first position and the last with a last
+        -- position (self's own first position takes precedence, and self's
+        -- last stands when no child has one), the extremes of the rows, and
+        -- the LAST child whose own subtree contains a bracket, whose end and
+        -- its elasticity propagate together. Searches that stop where they
+        -- find it, and folds that build nothing: a fold with a record for
+        -- each child was most of the cost of inserting a comment among many
+        -- siblings, which rebuilds their parent.
+        bracketChild =
+            Array.findLast (\child -> hasValue (lpnLastBracketEnd child)) children
+
         merged =
-            Array.foldl
-                (\child acc ->
-                    let
-                        cfp =
-                            lpnFirstPos child
+            { firstPos =
+                when self.firstPos is
+                    Just _ ->
+                        self.firstPos
 
-                        clp =
-                            lpnLastPos child
-
-                        cbe =
-                            lpnLastBracketEnd child
-                    in
-                    { firstPos =
-                        when acc.firstPos is
-                            Just _ ->
-                                acc.firstPos
+                    Nothing ->
+                        when Array.findFirst (\child -> hasValue (lpnFirstPos child)) children is
+                            Just found ->
+                                lpnFirstPos found.value
 
                             Nothing ->
-                                cfp
-                    , lastPos =
-                        when clp is
-                            Just _ ->
-                                clp
+                                Nothing
+            , lastPos =
+                when Array.findLast (\child -> hasValue (lpnLastPos child)) children is
+                    Just found ->
+                        lpnLastPos found.value
 
-                            Nothing ->
-                                acc.lastPos
-                    , minRow = min (lpnMinRow child) acc.minRow
-                    , maxRow = max (lpnMaxRow child) acc.maxRow
-                    -- Bracket-end propagates from the LAST child whose
-                    -- own subtree contains a bracket. Walking
-                    -- left-to-right and replacing on every `Just`
-                    -- keeps the rightmost bracket-list's end.
-                    , lastBracketEnd =
-                        when cbe is
-                            Just _ ->
-                                cbe
+                    Nothing ->
+                        self.lastPos
+            , minRow = Array.foldl (\child acc -> min (lpnMinRow child) acc) self.minRow children
+            , maxRow = Array.foldl (\child acc -> max (lpnMaxRow child) acc) self.maxRow children
+            , lastBracketEnd =
+                when bracketChild is
+                    Just found ->
+                        lpnLastBracketEnd found.value
 
-                            Nothing ->
-                                acc.lastBracketEnd
-                    , bracketEndExact =
-                        when cbe is
-                            Just _ ->
-                                lpnBracketEndExact child
+                    Nothing ->
+                        Nothing
+            , bracketEndExact =
+                when bracketChild is
+                    Just found ->
+                        lpnBracketEndExact found.value
 
-                            Nothing ->
-                                acc.bracketEndExact
-                    -- Elasticity travels with the bracket-end it describes, so
-                    -- it propagates on exactly the same rule.
-                    , bracketEndElastic =
-                        when cbe is
-                            Just _ ->
-                                lpnBracketEndElastic child
+                    Nothing ->
+                        False
+            , bracketEndElastic =
+                when bracketChild is
+                    Just found ->
+                        lpnBracketEndElastic found.value
 
-                            Nothing ->
-                                acc.bracketEndElastic
-                    , hasComment = acc.hasComment || lpnHasComment child
-                    }
-                )
-                { firstPos = self.firstPos
-                , lastPos = self.lastPos
-                , minRow = self.minRow
-                , maxRow = self.maxRow
-                , hasComment = shapeIsComment shape
-                , lastBracketEnd = Nothing
-                , bracketEndExact = False
-                , bracketEndElastic = False
-                }
-                children
+                    Nothing ->
+                        False
+            , hasComment = shapeIsComment shape || Array.any lpnHasComment children
+            }
 
         -- If THIS node is itself a bracket-list, its own bracket-end
         -- is the lastPos of the contents (= the last positioned
