@@ -121,6 +121,7 @@ import Formatter.RenderTree exposing
     , commentFacts
     , commentRole
     , rnChildren
+    , rnNestBinopChain
     , rnShape
     , rnTypeSegmentsBroken
     , rnVariantsSpanRows
@@ -327,10 +328,15 @@ O(2^depth), measured at 4.3s for 18 levels and doubling from there. It is the
 same double-render class as the nested record literal in
 `docs/knownLimitations.md`, and needs the same conjunction of features to reach
 — a comment (or a layout that refuses), inside parens, nested — which is why no
-single-construct stress shape ever showed it. -}
+single-construct stress shape ever showed it.
+
+The flow is the nested chain's: each operator and its operand, followed by the
+rest of the chain as one item. The chain is flat since geng-lang m3-sweep.md
+§SW36, and `rnNestBinopChain` rebuilds the nesting here, so this is the one
+renderer that walks a chain as deep as it is long. -}
 binopChainFlow : (Int -> Array FlowItem -> Result String Box) -> Array (Array FlowItem) -> Array RenderNode -> Result String Box
 binopChainFlow assemble operandItems children =
-    binopChainFlowItems operandItems children
+    binopChainFlowItems operandItems (rnNestBinopChain children)
         |> Result.andThen (\r -> assemble grenIndent r.items)
 
 
@@ -461,7 +467,7 @@ binopChainIndentedLines firstOwnLine segments =
                         renderOwnRows segSplit.stacked
                             |> Result.map
                                 (\stackedBoxes ->
-                                    { lines = acc.lines ++ opLines ++ stackedBoxes
+                                    { lines = acc.lines |> Builder.append opLines |> Builder.append stackedBoxes
                                     , pairing = segSplit.pairing
                                     }
                                 )
@@ -473,9 +479,13 @@ binopChainIndentedLines firstOwnLine segments =
     renderOwnRows firstSplit.stacked
         |> Result.andThen
             (\stacked0 ->
-                Array.foldl step (Ok { lines = stacked0, pairing = firstSplit.pairing }) segments
+                -- The lines go into a Builder, used once per step: appending
+                -- each group's to an Array copied all before it, which made a
+                -- broken chain quadratic in its groups (geng-lang m3-sweep.md
+                -- §SW36).
+                Array.foldl step (Ok { lines = Builder.fromArray stacked0, pairing = firstSplit.pairing }) segments
                     -- A run trailing the last group has no operator line to ride.
-                    |> Result.map (\acc -> acc.lines ++ Array.map B.line acc.pairing)
+                    |> Result.map (\acc -> Builder.toArray acc.lines ++ Array.map B.line acc.pairing)
             )
 
 

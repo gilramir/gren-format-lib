@@ -272,18 +272,29 @@ movePipelineStepTrailers children =
                             spanTrailingOwnLine (lpnShape >> shapeCommentFacts) kids
                     in
                     { pending = split.trailing
-                    , out = Array.pushLast (lpnReplaceChildren child split.body) acc.out
-                    , lastStep = Just (Array.length acc.out)
+                    , out = Builder.pushLast (lpnReplaceChildren child split.body) acc.out
+                    , count = acc.count + 1
+                    , lastStep = Just acc.count
                     , lastKids = kids
                     }
 
                 _ ->
-                    { acc | out = Array.pushLast child acc.out }
+                    { acc | out = Builder.pushLast child acc.out, count = acc.count + 1 }
+
+        -- `out` is a Builder, used once per step: pushing each child onto an
+        -- Array copied it, which made a long pipeline quadratic (geng-lang
+        -- m3-sweep.md §SW36).
+        swept =
+            Array.foldl (\child acc -> step acc child)
+                { pending = [], out = Builder.empty (Array.length children), count = 0, lastStep = Nothing, lastKids = [] }
+                children
 
         final =
-            Array.foldl (\child acc -> step acc child)
-                { pending = [], out = [], lastStep = Nothing, lastKids = [] }
-                children
+            { pending = swept.pending
+            , out = Builder.toArray swept.out
+            , lastStep = swept.lastStep
+            , lastKids = swept.lastKids
+            }
     in
     if Array.isEmpty final.pending then
         final.out
@@ -442,17 +453,22 @@ peelOwnLineTrailingRun node =
         children =
             lpnChildren node
 
-        split =
-            Array.foldr
-                (\c acc ->
-                    if acc.stillTrailing && isCommentNode c then
-                        { acc | trailing = Array.pushFirst c acc.trailing }
+        -- The trailing comments, and everything up to the last child that is
+        -- not one. A search and two slices: a fold pushing each child onto
+        -- the front of an array copied it, which made a node of many children
+        -- quadratic (geng-lang m3-sweep.md §SW36).
+        trailingStart =
+            when Array.findLast (\c -> not (isCommentNode c)) children is
+                Just found ->
+                    found.index + 1
 
-                    else
-                        { stillTrailing = False, front = Array.pushFirst c acc.front, trailing = acc.trailing }
-                )
-                { stillTrailing = True, front = [], trailing = [] }
-                children
+                Nothing ->
+                    0
+
+        split =
+            { front = Array.takeFirst trailingStart children
+            , trailing = Array.dropFirst trailingStart children
+            }
     in
     when Array.popLast split.front is
         Nothing ->
@@ -1383,6 +1399,16 @@ createOrigRow row stype nodes =
 -}
 insertCommentIntoSubtree : LPNode -> Int -> Int -> LPNode -> LPNode
 insertCommentIntoSubtree commentNode row col node =
+    insertCommentIntoLevel False commentNode row col node
+
+
+{-| `insertCommentIntoSubtree`, where `continues` says that more of a binop chain
+follows `node`'s last child: `node` is an `OpAndRhs` other than the chain's
+last. Until geng-lang m3-sweep.md §SW36 each `OpAndRhs` held the next as its last
+child, so its last operand always had a following sibling, and the walk asks
+whether a child has one. -}
+insertCommentIntoLevel : Bool -> LPNode -> Int -> Int -> LPNode -> LPNode
+insertCommentIntoLevel continues commentNode row col node =
     let
         children =
             lpnChildren node
@@ -1503,7 +1529,7 @@ insertCommentIntoSubtree commentNode row col node =
                             hasNoFollowingSibling =
                                 when Array.get (index + 1) children is
                                     Nothing ->
-                                        True
+                                        not continues
 
                                     Just _ ->
                                         False
@@ -1695,13 +1721,53 @@ insertCommentIntoSubtree commentNode row col node =
                                     && not trailingCommentEscapes
                         in
                         if childOwnsComment then
-                            Just { index = index, child = child }
+                            Just { index = index, child = child, continues = False }
 
                         else
                             ownerFrom (index + 1)
 
         owner =
-            ownerFrom ownerSearchStart
+            when binopLinkAt lastStartingAtOrBefore is
+                Just link ->
+                    -- A comment past a chain's operator, in a `Binop`, which
+                    -- holds one `OpAndRhs` per operator. When each held the
+                    -- next (until §SW36), the walk came down through the
+                    -- links from the first, and each owned the comment exactly
+                    -- when its rows reached the comment's: the rest of
+                    -- `childOwnsComment` cannot refuse an `OpAndRhs`, which is
+                    -- the last child of its parent, starts at or before the
+                    -- comment, and is no shape that keeps a trailing comment
+                    -- outside. Every link's rows reached the end of the chain,
+                    -- and a link's rows end before the next link's operator, so
+                    -- that end is the last link's. A comment within it lands in
+                    -- the last link starting at or before it, as it did, and a
+                    -- comment past it stays here.
+                    if row <= max (subtreeRowRange link).maxRow (lastLinkMaxRow children) then
+                        Just { index = lastStartingAtOrBefore, child = link, continues = hasValue (binopLinkAt (lastStartingAtOrBefore + 1)) }
+
+                    else
+                        Nothing
+
+                Nothing ->
+                    ownerFrom ownerSearchStart
+
+        -- The child at `index` when it is an `OpAndRhs` of a `Binop`.
+        binopLinkAt index =
+            when lpnShape node is
+                Binop _ ->
+                    Array.get index children
+                        |> Maybe.andThen
+                            (\child ->
+                                when lpnShape child is
+                                    OpAndRhs ->
+                                        Just child
+
+                                    _ ->
+                                        Nothing
+                            )
+
+                _ ->
+                    Nothing
     in
     let
         -- The comment is landing somewhere in this node's subtree, so an
@@ -1719,7 +1785,7 @@ insertCommentIntoSubtree commentNode row col node =
             -- and the bounds are updated from the child alone (§SW35).
             let
                 newChild =
-                    insertCommentIntoSubtree commentNode row col found.child
+                    insertCommentIntoLevel found.continues commentNode row col found.child
             in
             grown (lpnReplaceChildrenGrown node [ found.child ] [ newChild ] (Array.set found.index newChild children))
 
@@ -2362,6 +2428,29 @@ splitAt index arr =
             max 0 index
     in
     { before = Array.takeFirst at arr, after = Array.dropFirst at arr }
+
+
+{-| The last row of a binop chain's last `OpAndRhs`, among a `Binop`'s
+children, -1 for none. Only comments can follow it. -}
+lastLinkMaxRow : Array LPNode -> Int
+lastLinkMaxRow children =
+    when
+        Array.findLast
+            (\child ->
+                when lpnShape child is
+                    OpAndRhs ->
+                        True
+
+                    _ ->
+                        False
+            )
+            children
+    is
+        Just found ->
+            (subtreeRowRange found.value).maxRow
+
+        Nothing ->
+            -1
 
 
 {-| True when the positions of a container's children never decrease, which

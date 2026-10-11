@@ -9,6 +9,7 @@ module Formatter.Render.BinopLayout exposing
 {-| Pure layout assembly for binary-operator chains (operand boxes + operator texts -> Box).
 -}
 
+import Array.Builder as Builder
 import Formatter.Logical.BinopPrecedence exposing (binopPrecedence)
 import Formatter.Logical.LogicalPrintingTree exposing (CommentRole(..))
 import Formatter.Render.Box as B exposing (Box(..))
@@ -20,15 +21,52 @@ import Formatter.RenderTree exposing
     ( RenderNode
     , RenderShape(..)
     , rnChildren
+    , rnNestBinopChain
     , rnShape
     )
 import Formatter.Results exposing (traverseResult)
 
 
-{-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
-list. Each operand is itself a flow (array of nodes). -}
+{-| A `Binop`'s children as its operands and operators: the first operand, then
+one per `OpAndRhs`, each a flow (array of nodes).
+
+A chain holds one `OpAndRhs` per operator, in a row (geng-lang m3-sweep.md
+§SW36), and is read as it stands. Anything else, which only a comment past the
+chain makes, is read as the nested chain was (`flattenNestedBinopNodes`), so a
+chain whose last child is not an `OpAndRhs` is one operand.
+-}
 flattenBinopNodes : Array RenderNode -> { operands : Array (Array RenderNode), ops : Array RenderNode }
 flattenBinopNodes children =
+    let
+        isLink node =
+            when rnShape node is
+                OpAndRhs ->
+                    not (Array.isEmpty (rnChildren node))
+
+                _ ->
+                    False
+
+        firstLink =
+            Array.findFirst isLink children
+                |> Maybe.map .index
+                |> Maybe.withDefault (Array.length children)
+
+        links =
+            Array.dropFirst firstLink children
+    in
+    if not (Array.isEmpty links) && Array.all isLink links then
+        { operands = Array.pushFirst (Array.takeFirst firstLink children) (Array.map (\link -> Array.dropFirst 1 (rnChildren link)) links)
+        , ops = Array.mapAndKeepJust (\link -> Array.first (rnChildren link)) links
+        }
+
+    else
+        flattenNestedBinopNodes (rnNestBinopChain children)
+
+
+{-| Flatten the nested `Binop`/`OpAndRhs` tree into a flat operand + operator
+list. Each operand is itself a flow (array of nodes). -}
+flattenNestedBinopNodes : Array RenderNode -> { operands : Array (Array RenderNode), ops : Array RenderNode }
+flattenNestedBinopNodes children =
     when Array.popLast children is
         Nothing ->
             { operands = [], ops = [] }
@@ -40,7 +78,7 @@ flattenBinopNodes children =
                         Just { first = opNode, rest = restChildren } ->
                             let
                                 inner =
-                                    flattenBinopNodes restChildren
+                                    flattenNestedBinopNodes restChildren
                             in
                             { operands = [ operandNodes ] ++ inner.operands
                             , ops = [ opNode ] ++ inner.ops
@@ -169,7 +207,7 @@ assembleBinopBox minPrec operandBoxes ops =
                         , started = True
                         , segments =
                             if acc.started then
-                                Array.pushLast { op = acc.pendingOp, parts = acc.curParts } acc.segments
+                                Builder.pushLast { op = acc.pendingOp, parts = acc.curParts } acc.segments
 
                             else
                                 acc.segments
@@ -182,14 +220,17 @@ assembleBinopBox minPrec operandBoxes ops =
                 )
                 { firstGroup = [ { op = "", box = firstBox } ]
                 , started = False
-                , segments = []
+                -- A Builder, used once per step: pushing each segment onto an
+                -- Array was quadratic in a long chain (geng-lang m3-sweep.md
+                -- §SW36).
+                , segments = Builder.empty 0
                 , pendingOp = ""
                 , curParts = [ { op = "", box = firstBox } ]
                 }
                 paired
 
         segments =
-            Array.pushLast { op = state.pendingOp, parts = state.curParts } state.segments
+            Builder.toArray (Builder.pushLast { op = state.pendingOp, parts = state.curParts } state.segments)
     in
     renderBinopGroup state.firstGroup
         |> Result.andThen
@@ -235,22 +276,31 @@ inlineBinopBox firstGroupBox segBoxes =
                     Just (B.line firstLine)
 
                 Just { last = lastSeg, initial = initSegs } ->
-                    Array.foldl
-                        (\seg acc ->
-                            when acc is
-                                Nothing ->
-                                    Nothing
-
-                                Just parts ->
+                    let
+                        -- Each group but the last as `op line`, where it is one
+                        -- line. A map, where a fold pushing each onto an Array
+                        -- was quadratic in a long chain (geng-lang m3-sweep.md
+                        -- §SW36).
+                        singleLineParts =
+                            Array.mapAndKeepJust
+                                (\seg ->
                                     when B.isLine seg.box is
                                         Ok l ->
-                                            Just (Array.pushLast [ B.space, B.literal seg.op, B.space, l ] parts)
+                                            Just [ B.space, B.literal seg.op, B.space, l ]
 
                                         Err _ ->
                                             Nothing
-                        )
-                        (Just [])
-                        initSegs
+                                )
+                                initSegs
+
+                        allSingleLine =
+                            if Array.length singleLineParts == Array.length initSegs then
+                                Just singleLineParts
+
+                            else
+                                Nothing
+                    in
+                    allSingleLine
                         |> Maybe.map
                             (\initParts ->
                                 when B.isLine lastSeg.box is
