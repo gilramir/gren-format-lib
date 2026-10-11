@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A container with thousands of comments, and a long `let`, format faster
+  still.** Placing a comment rebuilt the cached bounds of the node it landed
+  in over all its children; they are now updated from the child that changed,
+  and the child that owns the comment and the place it is inserted are found
+  by bisection rather than by a search from the end. A flow of many rows
+  pushed each row onto an array, which copies it, and now builds them in an
+  `Array.Builder`. Output is unchanged. A list of 4,000 items each with a
+  `--` comment went from 4.1 s to 2.0 s, a record of 4,000 such fields from
+  6.8 s to 3.1 s, and a `let` of 16,000 definitions from 13.1 s to 9.6 s.
 - **A module or a list with thousands of comments formats in time close to
   proportional to its size.** Placing a comment walked every sibling of the
   node it landed in, and for each of them computed a dozen tests whether they
