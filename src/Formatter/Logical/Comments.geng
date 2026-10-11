@@ -1321,38 +1321,37 @@ insertCommentIntoSubtree commentNode row col node =
         -- false positive (e.g. two record types straddling a `->`: the
         -- comment between them appears to be on the same row as the first
         -- record's content, but really belongs between the two records).
-        anyLaterSiblingStartsAtOrBefore startIndex =
+        --
+        -- The index of the last sibling that starts at or before the
+        -- comment, -1 for none, found once: a later sibling claims the
+        -- child at `index` exactly when this is past it. Asking each child
+        -- about all its later siblings again was quadratic in the children,
+        -- and cubic in the comments of one body, since each is a child by
+        -- the time the next is inserted (geng-lang m3-sweep.md §SW33).
+        lastStartingAtOrBefore =
             Array.foldl
                 (\sib acc ->
-                    if acc.index >= startIndex then
-                        if acc.found then
+                    when lpnFirstPos sib is
+                        Just pos ->
+                            if pos.row < row || (pos.row == row && pos.col <= col) then
+                                { last = acc.index, index = acc.index + 1 }
+
+                            else
+                                { acc | index = acc.index + 1 }
+
+                        Nothing ->
                             { acc | index = acc.index + 1 }
-
-                        else
-                            when lpnFirstPos sib is
-                                Nothing ->
-                                    { acc | index = acc.index + 1 }
-
-                                Just pos ->
-                                    if pos.row < row || (pos.row == row && pos.col <= col) then
-                                        { found = True, index = acc.index + 1 }
-
-                                    else
-                                        { acc | index = acc.index + 1 }
-
-                    else
-                        { acc | index = acc.index + 1 }
                 )
-                { found = False, index = 0 }
+                { last = -1, index = 0 }
                 children
-                |> .found
+                |> .last
 
         -- Try to find the first child that has its own children and contains the row
         result =
             Array.foldl
                 (\child acc ->
                     if acc.done then
-                        { acc | children = Array.pushLast child acc.children, index = acc.index + 1 }
+                        acc
 
                     else
                         let
@@ -1360,7 +1359,7 @@ insertCommentIntoSubtree commentNode row col node =
                                 lpnChildren child
 
                             laterSiblingClaims =
-                                anyLaterSiblingStartsAtOrBefore (acc.index + 1)
+                                lastStartingAtOrBefore > acc.index
 
                             -- True when the next sibling is a *flow boundary* — the
                             -- position-less `in` of a `let … in`, the position-less
@@ -1603,19 +1602,12 @@ insertCommentIntoSubtree commentNode row col node =
                                     && not trailingCommentEscapes
                         in
                         if childOwnsComment then
-                            let
-                                updatedChild =
-                                    insertCommentIntoSubtree commentNode row col child
-                            in
-                            { children = Array.pushLast updatedChild acc.children
-                            , done = True
-                            , index = acc.index + 1
-                            }
+                            { done = True, owner = Just { index = acc.index, child = child }, index = acc.index + 1 }
 
                         else
-                            { acc | children = Array.pushLast child acc.children, index = acc.index + 1 }
+                            { acc | index = acc.index + 1 }
                 )
-                { children = [], done = False, index = 0 }
+                { done = False, owner = Nothing, index = 0 }
                 children
     in
     let
@@ -1628,17 +1620,19 @@ insertCommentIntoSubtree commentNode row col node =
         grown =
             lpnExtendElasticBracket (lastRowInSubtree commentNode)
     in
-    if result.done then
-        grown (lpnReplaceChildren node result.children)
+    when result.owner is
+        Just owner ->
+            -- The one child that owns it takes it; the rest stay as they are.
+            grown (lpnReplaceChildren node (Array.set owner.index (insertCommentIntoSubtree commentNode row col owner.child) children))
 
-    else
-        -- No matching child found; insert at this level
-        grown
-            (lpnReplaceChildren node
-                (insertAmongChildren (lpnShape node) commentNode row col children
-                    |> repairTornGapRun (lpnShape node)
+        Nothing ->
+            -- No matching child found; insert at this level
+            grown
+                (lpnReplaceChildren node
+                    (insertAmongChildren (lpnShape node) commentNode row col children
+                        |> repairTornGapRun (lpnShape node)
+                    )
                 )
-            )
 
 
 {-| Re-decide any `LeadsNext` sibling now that the comment after it exists.
@@ -2159,24 +2153,19 @@ posAtOrBefore pos row col =
 
 
 {-
-   splitAt is a small helper that divides an array at a given index.
+   splitAt is a small helper that divides an array at a given index. An index
+   below 0 is 0, since `Array.slice` counts one from the end. Two slices, where
+   a `pushLast` for each item was quadratic in the children, and with one
+   insertion for each comment of a body, cubic in them (geng-lang
+   m3-sweep.md §SW33).
 -}
 splitAt : Int -> Array a -> { before : Array a, after : Array a }
 splitAt index arr =
-    Array.foldl
-        (\item acc ->
-            if acc.count < index then
-                { acc
-                    | before = Array.pushLast item acc.before
-                    , count = acc.count + 1
-                }
-
-            else
-                { acc | after = Array.pushLast item acc.after }
-        )
-        { before = [], after = [], count = 0 }
-        arr
-        |> (\result -> { before = result.before, after = result.after })
+    let
+        at =
+            max 0 index
+    in
+    { before = Array.takeFirst at arr, after = Array.dropFirst at arr }
 
 
 subtreeEndsBefore : LPNode -> Int -> Int -> Bool
