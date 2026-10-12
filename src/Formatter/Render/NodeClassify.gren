@@ -612,7 +612,7 @@ valueNodeIsHardBlock valueNode =
             False
 
 
-{-| A record field holding a lambda that `folderInsertRecordField` decided to
+{-| A record field holding a lambda that `insertRecordField` decided to
 keep GLUED on the `= ` line — the `IndentedBlock` container it builds in that one
 branch (`{ fld = \q -> body }`). Every other field shape is a `plainAcross`
 flow, so this identifies the glued-lambda case exactly.

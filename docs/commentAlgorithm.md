@@ -719,7 +719,7 @@ The bracket exception in the first row is that rule again, and it is worth
 reading because the arms state their premise as a fact about the *shape* when it
 is really a fact about the *container*. "This body always starts a line of its
 own" is true of an `IndentedBlock` holding a `let` binding's value and false of
-the same shape holding a **record field** — `folderInsertRecordField` builds a
+the same shape holding a **record field** — `insertRecordField` builds a
 lambda-valued field as an `IndentedBlock`, and inside a bracket that shape is an
 **item**, which renders after the container's `, `. Redirected inside, a comment
 written in the `,` gap stacked above `fld =`; the reparse read it as own-line and

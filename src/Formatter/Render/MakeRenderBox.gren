@@ -2184,7 +2184,7 @@ makeWhenBranchBox children =
 
                 _ ->
                     -- unreachable: a WhenBranch node is always built with exactly
-                    -- two children (pattern, body) by folderInsertWhenBranch.
+                    -- two children (pattern, body) by insertWhenBranch.
                     Err "unreachable: when-branch shape"
 
         Nothing ->
@@ -3762,12 +3762,41 @@ assembleFlowImpl measure flowStart flowIndent items =
                 Nothing ->
                     Builder.toArray rows.done
 
+        -- The line being assembled: its items, with the spaces between them
+        -- already in, in a Builder, and how many there are. Pushing each item
+        -- onto an Array copied it, which made a long row quadratic, 35% of a
+        -- call of 32,000 arguments (geng-lang m3-sweep.md §SW37). A row is
+        -- stepped once and never read after, except for `count`, as `rows`
+        -- is; `rowPush` starts a fresh Builder on an empty row, so the one
+        -- `noRow` shares is never pushed to.
+        noRow =
+            { items = Builder.empty 0, count = 0 }
+
+        rowOf l =
+            { items = Builder.pushLast l (Builder.empty 0), count = 1 }
+
+        rowPush l row =
+            if row.count == 0 then
+                rowOf l
+
+            else
+                { items = row.items |> Builder.pushLast B.space |> Builder.pushLast l
+                , count = row.count + 1
+                }
+
+        rowIsEmpty row =
+            row.count == 0
+
+        -- The row and a space, as the line a multi-line box is prefixed with.
+        rowPrefix row =
+            B.row (Builder.toArray (Builder.pushLast B.space row.items))
+
         flushRow curRow rows =
-            if Array.isEmpty curRow then
+            if rowIsEmpty curRow then
                 rows
 
             else
-                pushRow (B.line (B.row (Array.intersperse B.space curRow))) rows
+                pushRow (B.line (B.row (Builder.toArray curRow.items))) rows
 
         -- Classify one flow item into the policy's fact vocabulary. The
         -- verticality facts come from this renderer's own IR (`isSingleLine`
@@ -3836,7 +3865,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                 |> Result.map
                     (\rows ->
                         { rows = rows
-                        , curRow = []
+                        , curRow = noRow
                         , state = next
                         }
                     )
@@ -3851,7 +3880,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                 ownLine box =
                     Ok
                         { rows = pushRow box (flushRow acc.curRow acc.rows)
-                        , curRow = []
+                        , curRow = noRow
                         , state = decision.next
                         }
             in
@@ -3873,7 +3902,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                         ownLine c.box
 
                     FP.GlueSpace ->
-                        if Array.isEmpty acc.curRow then
+                        if rowIsEmpty acc.curRow then
                             -- No current-row content: the previous item was a block
                             -- (e.g. a dropped record); glue the comment onto its
                             -- last emitted row. `glueCommentSuffix` joins that row's
@@ -3883,7 +3912,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                 |> Result.map
                                     (\rows ->
                                         { rows = rows
-                                        , curRow = []
+                                        , curRow = noRow
                                         , state = decision.next
                                         }
                                     )
@@ -3897,11 +3926,11 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- the opening `{-`.
                             let
                                 prefLine =
-                                    B.row (Array.pushLast B.space (Array.intersperse B.space acc.curRow))
+                                    rowPrefix acc.curRow
                             in
                             Ok
                                 { rows = pushRow (B.prefix prefLine c.box) acc.rows
-                                , curRow = []
+                                , curRow = noRow
                                 , state = decision.next
                                 }
 
@@ -3951,13 +3980,13 @@ assembleFlowImpl measure flowStart flowIndent items =
                                 FP.GlueSpace ->
                                     -- Same-row glue; the comment still ends the
                                     -- line.
-                                    if Array.isEmpty acc.curRow then
+                                    if rowIsEmpty acc.curRow then
                                         glueOntoLastRow acc l decision.next
 
                                     else
                                         Ok
-                                            { rows = flushRow (Array.pushLast l acc.curRow) acc.rows
-                                            , curRow = []
+                                            { rows = flushRow (rowPush l acc.curRow) acc.rows
+                                            , curRow = noRow
                                             , state = decision.next
                                             }
 
@@ -3988,24 +4017,24 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- like a token.
                             when decision.placement is
                                 FP.AsFirst ->
-                                    Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
+                                    Ok { rows = acc.rows, curRow = rowOf l, state = decision.next }
 
                                 FP.GlueSpace ->
-                                    if Array.isEmpty acc.curRow then
+                                    if rowIsEmpty acc.curRow then
                                         glueOntoLastRow acc l decision.next
 
                                     else
-                                        Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+                                        Ok { rows = acc.rows, curRow = rowPush l acc.curRow, state = decision.next }
 
                                 FP.SoftSep ->
-                                    if Array.isEmpty acc.curRow then
+                                    if rowIsEmpty acc.curRow then
                                         glueOntoLastRow acc l decision.next
 
                                     else
-                                        Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+                                        Ok { rows = acc.rows, curRow = rowPush l acc.curRow, state = decision.next }
 
                                 FP.OwnLine ->
-                                    Ok { rows = flushRow acc.curRow acc.rows, curRow = [ l ], state = decision.next }
+                                    Ok { rows = flushRow acc.curRow acc.rows, curRow = rowOf l, state = decision.next }
 
                                 -- unreachable (all 6 arms below): none of these,
                                 -- including `GlueNoSep`, is ever assigned to a
@@ -4039,7 +4068,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                     -- First item of the flow: the bare item (no wrap).
                     when B.isLine item.box is
                         Ok l ->
-                            Ok { rows = acc.rows, curRow = [ l ], state = decision.next }
+                            Ok { rows = acc.rows, curRow = rowOf l, state = decision.next }
 
                         Err _ ->
                             -- A multi-line first item pushes as its own block.
@@ -4051,7 +4080,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- cost of walking the whole subtree to detect it
                             -- (MultilineBlockComments `#13`; broken record-pattern
                             -- headers, PatternLayoutByAuthor).
-                            Ok { rows = pushRow item.box acc.rows, curRow = [], state = decision.next }
+                            Ok { rows = pushRow item.box acc.rows, curRow = noRow, state = decision.next }
 
                 FP.GlueNoSep ->
                     -- Content begins on the fresh line the previous comment
@@ -4059,19 +4088,19 @@ assembleFlowImpl measure flowStart flowIndent items =
                     -- flush).
                     when B.isLine item.box is
                         Ok l ->
-                            Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+                            Ok { rows = acc.rows, curRow = rowPush l acc.curRow, state = decision.next }
 
                         Err _ ->
-                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = [], state = decision.next }
+                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = noRow, state = decision.next }
 
                 FP.SoftSep ->
                     when B.isLine item.box is
                         Ok l ->
-                            if Array.isEmpty acc.curRow then
+                            if rowIsEmpty acc.curRow then
                                 glueOntoLastRow acc l decision.next
 
                             else
-                                Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+                                Ok { rows = acc.rows, curRow = rowPush l acc.curRow, state = decision.next }
 
                         Err _ ->
                             -- Soft-glue a multi-line non-block item's first line
@@ -4079,7 +4108,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- space; inner hard breaks land per the item's own
                             -- alignment — see `softGlueAlignment`, the static
                             -- alignment table).
-                            if Array.isEmpty acc.curRow then
+                            if rowIsEmpty acc.curRow then
                                 -- The previous item was a block, so it flushed the
                                 -- running row and left it empty — there is nothing
                                 -- on the line to soft-glue this multi-line item
@@ -4093,18 +4122,18 @@ assembleFlowImpl measure flowStart flowIndent items =
                                 -- block genuinely can follow a block here. Each lands
                                 -- on its own line at the flow's indent — elm-format's
                                 -- layout for a broken multi-argument call.
-                                Ok { rows = pushRow item.box acc.rows, curRow = [], state = decision.next }
+                                Ok { rows = pushRow item.box acc.rows, curRow = noRow, state = decision.next }
 
                             else
                                 let
                                     prefLine =
-                                        B.row (Array.pushLast B.space (Array.intersperse B.space acc.curRow))
+                                        rowPrefix acc.curRow
                                 in
                                 when softGlueAlignment item.node is
                                     AlignCarrying ->
                                         Ok
                                             { rows = pushRow (B.prefix prefLine item.box) acc.rows
-                                            , curRow = []
+                                            , curRow = noRow
                                             , state = decision.next
                                             }
 
@@ -4118,14 +4147,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                                         -- absolute multiples of 4.
                                         Ok
                                             { rows = pushRow (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
-                                            , curRow = []
+                                            , curRow = noRow
                                             , state = decision.next
                                             }
 
                                     NestCarrying ->
                                         Ok
                                             { rows = pushRow (B.mapFirstLine (\l -> B.row [ prefLine, l ]) identity item.box) acc.rows
-                                            , curRow = []
+                                            , curRow = noRow
                                             , state = decision.next
                                             }
 
@@ -4181,7 +4210,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                                 ]
                                                             )
                                                             acc.rows
-                                                    , curRow = []
+                                                    , curRow = noRow
                                                     , state = decision.next
                                                     }
 
@@ -4205,7 +4234,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                             -- re-snapping to absolute multiples of 4.
                                                             Ok
                                                                 { rows = pushRow (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
-                                                                , curRow = []
+                                                                , curRow = noRow
                                                                 , state = decision.next
                                                                 }
 
@@ -4222,7 +4251,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                             -- tab stop, `else`/`)` under the `(`.
                                                             Ok
                                                                 { rows = pushRow (B.prefix prefLine item.box) acc.rows
-                                                                , curRow = []
+                                                                , curRow = noRow
                                                                 , state = decision.next
                                                                 }
 
@@ -4257,17 +4286,17 @@ assembleFlowImpl measure flowStart flowIndent items =
                 FP.OwnLine ->
                     when B.isLine item.box is
                         Ok l ->
-                            Ok { rows = flushRow acc.curRow acc.rows, curRow = [ l ], state = decision.next }
+                            Ok { rows = flushRow acc.curRow acc.rows, curRow = rowOf l, state = decision.next }
 
                         Err _ ->
-                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = [], state = decision.next }
+                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = noRow, state = decision.next }
 
                 FP.IndentNoBreak ->
                     -- Block after a line-terminating comment: the item lands on
                     -- the fresh line at +grenIndent, with no extra break.
                     Ok
                         { rows = pushRow (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
-                        , curRow = []
+                        , curRow = noRow
                         , state = decision.next
                         }
 
@@ -4296,14 +4325,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                         FP.IndentedRule ->
                             Ok
                                 { rows = pushRow (applyIndent grenIndent (withLeading item.box)) (flushRow acc.curRow acc.rows)
-                                , curRow = []
+                                , curRow = noRow
                                 , state = decision.next
                                 }
 
                         FP.BodyRule ->
                             Ok
                                 { rows = pushRow (withLeading item.box) (flushRow acc.curRow acc.rows)
-                                , curRow = []
+                                , curRow = noRow
                                 , state = decision.next
                                 }
 
@@ -4312,11 +4341,11 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- with a space.
                             when B.isLine item.box is
                                 Ok l ->
-                                    if Array.isEmpty acc.curRow then
+                                    if rowIsEmpty acc.curRow then
                                         glueOntoLastRow acc l decision.next
 
                                     else
-                                        Ok { rows = acc.rows, curRow = Array.pushLast l acc.curRow, state = decision.next }
+                                        Ok { rows = acc.rows, curRow = rowPush l acc.curRow, state = decision.next }
 
                                 Err _ ->
                                     -- A multi-line soft-block body (a lambda body
@@ -4332,7 +4361,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                     -- nested in a paren/call).
                                     Ok
                                         { rows = pushRow (applyIndent grenIndent (withLeading item.box)) (flushRow acc.curRow acc.rows)
-                                        , curRow = []
+                                        , curRow = noRow
                                         , state = decision.next
                                         }
 
@@ -4360,14 +4389,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                     in
                     Ok
                         { rows = pushRow (applyIndent dropIndent droppedBox) (flushRow acc.curRow acc.rows)
-                        , curRow = []
+                        , curRow = noRow
                         , state = decision.next
                         }
 
                 FP.BlankLineOnly ->
                     Ok
                         { rows = pushRow B.blankLine (flushRow acc.curRow acc.rows)
-                        , curRow = []
+                        , curRow = noRow
                         , state = decision.next
                         }
 
@@ -4396,7 +4425,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                     Nothing ->
                         0
                   )
-                + (if Array.isEmpty acc.curRow then
+                + (if rowIsEmpty acc.curRow then
                     0
 
                    else
@@ -4412,8 +4441,10 @@ assembleFlowImpl measure flowStart flowIndent items =
                                 (\core ->
                                     { core = core
                                     , measures =
+                                        -- A Builder, used once per step,
+                                        -- for the reason `curRow` is one.
                                         if measure then
-                                            Array.pushLast
+                                            Builder.pushLast
                                                 { node = paired.item.node
                                                 , box = paired.item.box
                                                 , rowsAdded = totalRows core - totalRows acc.core
@@ -4525,8 +4556,8 @@ assembleFlowImpl measure flowStart flowIndent items =
     in
     Array.foldl step
         (Ok
-            { core = { rows = emptyRows, curRow = [], state = FP.initialFlowState }
-            , measures = []
+            { core = { rows = emptyRows, curRow = noRow, state = FP.initialFlowState }
+            , measures = Builder.empty 0
             }
         )
         (pairLeadingComments items)
@@ -4548,6 +4579,6 @@ assembleFlowImpl measure flowStart flowIndent items =
                         -- brings them to `flowIndent + ownIndent`.
                         Ok
                             { box = B.stack1 ([ first ] ++ Array.map (applyIndent flowIndent) rest)
-                            , measures = final.measures
+                            , measures = Builder.toArray final.measures
                             }
             )

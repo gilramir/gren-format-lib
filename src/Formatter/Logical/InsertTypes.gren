@@ -25,13 +25,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLeaf
     , lpnWithBracketStart
     )
-import Formatter.Results exposing (resultFoldl)
-
-
-folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)
-folderMakeSignatureBranch locType accNodes =
-    makeSignatureBranch locType
-        |> Result.map (\newNodes -> accNodes ++ newNodes)
+import Formatter.Results exposing (resultConcatMap, traverseResult)
 
 
 {-| Emit a type constructor's `firstNode` (its name leaf) followed by its
@@ -54,7 +48,7 @@ typeWithArgs firstNode args =
                         |> Result.map (\firstArgNodes -> [ firstNode ] ++ firstArgNodes)
 
                 Just _ ->
-                    resultFoldl folderMakeSignatureBranch [] args
+                    resultConcatMap makeSignatureBranch args
                         |> Result.map (\childrenNodes -> [ firstNode ] ++ childrenNodes)
 
 
@@ -131,7 +125,7 @@ makeSignatureBranch locType =
 
         Src.TRecord { fields = fields, extending = extending } ->
             let
-                folderField field accNodes =
+                insertField field =
                     makeSignatureBranch field.signature
                         |> Result.map
                             (\typeNodes ->
@@ -148,7 +142,7 @@ makeSignatureBranch locType =
                                     itemContainer =
                                         plainAcross allChildren
                                 in
-                                Array.pushLast itemContainer accNodes
+                                itemContainer
                             )
             in
             let
@@ -160,7 +154,7 @@ makeSignatureBranch locType =
                     itemsSpanRows
                         (Array.map (\f -> { start = f.field.start, end = f.signature.end }) fields)
             in
-            resultFoldl folderField [] fields
+            traverseResult insertField fields
                 |> Result.map
                     (\fieldNodes ->
                         when Array.popFirst fieldNodes is

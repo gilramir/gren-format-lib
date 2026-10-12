@@ -11,11 +11,11 @@ stage's entry point.
 import Array.Builder as Builder
 import Compiler.Ast.Source as Src
 import Compiler.SourcePosition exposing (Located, Position)
-import Formatter.Results exposing (resultFoldl)
+import Formatter.Results exposing (resultConcatMap, resultFoldl, traverseResult)
 import Math exposing (maxSafeInteger)
 
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
-import Formatter.Logical.InsertPatterns exposing (folderInsertPattern)
+import Formatter.Logical.InsertPatterns exposing (insertArgPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch)
 import Formatter.Logical.LPTHelpers exposing
     ( endOfToken
@@ -699,7 +699,7 @@ processUnionDecl modDecl root =
         rootWithDoc =
             processFunctionDoc modDecl.value.docs root
     in
-    resultFoldl processVariantNode [] union_.variants
+    traverseResult identity (Array.indexedMap (\index variant -> processVariantNode (index == 0) variant) union_.variants)
         |> Result.map
             (\variantNodes ->
                 let
@@ -716,7 +716,7 @@ processUnionDecl modDecl root =
             )
 
 
-{-| Fold one union variant into the running array of variant nodes.
+{-| The node of one union variant.
 
 The first variant gets `=`, subsequent ones get `|`. Any payload is
 wrapped in `SoftIndentedBlock` so it can drop to its own line when the
@@ -725,12 +725,9 @@ variant overflows.
     = Nothing
     | Just a
 -}
-processVariantNode : Located Src.UnionVariant -> Array LPNode -> Result String (Array LPNode)
-processVariantNode locVariant accNodes =
+processVariantNode : Bool -> Located Src.UnionVariant -> Result String LPNode
+processVariantNode isFirst locVariant =
     let
-        isFirst =
-            Array.isEmpty accNodes
-
         prefixNode =
             lpnLeaf
                 (SynthesizedText
@@ -747,7 +744,7 @@ processVariantNode locVariant accNodes =
     in
     when locVariant.value.payload is
         Nothing ->
-            Ok (Array.pushLast (plainAcross [ prefixNode, nameNode ]) accNodes)
+            Ok (plainAcross [ prefixNode, nameNode ])
 
         Just payloadType ->
             makeSignatureBranch payloadType
@@ -757,7 +754,7 @@ processVariantNode locVariant accNodes =
                             payloadBlock =
                                 lpnNode SoftIndentedBlock payloadNodes
                         in
-                        Array.pushLast (plainAcross [ prefixNode, nameNode, payloadBlock ]) accNodes
+                        plainAcross [ prefixNode, nameNode, payloadBlock ]
                     )
 
 
@@ -846,7 +843,7 @@ processFunctionBody modVal root =
         eqNode =
             lpnLeaf (SynthesizedText "=")
     in
-    resultFoldl folderInsertPattern [] modVal.args
+    resultConcatMap insertArgPattern modVal.args
         |> Result.andThen
             (\argsNodes ->
                 insertExpression modVal.body

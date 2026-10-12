@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A long call or record, and other constructs of many parts, format faster.**
+  Fifteen folds that built the logical tree took the array of nodes made so far
+  and pushed the next one onto it, which copies it, so a construct of n parts
+  copied about n²/2 nodes: record fields, `let` definitions, `when` branches,
+  arguments, patterns, a signature's arrows, a type's fields and variants, and a
+  class's and an instance's methods. Each now says what it adds, and
+  `Formatter.Results` collects them into an `Array.Builder` (`traverseResult`,
+  now one fold rather than three passes, and a new `resultConcatMap`). A flow's
+  current row and its measures go into builders too. Output is unchanged.
+  Through the CLI, a call of 64,000 arguments on one line takes 36.1 s where it
+  took 85.4 s, and a record of 64,000 fields 23.4 s where it took 39.6 s; what
+  is left of both is `compiler-common` 3.0.0's parser, which collects a call's
+  arguments and a record's fields the same way.
 - **A long operator chain or pipeline formats, in time proportional to its
   length.** A chain of 2,000 operators overflowed node's stack: the logical
   tree nested each `op operand` step inside the one before it, so every walk
