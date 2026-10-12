@@ -4,8 +4,3 @@ module LeadingGluedComment exposing (..)
 {- a multiline block comment
    glued before an import -} import Mango
 {- x -} {- y -} import Apple
-
-
-{- a leading block comment glued to a top-level
-   function, which used to over-indent -} myFunc x =
-    x + 1
