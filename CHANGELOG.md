@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `when` or a custom type of many branches formats faster.** Three of the
+  renderer's folds pushed each branch's or variant's box onto the array of the
+  ones before it, which copies it: `BoxOps.stackWithBlanks`,
+  `renderWhenBranchesBox` and `makeUnionBodyVerticalBox`. Each now builds into
+  an `Array.Builder`, holding the last box beside it for a comment that glues
+  onto it. Output is unchanged. Through the CLI, a `when` of 16,000 branches
+  takes 14.0 s where it took 17.1 s, and a custom type of 16,000 variants
+  34.6 s where it took 41.9 s.
 - **A long call or record, and other constructs of many parts, format faster.**
   Fifteen folds that built the logical tree took the array of nodes made so far
   and pushed the next one onto it, which copies it, so a construct of n parts

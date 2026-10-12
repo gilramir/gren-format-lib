@@ -721,32 +721,42 @@ by anything the renderer does. -}
 makeUnionBodyVerticalBox : Array RenderNode -> Result String Box
 makeUnionBodyVerticalBox nodes =
     let
+        -- The boxes go into a Builder, and the last one is held beside it,
+        -- since a comment that glues onto it replaces it.
+        push box acc =
+            when acc.last is
+                Just lastBox ->
+                    { done = Builder.pushLast lastBox acc.done, last = Just box }
+
+                Nothing ->
+                    { done = acc.done, last = Just box }
+
         -- Slot per `FP.containerCommentSlot`. A union body has no opener slot,
         -- and `canGlue` is simply "something precedes" — a second trailing
         -- comment chains onto the first, unlike the record update, which
         -- requires a real field.
         placeComment acc node commentBox =
-            when FP.containerCommentSlot { atOpener = False, canGlue = not (Array.isEmpty acc.boxes) } node is
-                FP.GluesPrevious ->
-                    -- Glue onto the preceding variant's last line (multi-line
-                    -- comments padded under their start by `glueCommentSuffix`).
-                    when Array.popLast acc.boxes is
-                        Just { last = lastBox, initial } ->
-                            { acc | boxes = Array.pushLast (glueCommentSuffix commentBox lastBox) initial }
+            when acc.last is
+                Just lastBox ->
+                    when FP.containerCommentSlot { atOpener = False, canGlue = True } node is
+                        FP.GluesPrevious ->
+                            -- Glue onto the preceding variant's last line (multi-line
+                            -- comments padded under their start by `glueCommentSuffix`).
+                            { acc | last = Just (glueCommentSuffix commentBox lastBox) }
 
-                        Nothing ->
-                            -- unreachable: `canGlue` above is exactly this test.
-                            { acc | boxes = [ commentBox ] }
+                        -- `LeadsFollowing` cannot arise here: `classifyCommentKind` never
+                        -- assigns `LeadsNext` in a union's variant gap, because a union
+                        -- keeps the comment on the EARLIER side (divergence #22, and the
+                        -- open question in `tbd3.md`). If that is ever revisited, this is
+                        -- the arm that would need a lead buffer. Folding it in with
+                        -- `StandsAlone` changes nothing today and did not before either:
+                        -- a `LeadsNext` comment does not glue, so it took this same path.
+                        _ ->
+                            push commentBox acc
 
-                -- `LeadsFollowing` cannot arise here: `classifyCommentKind` never
-                -- assigns `LeadsNext` in a union's variant gap, because a union
-                -- keeps the comment on the EARLIER side (divergence #22, and the
-                -- open question in `tbd3.md`). If that is ever revisited, this is
-                -- the arm that would need a lead buffer. Folding it in with
-                -- `StandsAlone` changes nothing today and did not before either:
-                -- a `LeadsNext` comment does not glue, so it took this same path.
-                _ ->
-                    { acc | boxes = Array.pushLast commentBox acc.boxes }
+                Nothing ->
+                    -- Nothing precedes, so the comment cannot glue.
+                    push commentBox acc
     in
     Array.foldl
         (\node accResult ->
@@ -764,22 +774,19 @@ makeUnionBodyVerticalBox nodes =
 
                             _ ->
                                 buildFlowBox 0 (rnChildren node)
-                                    |> Result.map
-                                        (\childBox ->
-                                            { acc | boxes = Array.pushLast childBox acc.boxes }
-                                        )
+                                    |> Result.map (\childBox -> push childBox acc)
                     )
         )
-        (Ok { boxes = [] })
+        (Ok { done = Builder.empty (Array.length nodes), last = Nothing })
         nodes
         |> Result.andThen
             (\acc ->
-                when Array.first acc.boxes is
+                when acc.last is
                     Nothing ->
                         Err "box: union has no variants"
 
-                    Just _ ->
-                        Ok (B.stack1 acc.boxes)
+                    Just lastBox ->
+                        Ok (B.stack1 (Builder.toArray (Builder.pushLast lastBox acc.done)))
             )
 
 
@@ -2213,6 +2220,24 @@ lead), still fall back. -}
 renderWhenBranchesBox : Array RenderNode -> Result String Box
 renderWhenBranchesBox children =
     let
+        -- The branches go into a Builder, and the last one is held beside it,
+        -- since a comment that glues onto it replaces it.
+        pushMaybe maybeBox builder =
+            when maybeBox is
+                Just bx ->
+                    Builder.pushLast bx builder
+
+                Nothing ->
+                    builder
+
+        hasLast acc =
+            when acc.last is
+                Just _ ->
+                    True
+
+                Nothing ->
+                    False
+
         handleComment acc node =
             -- Slot per `FP.containerCommentSlot`. A when's branches have no opener
             -- slot. `canGlue` is "a branch precedes AND no lead run is already
@@ -2226,7 +2251,7 @@ renderWhenBranchesBox children =
             when
                 FP.containerCommentSlot
                     { atOpener = False
-                    , canGlue = not (Array.isEmpty acc.boxes) && Array.isEmpty acc.lead
+                    , canGlue = hasLast acc && Array.isEmpty acc.lead
                     }
                     node
             is
@@ -2234,10 +2259,9 @@ renderWhenBranchesBox children =
                     commentNodeBox node
                         |> Result.andThen
                             (\cbox ->
-                                when Array.popLast acc.boxes is
-                                    Just { last = lastBox, initial } ->
-                                        Ok
-                                            { acc | boxes = Array.pushLast (glueCommentSuffix cbox lastBox) initial }
+                                when acc.last is
+                                    Just lastBox ->
+                                        Ok { acc | last = Just (glueCommentSuffix cbox lastBox) }
 
                                     Nothing ->
                                         -- unreachable: `canGlue` above includes this test.
@@ -2266,7 +2290,10 @@ renderWhenBranchesBox children =
                                                     else
                                                         B.stack1 (Array.pushLast bx acc.lead)
                                             in
-                                            { boxes = Array.pushLast combined acc.boxes, lead = [] }
+                                            { done = pushMaybe acc.last acc.done
+                                            , last = Just combined
+                                            , lead = []
+                                            }
                                         )
 
                             SingleLineComment _ ->
@@ -2283,7 +2310,7 @@ renderWhenBranchesBox children =
                                 -- boxes is supplied by `stackWithBlanks`, so the
                                 -- marker is a no-op here. Any other position
                                 -- (leading, or after a lead comment) falls back.
-                                if Array.isEmpty acc.lead && not (Array.isEmpty acc.boxes) then
+                                if Array.isEmpty acc.lead && hasLast acc then
                                     Ok acc
 
                                 else
@@ -2293,7 +2320,7 @@ renderWhenBranchesBox children =
                                 Err "box: unexpected node among when-branches"
                     )
         )
-        (Ok { boxes = [], lead = [] })
+        (Ok { done = Builder.empty (Array.length children), last = Nothing, lead = [] })
         children
         |> Result.andThen
             (\acc ->
@@ -2307,12 +2334,12 @@ renderWhenBranchesBox children =
                     Err "unreachable: comment left in the lead run after the last when-branch"
 
                 else
-                    when Array.popFirst acc.boxes is
+                    when acc.last is
                         Nothing ->
                             Err "box: when has no branches"
 
-                        Just _ ->
-                            Ok (stackWithBlanks acc.boxes)
+                        Just lastBox ->
+                            Ok (stackWithBlanks (Builder.toArray (Builder.pushLast lastBox acc.done)))
             )
 
 
