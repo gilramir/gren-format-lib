@@ -2079,7 +2079,7 @@ insertAmongChildren containerShape commentNode row col children =
                                 -- `let` binding's value, a `when` branch's body.
                                 --
                                 -- Not inside a BRACKET, where the same shape is an ITEM:
-                                -- `folderInsertRecordField` builds a field holding a
+                                -- `insertRecordField` builds a field holding a
                                 -- lambda as an `IndentedBlock`, and an item does not
                                 -- start its own line — it renders after the container's
                                 -- `, `. This is the `BodyBlock` arm's premise

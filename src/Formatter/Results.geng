@@ -1,5 +1,6 @@
 module Formatter.Results exposing
-    ( resultFoldl
+    ( resultConcatMap
+    , resultFoldl
     , traverseResult
     )
 
@@ -14,55 +15,37 @@ it mattered, another had exactly the O(n^2) fold that note warns against.
 
 -}
 
+import Array.Builder as Builder
+
 
 {-|
 Traverse an Array with a Result-returning function: the first `Err`
 (left-to-right, matching the short-circuit order a sequential `Result.andThen`
 fold would give), or every `Ok` value in order.
 
-Two whole-array passes rather than a fold that accumulates with
-`Array.pushLast`. `Array.pushLast` is O(n) per call (it is `Array.toSpliced`
-under the hood, a full-array copy), so building the result one element at a time
-is O(n^2) — and this runs once per `RootBox` child, i.e. once per top-level
-declaration in the file. `Array.map` / `Array.findFirst` are each a single
-native O(n) pass.
-
-`f` is applied to every element, including those after the first `Err`. It is
-pure, so that costs work and changes nothing: the `Err` reported is still the
-leftmost one.
+One fold into a Builder sized to the input, used once per step, which stops
+applying `f` at the first `Err`. `Array.pushLast` copies the array on each call,
+so a fold that grew an Array was O(n^2). The two whole-array passes that
+replaced it, `Array.map` then `Array.findFirst` and `Array.mapAndKeepJust`,
+were linear but slower than the fold: a `when` of 16,000 branches took 5.0 s
+and 960 MB through them against 3.8 s and 383 MB here, and 16,000 variants
+13.4 s and 1.6 GB against 9.0 s and 590 MB (geng-lang m3-sweep.md §SW37).
 
 -}
 traverseResult : (a -> Result e b) -> Array a -> Result e (Array b)
 traverseResult f items =
-    let
-        applied =
-            Array.map f items
-
-        isErr item =
-            when item is
-                Err _ ->
-                    True
-
-                Ok _ ->
-                    False
-    in
-    when Array.findFirst isErr applied is
-        Just { value = Err e } ->
-            Err e
-
-        _ ->
-            Ok
-                (Array.mapAndKeepJust
-                    (\item ->
-                        when item is
-                            Ok value ->
-                                Just value
-
-                            Err _ ->
-                                Nothing
+    Array.foldl
+        (\item acc ->
+            acc
+                |> Result.andThen
+                    (\builder ->
+                        f item
+                            |> Result.map (\value -> Builder.pushLast value builder)
                     )
-                    applied
-                )
+        )
+        (Ok (Builder.empty (Array.length items)))
+        items
+        |> Result.map Builder.toArray
 
 
 {-|
@@ -70,8 +53,8 @@ Fold an Array into a single accumulator with a Result-returning step,
 short-circuiting on the first `Err`.
 
 Unlike `traverseResult` this threads the accumulator through, so each step sees
-what the previous ones built and there is nothing to collect — no `pushLast`,
-and no reason to prefer a two-pass shape.
+what the previous ones built. A step that only adds to the end of
+an Array is `resultConcatMap`'s: with an Array accumulator, each push copies it.
 
 -}
 resultFoldl : (i -> a -> Result e a) -> a -> Array i -> Result e a
@@ -80,3 +63,29 @@ resultFoldl callback initialAcc items =
         (\item acc -> acc |> Result.andThen (callback item))
         (Ok initialAcc)
         items
+
+
+{-|
+Map each item to the nodes it adds, and concatenate them in order,
+short-circuiting on the first `Err`.
+
+A `resultFoldl` whose step pushes onto an Array accumulator copies it on every
+step, so n items took time quadratic in n: a record or a call of 64,000 on one
+row took 22 s and 69 s (geng-lang m3-sweep.md §SW37). Here the pieces go into
+a Builder, used once per step.
+
+-}
+resultConcatMap : (i -> Result e (Array a)) -> Array i -> Result e (Array a)
+resultConcatMap f items =
+    Array.foldl
+        (\item acc ->
+            acc
+                |> Result.andThen
+                    (\builder ->
+                        f item
+                            |> Result.map (\added -> Builder.append added builder)
+                    )
+        )
+        (Ok (Builder.empty 0))
+        items
+        |> Result.map Builder.toArray

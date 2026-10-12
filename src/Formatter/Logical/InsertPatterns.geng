@@ -1,6 +1,6 @@
 module Formatter.Logical.InsertPatterns exposing
     ( argNeedsParens
-    , folderInsertPattern
+    , insertArgPattern
     , insertPattern
     )
 
@@ -32,7 +32,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , RecordKind(..)
     , lpnLeaf
     )
-import Formatter.Results exposing (resultFoldl)
+import Formatter.Results exposing (traverseResult)
 
 
 insertPattern : Src.Pattern -> Result String (Array LPNode)
@@ -59,7 +59,7 @@ insertPattern locPat =
                             fields
                         )
             in
-            resultFoldl folderInsertPRecordField [] fields
+            traverseResult insertPRecordField fields
                 -- `locPat.end` registers the closing `}` so a line-leading comment
                 -- between the last field and the close stays *inside* the pattern
                 -- (matching record literals); the empty form is a `{}` text leaf.
@@ -133,7 +133,7 @@ insertPattern locPat =
             -- `locPat.end` registers the closing `]` so a trailing comment
             -- classifies by the bracket's real position (not the last item's end
             -- + slack); the empty form is a `[]` text leaf. Matches PRecord above.
-            resultFoldl folderInsertPatternAsItem [] patterns
+            traverseResult insertPatternAsItem patterns
                 |> Result.map
                     (\itemNodes ->
                         [ authoredBracketList ListSquare (itemsSpanRows patterns) locPat.start locPat.end (lpnLeaf (mkText locPat.start "[]")) itemNodes ]
@@ -199,8 +199,10 @@ parenCtorArg argPat argNode =
         argNode
 
 
-folderInsertPattern : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
-folderInsertPattern locPat accNodes =
+{-| The nodes a function argument adds, for `resultConcatMap`.
+-}
+insertArgPattern : Src.Pattern -> Result String (Array LPNode)
+insertArgPattern locPat =
     insertPattern locPat
         |> Result.map
             (\newNodes ->
@@ -213,10 +215,10 @@ folderInsertPattern locPat accNodes =
                 --     today, but the parens are the canonical form and keep the
                 --     alias visibly bound to its own pattern.
                 if argNeedsParens locPat.value then
-                    Array.pushLast (syntheticParens newNodes) accNodes
+                    [ syntheticParens newNodes ]
 
                 else
-                    accNodes ++ newNodes
+                    newNodes
             )
 
 
@@ -267,21 +269,15 @@ aliasBaseNeedsParens pat =
             argNeedsParens pat
 
 
-folderInsertPatternAsItem : Src.Pattern -> Array LPNode -> Result String (Array LPNode)
-folderInsertPatternAsItem pat accNodes =
-    insertPatternAsItem pat
-        |> Result.map (\node -> Array.pushLast node accNodes)
-
-
-folderInsertPRecordField : Src.PRecordField -> Array LPNode -> Result String (Array LPNode)
-folderInsertPRecordField field accNodes =
+insertPRecordField : Src.PRecordField -> Result String LPNode
+insertPRecordField field =
     let
         fieldNode =
             lpnLeaf (mkTextFromLocString field.field)
     in
     when field.pattern is
         Nothing ->
-            Ok (Array.pushLast fieldNode accNodes)
+            Ok fieldNode
 
         Just aliasPat ->
             insertPatternAsItem aliasPat
@@ -303,5 +299,5 @@ folderInsertPRecordField field accNodes =
                                     _ ->
                                         aliasNode
                         in
-                        Array.pushLast (plainAcross [ fieldNode, eqNode, wrappedAliasNode ]) accNodes
+                        plainAcross [ fieldNode, eqNode, wrappedAliasNode ]
                     )

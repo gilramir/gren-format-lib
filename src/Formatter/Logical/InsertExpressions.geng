@@ -15,7 +15,7 @@ import Compiler.Parse.Number as PN
 import Compiler.SourcePosition exposing (Located)
 
 import Formatter.Logical.BinopPrecedence exposing (binopMinPrecedence, binopPrecedence)
-import Formatter.Logical.InsertPatterns exposing (argNeedsParens, folderInsertPattern, insertPattern)
+import Formatter.Logical.InsertPatterns exposing (argNeedsParens, insertArgPattern, insertPattern)
 import Formatter.Logical.InsertTypes exposing (makeSignatureBranch, makeAnnotationBranch)
 import Formatter.Logical.LPTHelpers exposing
     ( authoredBracketList
@@ -44,7 +44,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnShape
     , lpnWithBracketStart
     )
-import Formatter.Results exposing (resultFoldl, traverseResult)
+import Formatter.Results exposing (resultConcatMap, resultFoldl, traverseResult)
 
 
 {-| Returns True for the pipeline operators `|>` and `<|`.
@@ -393,7 +393,7 @@ insertExpression locExpr =
             -- Like array literals; `locExpr.end` is the `}`, empty form `{}`. A
             -- field VALUE that always breaks opens the record the same way an
             -- always-breaking item opens an array.
-            resultFoldl folderInsertRecordField [] fieldArray
+            traverseResult insertRecordField fieldArray
                 |> Result.map
                     (\fieldNodes ->
                         [ authoredBracketList (ListCurly RecordValue) (recordFieldsSpanRows fieldArray || fieldValuesAlwaysBreak fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly RecordValue }) locExpr.end []) fieldNodes ]
@@ -661,7 +661,7 @@ insertUpdate locExpr { record = record, newValues = newValues } =
         Err "record update base is an expression shape gren-format can't yet express as a single inline token (e.g. a lambda/let/if/when)"
 
     else
-        resultFoldl folderInsertRecordField [] newValues
+        traverseResult insertRecordField newValues
             |> Result.map
                 (\fieldNodes ->
                     if Array.isEmpty fieldNodes then
@@ -848,7 +848,7 @@ insertCall { fn = fnExpr, args = argsExprs } =
 {-| `Src.Lambda` — `\patterns -> body`. `locExpr.start` anchors the `\`. -}
 insertLambda : Src.Expression -> { patterns : Array Src.Pattern, body : Src.Expression } -> Result String (Array LPNode)
 insertLambda locExpr { patterns = patterns, body = body } =
-    resultFoldl folderInsertPattern [] patterns
+    resultConcatMap insertArgPattern patterns
         |> Result.andThen
             (\patNodes ->
                 let
@@ -990,7 +990,7 @@ insertLet locExpr { defs = defs, body = body } =
         inNode =
             lpnLeaf (SynthesizedText "in")
     in
-    resultFoldl folderInsertLetDef [] defs
+    resultConcatMap insertLetDef defs
         |> Result.andThen
             (\defNodes ->
                 insertExpressionAsBlock BodyBlock body
@@ -1030,13 +1030,20 @@ insertIf locExpr { branches = branches, elseBranch = elseBranch } =
                         insertExpressionAsBlock IndentedBlock firstBranch.body
                             |> Result.andThen
                                 (\bodyNode ->
-                                    resultFoldl folderInsertElseIfBranch [ condNode, bodyNode ] restBranches
+                                    resultFoldl folderInsertElseIfBranch
+                                        { nodes = Builder.empty 0 |> Builder.pushLast condNode |> Builder.pushLast bodyNode
+                                        , lastBody = bodyNode
+                                        }
+                                        restBranches
                                         |> Result.andThen
-                                            (\branchNodes ->
+                                            (\elseIfs ->
                                                 insertExpressionAsBlock IndentedBlock elseBranch
                                                     |> Result.map
                                                         (\elseBodyNode ->
-                                                            branchNodes ++ [ elseNode, elseBodyNode ]
+                                                            elseIfs.nodes
+                                                                |> Builder.pushLast elseNode
+                                                                |> Builder.pushLast elseBodyNode
+                                                                |> Builder.toArray
                                                         )
                                             )
                                 )
@@ -1057,7 +1064,7 @@ insertWhen locExpr { expression = expression, branches = branches } =
     insertExpression expression
         |> Result.andThen
             (\exprNodes ->
-                resultFoldl folderInsertWhenBranch [] branches
+                traverseResult insertWhenBranch branches
                     |> Result.map
                         (\branchNodes ->
                             -- WhenFlow: flat "when scrutinee is" when authored
@@ -1354,8 +1361,8 @@ field through the list-item rendering path, and the update through
 `makeRecordUpdateBox`; both dispatch on the container shape so the
 `IndentedBlock`/`BodyBlock` intent is honored either way.
 -}
-folderInsertRecordField : Src.RecordField -> Array LPNode -> Result String (Array LPNode)
-folderInsertRecordField field accNodes =
+insertRecordField : Src.RecordField -> Result String LPNode
+insertRecordField field =
     let
         fieldNameNode =
             lpnLeaf (mkTextFromLocString field.field)
@@ -1412,7 +1419,7 @@ folderInsertRecordField field accNodes =
                                 else
                                     plainContainer valueNodes
                 in
-                Array.pushLast container accNodes
+                container
             )
 
 
@@ -1555,7 +1562,7 @@ fieldValuesAlwaysBreak fields =
     Array.any (\f -> exprAlwaysBreaks f.value) fields
 
 
-{-| Folder for `let` definitions.
+{-| The nodes of a `let` definition, for `resultConcatMap`.
 
 Handles both `Src.Define` (named bindings, optionally with an inline type
 signature) and `Src.Destruct` (pattern-destructuring bindings). Each
@@ -1564,8 +1571,8 @@ block. The body always drops to the next line — one rule for every binding
 body, with no inline form. A let-level type signature is emitted as a
 sibling `IndentedBlock` before its definition.
 -}
-folderInsertLetDef : Located Src.Def -> Array LPNode -> Result String (Array LPNode)
-folderInsertLetDef locDef accNodes =
+insertLetDef : Located Src.Def -> Result String (Array LPNode)
+insertLetDef locDef =
     when locDef.value is
         Src.Define def ->
             let
@@ -1579,10 +1586,10 @@ folderInsertLetDef locDef accNodes =
                 -- IndentedBlock for `name : Type` before the value definition.
                 -- (Top-level signatures get their own OriginalRows; let-level
                 -- ones share the let's IndentedBlock.)
-                accNodesWithSig =
+                sigNodes =
                     when def.typeSignature is
                         Nothing ->
-                            Ok accNodes
+                            Ok []
 
                         Just sigType ->
                             makeAnnotationBranch sigType
@@ -1614,13 +1621,13 @@ folderInsertLetDef locDef accNodes =
                                             sigContainer =
                                                 lpnNode IndentedBlock [ plainAcross sigChildren ]
                                         in
-                                        Array.pushLast sigContainer accNodes
+                                        [ sigContainer ]
                                     )
             in
-            accNodesWithSig
+            sigNodes
                 |> Result.andThen
                     (\acc ->
-                        resultFoldl folderInsertPattern [] def.args
+                        resultConcatMap insertArgPattern def.args
                             |> Result.andThen
                                 (\argsNodes ->
                                     insertExpression def.body
@@ -1675,7 +1682,7 @@ folderInsertLetDef locDef accNodes =
                                         container =
                                             lpnNode IndentedBlock (lhsNodes ++ [ eqNode, bodyWrapper ])
                                     in
-                                    Array.pushLast container accNodes
+                                    [ container ]
                                 )
                     )
 
@@ -1695,9 +1702,13 @@ positioned token (`lpnLastPos`).  The bracket-end is used because the closing
 multi-line record body underreports its last row by one and the row guard fires
 incorrectly, stacking an `else if` that the author wrote flat.
 
+The nodes go into a Builder, used once per step, beside the last body, the one
+node a step reads: with an Array, each branch copied every node before it
+(geng-lang m3-sweep.md §SW37).
+
 -}
-folderInsertElseIfBranch : Src.IfBranch -> Array LPNode -> Result String (Array LPNode)
-folderInsertElseIfBranch branch accNodes =
+folderInsertElseIfBranch : Src.IfBranch -> { nodes : Builder LPNode, lastBody : LPNode } -> Result String { nodes : Builder LPNode, lastBody : LPNode }
+folderInsertElseIfBranch branch acc =
     let
         -- `else if` has no AST position. Anchor it zero-width at the end of the
         -- preceding branch body (a real, stable position), so a comment written
@@ -1705,7 +1716,7 @@ folderInsertElseIfBranch branch accNodes =
         -- this branch's condition consistently across reformats. (Left
         -- position-less, the comment can't enter the condition and drifts.)
         prevEnd =
-            Array.last accNodes
+            Just acc.lastBody
                 |> Maybe.andThen
                     (\last ->
                         -- Take whichever of the closing-bracket position and the
@@ -1777,11 +1788,16 @@ folderInsertElseIfBranch branch accNodes =
                         lpnNode (IfCondition { forceVertical = condForceVertical }) ([ elseIfNode ] ++ testNodes ++ [ thenNode ])
                 in
                 insertExpressionAsBlock IndentedBlock branch.body
-                    |> Result.map (\bodyNode -> accNodes ++ [ condNode, bodyNode ])
+                    |> Result.map
+                        (\bodyNode ->
+                            { nodes = acc.nodes |> Builder.pushLast condNode |> Builder.pushLast bodyNode
+                            , lastBody = bodyNode
+                            }
+                        )
             )
 
 
-{-| Folder for branches of a `when ... is` expression.
+{-| The node of a branch of a `when ... is` expression.
 
 Produces one `WhenBranch` node per branch. The pattern nodes go into a
 `WhenBranchPattern` child, which renders them like `AcrossOrVertical` but
@@ -1789,8 +1805,8 @@ appends " ->" directly after the last token — so the arrow always trails the
 pattern on the same line, whether flat or broken. The body is always in an
 `IndentedBlock` (+4 from the branch indent).
 -}
-folderInsertWhenBranch : Src.WhenBranch -> Array LPNode -> Result String (Array LPNode)
-folderInsertWhenBranch branch accNodes =
+insertWhenBranch : Src.WhenBranch -> Result String LPNode
+insertWhenBranch branch =
     insertPattern branch.pattern
         |> Result.andThen
             (\patNodes ->
@@ -1804,6 +1820,6 @@ folderInsertWhenBranch branch accNodes =
                                 container =
                                     lpnNode WhenBranch [ patternWithArrow, bodyNode ]
                             in
-                            Array.pushLast container accNodes
+                            container
                         )
             )

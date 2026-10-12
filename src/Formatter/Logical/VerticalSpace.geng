@@ -719,7 +719,7 @@ isLetCommentNode node =
 
 
 -- True if a node is a let-level type signature: the `IndentedBlock` built by
--- `folderInsertLetDef` for `name : Type`, recognised by the synthesized `:`
+-- `insertLetDef` for `name : Type`, recognised by the synthesized `:`
 -- inside its `AcrossOrVertical`. A binding's header carries a synthesized `=`
 -- instead, so the `:` is unambiguous here.
 isLetSignature : LPNode -> Bool

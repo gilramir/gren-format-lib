@@ -26,7 +26,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLeaf
     , lpnWithBracketStart
     )
-import Formatter.Results exposing (resultFoldl)
+import Formatter.Results exposing (resultConcatMap, traverseResult)
 
 
 {-| An annotation: a type, and the constraint context qualifying it.
@@ -132,12 +132,6 @@ lastConstraintEnd firstConstraint others =
         |> Maybe.withDefault firstConstraint.var.end
 
 
-folderMakeSignatureBranch : Src.Type -> Array LPNode -> Result String (Array LPNode)
-folderMakeSignatureBranch locType accNodes =
-    makeSignatureBranch locType
-        |> Result.map (\newNodes -> accNodes ++ newNodes)
-
-
 {-| Emit a type constructor's `firstNode` (its name leaf) followed by its
 argument types. Shared by `TType` (bare `Array String`) and `TTypeQual`
 (`Dict.Dict k v`), which differ only in how the name leaf is built.
@@ -158,7 +152,7 @@ typeWithArgs firstNode args =
                         |> Result.map (\firstArgNodes -> [ firstNode ] ++ firstArgNodes)
 
                 Just _ ->
-                    resultFoldl folderMakeSignatureBranch [] args
+                    resultConcatMap makeSignatureBranch args
                         |> Result.map (\childrenNodes -> [ firstNode ] ++ childrenNodes)
 
 
@@ -235,7 +229,7 @@ makeSignatureBranch locType =
 
         Src.TRecord { fields = fields, extending = extending } ->
             let
-                folderField field accNodes =
+                insertField field =
                     makeSignatureBranch field.signature
                         |> Result.map
                             (\typeNodes ->
@@ -252,7 +246,7 @@ makeSignatureBranch locType =
                                     itemContainer =
                                         plainAcross allChildren
                                 in
-                                Array.pushLast itemContainer accNodes
+                                itemContainer
                             )
             in
             let
@@ -264,7 +258,7 @@ makeSignatureBranch locType =
                     itemsSpanRows
                         (Array.map (\f -> { start = f.field.start, end = f.signature.end }) fields)
             in
-            resultFoldl folderField [] fields
+            traverseResult insertField fields
                 |> Result.map
                     (\fieldNodes ->
                         when Array.popFirst fieldNodes is
