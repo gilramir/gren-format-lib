@@ -2,7 +2,8 @@ module D31DeclarationOffColumnOne exposing (..)
 
 
 foo : a
-{- lead -} foo =
+{- lead -}
+foo =
     one
 
 

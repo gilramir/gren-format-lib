@@ -38,7 +38,8 @@ import {- between iz -} Zebra -- after-zebra
 --
 import Bar exposing (Charlie, alpha, delta)
 {- legal multiline
-   before import -} import Baz exposing
+   before import -}
+import Baz exposing
     {- pre-yak -}
     ( cod -- trailing line comment inside an exposing list
     {- own-line block leading a name that will sort to the front -}
@@ -46,7 +47,8 @@ import Bar exposing (Charlie, alpha, delta)
     , yak {- post yak line1
              line2 -} -- post-yak line comment
     )
-{- legal singleline -} import Qux exposing
+{- legal singleline -}
+import Qux exposing
     -- comment written before the first name in the list
     ( (>>>)
     , aardvark

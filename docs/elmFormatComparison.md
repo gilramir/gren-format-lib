@@ -1716,6 +1716,15 @@ entry with no fixture, or a fixture with no entry.
     error in both. The fixture keeps only the commented half, which #37 alone
     still lets through.
 
+    *Since geng-lang D681 and D685 (2026-10-12) the `geng` branch has no
+    divergence #31 left.* D681 carries upstream's fix for #37, a declaration
+    held to column 1, and D685 holds an `import` to column 1 and a definition's
+    name to the column of its annotation's name, which upstream's parser does
+    not (reported upstream, not yet filed). Every glued form above
+    is refused by the parser as by `geng make`, so the fixture on `geng` is the
+    form a program has to take, the comment on a row of its own, which stays
+    there.
+
     So the difference is about what the two *parsers* accept, and the comment is
     only what makes the accepted shape survive into the output. In a `let` the
     comment takes a row of its own, so the binding name normalizes and only the

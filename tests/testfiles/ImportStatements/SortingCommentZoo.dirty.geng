@@ -32,14 +32,16 @@ pre3 -} {- ch2 -}
 import Charlie
 
 {- legal multiline
-before import -} import Baz exposing
+before import -}
+import Baz exposing
     ( {- pre-yak -} yak {- post yak line1
         line2 -} -- post-yak line comment
     {- own-line block leading a name that will sort to the front -}
     , elk
     , cod -- trailing line comment inside an exposing list
     )
-{- legal singleline -} import Qux exposing
+{- legal singleline -}
+import Qux exposing
     ( -- comment written before the first name in the list
       wombat
     , aardvark

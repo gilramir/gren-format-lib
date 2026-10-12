@@ -3084,8 +3084,12 @@ class Gen:
         # BETWEEN `import` and the module name) are mutually exclusive — see
         # `Import.__init__`.
         r2 = self.rng.random()
+        # A comment glued in front of `import` puts the keyword off column 1,
+        # which `geng make` and, since geng-lang D685, the parser refuse, so
+        # `glued_lead` is never drawn, and that tenth of the imports has no
+        # comment.
         if r2 < 0.1:
-            glued_lead = self.maybe_multirow(self.forced_comment(kinds=("block",)))
+            pass
         elif r2 < 0.2:
             inner = self.maybe_multirow(self.forced_comment(kinds=("block",)))
         elif r2 < 0.4:
