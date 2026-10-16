@@ -518,6 +518,11 @@ them (`ffi.md` F1), and its Geng body when it has one (D222).
 A primitive declaration with one attribute row per implementation language, so
 it is laid out as one and shares `StPrim`: every row is an unbreakable token on
 the row it was written on, and there is no blank line between them.
+
+Each row's leaf is at its `@`. It was at the language's row, so a multi-line
+comment written inside `@extern(` ended on the leaf's row and glued in front of
+it, `{- … -} @extern(js, …)`, which does not parse (geng-lang `m3-sweep.md`
+§SW43).
 -}
 processExternDecl : Src.ModuleDeclaration Src.Extern -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
 processExternDecl modDecl root =
@@ -527,7 +532,7 @@ processExternDecl modDecl root =
 
         attributeNodes =
             Array.map
-                (\impl -> lpnLeaf (mkText { row = impl.language.start.row, col = 1 } (externText impl)))
+                (\impl -> lpnLeaf (mkText impl.at (externText impl)))
                 extern.impls
 
         nameNode =

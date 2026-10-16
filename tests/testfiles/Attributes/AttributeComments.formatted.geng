@@ -1,4 +1,4 @@
-module AttributeComments exposing (T, add, both, grant, now, sub)
+module AttributeComments exposing (T, add, both, grant, mul, multi, now, sub)
 
 
 {- inside the parentheses -}
@@ -31,3 +31,18 @@ type T
 grant : Task x Permission
 grant =
     Task.succeed Permission
+
+
+{- a comment of
+   two rows -}
+@prim("i32_mul")
+mul : Int -> Int -> Int
+
+
+{- a comment of
+   two rows -}
+@extern(js, "C", "multi")
+{- and in the
+   second -}
+@extern(c, "c_multi")
+multi : Int -> Task x Int

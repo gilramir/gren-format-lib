@@ -302,7 +302,8 @@ encExtern extern =
 encExternImpl : Src.ExternImpl -> Json.Value
 encExternImpl impl =
     Json.object
-        [ { key = "pure", value = Json.bool impl.pure }
+        [ { key = "at", value = encPos impl.at }
+        , { key = "pure", value = Json.bool impl.pure }
         , { key = "language", value = encLocated Json.string impl.language }
         , { key = "names", value = Json.array (encLocated Json.string) impl.names }
         ]

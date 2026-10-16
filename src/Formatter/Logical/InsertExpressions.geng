@@ -109,7 +109,7 @@ It is therefore an explicit `Err` rather than ~15 lines of never-exercised
 layout: if the parser's associativity handling ever changes, the format fails
 loudly instead of emitting a shape no test has ever seen.
 -}
-insertStepBody : String -> Src.Expression -> Result String (Array LPNode)
+insertStepBody : String -> Src.Expression -> Result String Inserted
 insertStepBody outerOpStr body =
     when body.value is
         Src.Binops { operator = innerOp } ->
@@ -119,10 +119,10 @@ insertStepBody outerOpStr body =
                 Err "unreachable: pipeline step body is a differing pipeline binop"
 
             else
-                insertExpression body
+                insertExpressionWith body
 
         _ ->
-            insertExpression body
+            insertExpressionWith body
 
 
 {-| Flatten a non-pipeline binop chain into its operands and operators in source
@@ -298,6 +298,42 @@ for wrapping the result in a container shape (e.g. `AcrossOrVertical`,
 -}
 insertExpression : Src.Expression -> Result String (Array LPNode)
 insertExpression locExpr =
+    insertExpressionWith locExpr
+        |> Result.map .nodes
+
+
+{-| An expression's nodes, and whether it breaks whatever rows its author
+wrote: `exprAlwaysBreaks` of it.
+
+The insertion answers `breaks` as it recurses, each construct from its
+children's, rather than asking `exprAlwaysBreaks`, which walks the whole
+subtree. A bracket, a parenthesis, an annotation, a lambda and a record field
+each ask it of their content, so asked at every level of a nesting it was
+quadratic in the depth: an array 4,096 deep took 1.88 billion instructions
+natively with no collection at all (geng-lang `m3-scaling.md` §SG11.1,
+`m3-sweep.md` §SW43). -}
+type alias Inserted =
+    { nodes : Array LPNode
+    , breaks : Bool
+    }
+
+
+{-| Nodes that do not break by themselves. -}
+flat : Array LPNode -> Inserted
+flat nodes =
+    { nodes = nodes, breaks = False }
+
+
+{-| Rebuild an expression's nodes, keeping whether it breaks: what wraps an
+expression does not change that. -}
+andThenKeepingBreaks : (Array LPNode -> Result String (Array LPNode)) -> Result String Inserted -> Result String Inserted
+andThenKeepingBreaks rebuild =
+    Result.andThen (\inner -> rebuild inner.nodes |> Result.map (\nodes -> { inner | nodes = nodes }))
+
+
+{-| `insertExpression`, with whether the expression always breaks. -}
+insertExpressionWith : Src.Expression -> Result String Inserted
+insertExpressionWith locExpr =
     when locExpr.value is
         Src.StringLiteral literal ->
             -- Written as the author wrote it (geng-lang D602). A multi-line
@@ -305,40 +341,42 @@ insertExpression locExpr =
             -- indentation of the column it was written in taken off.
             if String.startsWith "\"\"\"" literal.text then
                 Ok
-                    [ lpnLeaf
-                        (MultilineString
-                            { start = locExpr.start
-                            , end = locExpr.end
-                            , value = multilineContentLines locExpr.start.col literal.text
-                            }
-                        )
-                    ]
+                    (flat
+                        [ lpnLeaf
+                            (MultilineString
+                                { start = locExpr.start
+                                , end = locExpr.end
+                                , value = multilineContentLines locExpr.start.col literal.text
+                                }
+                            )
+                        ]
+                    )
 
             else
-                Ok [ lpnLeaf (mkText locExpr.start literal.text) ]
+                Ok (flat [ lpnLeaf (mkText locExpr.start literal.text) ])
 
         Src.NumberLiteral outcome ->
             when outcome is
                 PN.Integer n ->
-                    Ok [ lpnLeaf (mkText locExpr.start (n.text)) ]
+                    Ok (flat [ lpnLeaf (mkText locExpr.start (n.text)) ])
 
                 PN.FloatingPoint n ->
-                    Ok [ lpnLeaf (mkText locExpr.start (n.text)) ]
+                    Ok (flat [ lpnLeaf (mkText locExpr.start (n.text)) ])
 
                 PN.Hex n ->
-                    Ok [ lpnLeaf (mkText locExpr.start n.text) ]
+                    Ok (flat [ lpnLeaf (mkText locExpr.start n.text) ])
 
         Src.CharLiteral literal ->
-            Ok [ lpnLeaf (mkText locExpr.start literal.text) ]
+            Ok (flat [ lpnLeaf (mkText locExpr.start literal.text) ])
 
         Src.Var { varType = _, name = name } ->
-            Ok [ lpnLeaf (mkText locExpr.start name) ]
+            Ok (flat [ lpnLeaf (mkText locExpr.start name) ])
 
         Src.VarQual { varType = _, qualifier = qualString, name = nameString } ->
-            Ok [ lpnLeaf (mkText locExpr.start (qualString ++ "." ++ nameString)) ]
+            Ok (flat [ lpnLeaf (mkText locExpr.start (qualString ++ "." ++ nameString)) ])
 
         Src.Operator opString ->
-            Ok [ lpnLeaf (mkText locExpr.start opString) ]
+            Ok (flat [ lpnLeaf (mkText locExpr.start opString) ])
 
         Src.Negate expr ->
             -- Wrap the rendered inner in PrefixGlue "-" so the `-` lands
@@ -353,11 +391,11 @@ insertExpression locExpr =
                     , value = PrefixMinus
                     }
             in
-            insertExpression expr
-                |> Result.map (\nodes -> [ lpnNode (PrefixGlue negLoc) nodes ])
+            insertExpressionWith expr
+                |> Result.map (\inner -> { inner | nodes = [ lpnNode (PrefixGlue negLoc) inner.nodes ] })
 
         Src.Accessor string ->
-            Ok [ lpnLeaf (mkText locExpr.start ("." ++ string)) ]
+            Ok (flat [ lpnLeaf (mkText locExpr.start ("." ++ string)) ])
 
         Src.Access payload ->
             insertAccess payload
@@ -372,8 +410,14 @@ insertExpression locExpr =
             -- The author's layout decides the list shape (see `authoredBracketList`):
             -- items across rows stay one-per-line, items on one row stay inline —
             -- unless an ITEM breaks on its own however it was written
-            -- (`itemsAlwaysBreak`), which renders the list vertical regardless, so
-            -- the vertical shape is picked up front.
+            -- (`Inserted`'s `breaks`), which renders the list vertical regardless, so
+            -- the vertical shape is picked up front. Committing on the first
+            -- format is the point: emitting the inline shape and letting the
+            -- content break it open gives the same bytes, but the shape is what
+            -- `Comments.bracketRendersMultiline` reads to decide whether a
+            -- trailing `{- -}` has a closing-bracket row to glue onto, so with
+            -- the inline shape stored the comment took a row below the
+            -- declaration's last token, which the reparse re-homes to column 1.
             -- `locExpr.end` is the `]`; the empty form is an `EmptyBracketed` `[]`.
             -- Built via `lpnBracketNode` (not plain `lpnLeaf`) so its close is
             -- marked EXACT: `loc.end` genuinely IS the `]`'s position (unlike a
@@ -383,20 +427,32 @@ insertExpression locExpr =
             -- absorbed the comment into the surrounding field on reparse
             -- (non-idempotent: `{ z | next0 = [] } -- c` re-broken as
             -- `{ z | next0 = [] -- c }` collapsed back to one line).
-            traverseResult insertExpressionAsItem exprArray
+            traverseResult insertExpressionAsItemWith exprArray
                 |> Result.map
-                    (\itemNodes ->
-                        [ authoredBracketList ListSquare (itemsSpanRows exprArray || itemsAlwaysBreak exprArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) itemNodes ]
+                    (\items ->
+                        let
+                            breaks =
+                                Array.any .breaks items
+                        in
+                        { nodes = [ authoredBracketList ListSquare (itemsSpanRows exprArray || breaks) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListSquare }) locExpr.end []) (Array.map .node items) ]
+                        , breaks = breaks
+                        }
                     )
 
         Src.Record fieldArray ->
             -- Like array literals; `locExpr.end` is the `}`, empty form `{}`. A
             -- field VALUE that always breaks opens the record the same way an
             -- always-breaking item opens an array.
-            traverseResult insertRecordField fieldArray
+            traverseResult insertRecordFieldWith fieldArray
                 |> Result.map
-                    (\fieldNodes ->
-                        [ authoredBracketList (ListCurly RecordValue) (recordFieldsSpanRows fieldArray || fieldValuesAlwaysBreak fieldArray) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly RecordValue }) locExpr.end []) fieldNodes ]
+                    (\fields ->
+                        let
+                            breaks =
+                                Array.any .breaks fields
+                        in
+                        { nodes = [ authoredBracketList (ListCurly RecordValue) (recordFieldsSpanRows fieldArray || breaks) locExpr.start locExpr.end (lpnBracketNode (EmptyBracketed { start = locExpr.start, end = locExpr.end, value = ListCurly RecordValue }) locExpr.end []) (Array.map .node fields) ]
+                        , breaks = breaks
+                        }
                     )
 
         Src.Update payload ->
@@ -413,19 +469,22 @@ insertExpression locExpr =
 
         Src.Let payload ->
             insertLet locExpr payload
+                |> Result.map (\nodes -> { nodes = nodes, breaks = True })
 
         Src.If payload ->
             insertIf locExpr payload
+                |> Result.map (\nodes -> { nodes = nodes, breaks = True })
 
         Src.When payload ->
             insertWhen locExpr payload
+                |> Result.map (\nodes -> { nodes = nodes, breaks = True })
 
 
 {-| `Src.Access` — a `.field` accessor applied to a base expression. -}
-insertAccess : { expression : Src.Expression, accessor : String } -> Result String (Array LPNode)
+insertAccess : { expression : Src.Expression, accessor : String } -> Result String Inserted
 insertAccess { expression = expression, accessor = accessor } =
-    insertExpression expression
-        |> Result.andThen
+    insertExpressionWith expression
+        |> andThenKeepingBreaks
             (\nodes ->
                 if accessBaseIsBracketed expression then
                     -- The accessor must be glued AFTER the base's closing
@@ -456,18 +515,18 @@ insertAccess { expression = expression, accessor = accessor } =
 
 {-| `Src.Parens` — a parenthesized expression. `locExpr` spans `(` to `)`, so
 the parens' own start/end rows say whether the author wrote them across rows. -}
-insertParens : Src.Expression -> Src.Expression -> Result String (Array LPNode)
+insertParens : Src.Expression -> Src.Expression -> Result String Inserted
 insertParens locExpr expression =
-    insertExpression expression
+    insertExpressionWith expression
         |> Result.andThen
-            (\nodes ->
+            (\{ nodes, breaks = contentBreaks } ->
                 when Array.popFirst nodes is
                     Nothing ->
                         -- Unreachable defensive guard: `()` (empty parens) is not
                         -- valid Gren — the parser rejects it before this — so a
                         -- `Src.Parens` always wraps a real expression that yields
                         -- at least one node.
-                        Ok [ lpnLeaf (SynthesizedText "()") ]
+                        Ok (flat [ lpnLeaf (SynthesizedText "()") ])
 
                     Just _ ->
                         let
@@ -479,6 +538,8 @@ insertParens locExpr expression =
                                 locExpr.start.row /= locExpr.end.row
                         in
                         Ok
+                            { breaks = contentBreaks
+                            , nodes =
                             [ lpnBracketNode
                                 (ParenBlock
                                     { forceVertical = forceVertical
@@ -487,12 +548,13 @@ insertParens locExpr expression =
                                     -- answer it: the logical stage has no
                                     -- rendered box, and the author's rows are
                                     -- exactly the fact this must not depend on.
-                                    , contentAlwaysBreaks = exprAlwaysBreaks expression
+                                    , contentAlwaysBreaks = contentBreaks
                                     }
                                 )
                                 locExpr.end
                                 nodes
                             ]
+                            }
             )
 
 
@@ -515,11 +577,11 @@ which the reparse reads as a type on a later row; an `if`, `when` or `let`
 breaks open, and the colon after its last branch landed on a row of its own;
 and after a call or a `|>` chain written across rows, `bar : Int` reads as
 annotating the last argument rather than the whole expression. -}
-insertAnnotated : { expression : Src.Expression, annotation : Src.Type } -> Result String (Array LPNode)
+insertAnnotated : { expression : Src.Expression, annotation : Src.Type } -> Result String Inserted
 insertAnnotated { expression, annotation } =
-    insertExpression expression
+    insertExpressionWith expression
         |> Result.andThen
-            (\exprNodes ->
+            (\{ nodes = exprNodes, breaks = exprBreaks } ->
                 makeSignatureBranch annotation
                     |> Result.map
                         (\typeNodes ->
@@ -540,7 +602,7 @@ insertAnnotated { expression, annotation } =
 
                                 drops =
                                     (expression.start.row /= annotation.end.row)
-                                        || exprAlwaysBreaks expression
+                                        || exprBreaks
                             in
                             if drops then
                                 let
@@ -576,10 +638,10 @@ insertAnnotated { expression, annotation } =
                                         else
                                             IndentedBlock
                                 in
-                                exprNodes ++ [ lpnNode block [ content ] ]
+                                { nodes = exprNodes ++ [ lpnNode block [ content ] ], breaks = exprBreaks }
 
                             else
-                                [ plainAcross (exprNodes ++ [ colonNode ] ++ typeNodes) ]
+                                { nodes = [ plainAcross (exprNodes ++ [ colonNode ] ++ typeNodes) ], breaks = exprBreaks }
                         )
             )
 
@@ -627,7 +689,7 @@ startsWithRecordType typeNodes =
 
 {-| `Src.Update` — a record update `{ base | field = ... }`. `locExpr.end` is
 the closing `}`. -}
-insertUpdate : Src.Expression -> { record : Src.Expression, newValues : Array Src.RecordField } -> Result String (Array LPNode)
+insertUpdate : Src.Expression -> { record : Src.Expression, newValues : Array Src.RecordField } -> Result String Inserted
 insertUpdate locExpr { record = record, newValues = newValues } =
     let
         recText =
@@ -661,9 +723,20 @@ insertUpdate locExpr { record = record, newValues = newValues } =
         Err "record update base is an expression shape gren-format can't yet express as a single inline token (e.g. a lambda/let/if/when)"
 
     else
-        traverseResult insertRecordField newValues
+        traverseResult insertRecordFieldWith newValues
             |> Result.map
-                (\fieldNodes ->
+                (\fields ->
+                    let
+                        fieldNodes =
+                            Array.map .node fields
+
+                        -- The base is a name or an access, which
+                        -- `simpleExprText` could write as one token.
+                        breaks =
+                            exprAlwaysBreaks record || Array.any .breaks fields
+                    in
+                    { breaks = breaks
+                    , nodes =
                     if Array.isEmpty fieldNodes then
                         -- Unreachable defensive guard: a record update with zero
                         -- fields (`{ r | }`) is not valid Gren — the parser
@@ -693,25 +766,26 @@ insertUpdate locExpr { record = record, newValues = newValues } =
                             (RecordUpdate
                                 { name = recLoc
                                 -- Author rows, OR a field value that breaks on
-                                -- its own — see `itemsAlwaysBreak`, the same
+                                -- its own — see the array literal's, the same
                                 -- commit-up-front reason and the same
                                 -- trailing-comment consequence.
                                 , forceVertical =
                                     recordFieldsSpanRows newValues
-                                        || fieldValuesAlwaysBreak newValues
+                                        || Array.any .breaks fields
                                 }
                             )
                             locExpr.end
                             fieldNodes
                             |> lpnWithBracketStart locExpr.start
                         ]
+                    }
                 )
 
 
 {-| `Src.Binops` — either a `|>`/`<|` pipeline or an ordinary operator chain.
 Both re-flatten the left-nested tree from `locExpr`; only `operator` is needed
 from the payload (to pick the branch and label the pipeline). -}
-insertBinops : Src.Expression -> { left : Src.Expression, operator : Located String, right : Src.Expression } -> Result String (Array LPNode)
+insertBinops : Src.Expression -> { left : Src.Expression, operator : Located String, right : Src.Expression } -> Result String Inserted
 insertBinops locExpr { operator = locStringOp } =
     if isPipelineOp locStringOp.value then
         let
@@ -730,9 +804,9 @@ insertBinops locExpr { operator = locStringOp } =
                         ++ Array.map (\s -> { start = s.body.start, end = s.body.end }) flattened.steps
                     )
         in
-        insertExpression flattened.seed
+        insertExpressionWith flattened.seed
             |> Result.andThen
-                (\seedNodes ->
+                (\{ nodes = seedNodes, breaks = seedBreaks } ->
                     -- Each step's node, then the seed's nodes before them: a
                     -- fold pushing each onto the ones before it was quadratic
                     -- in a long pipeline (geng-lang m3-sweep.md §SW36).
@@ -744,7 +818,7 @@ insertBinops locExpr { operator = locStringOp } =
                             in
                             insertStepBody locStringOp.value step.body
                                 |> Result.map
-                                    (\bodyNodes ->
+                                    (\{ nodes = bodyNodes, breaks } ->
                                         -- PipelineStep already indents its body +4, so unwrap a
                                         -- lone AcrossOrVertical (from a function call) to keep the
                                         -- token flow directly under the step, avoiding a second +4
@@ -787,15 +861,23 @@ insertBinops locExpr { operator = locStringOp } =
                                                     Nothing ->
                                                         { nodes = bodyNodes, forceVertical = False }
                                         in
-                                        lpnNode
-                                            (PipelineStep { forceVertical = unwrapped.forceVertical })
-                                            ([ opNode ] ++ unwrapped.nodes)
+                                        { node =
+                                            lpnNode
+                                                (PipelineStep { forceVertical = unwrapped.forceVertical })
+                                                ([ opNode ] ++ unwrapped.nodes)
+                                        , breaks = breaks
+                                        }
                                     )
                         )
                         flattened.steps
                         -- Wrap the seed + steps in a single Pipeline container so the
                         -- renderer can choose inline (fits) vs one-step-per-line.
-                        |> Result.map (\stepNodes -> [ lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) (seedNodes ++ stepNodes) ])
+                        |> Result.map
+                            (\steps ->
+                                { nodes = [ lpnNode (Pipeline { forceVertical = forceVertical, op = locStringOp.value }) (seedNodes ++ Array.map .node steps) ]
+                                , breaks = seedBreaks || Array.any .breaks steps
+                                }
+                            )
                 )
 
     else
@@ -803,50 +885,56 @@ insertBinops locExpr { operator = locStringOp } =
         -- container wraps the entire chain exactly once, as one `OpAndRhs`
         -- per operator (`buildOpAndRhsChain`).
         let
-            flat =
+            chain =
                 flattenBinop locExpr
         in
-        traverseResult insertExpression flat.operands
+        traverseResult insertExpressionWith chain.operands
             |> Result.map
-                (\operandNodesList ->
+                (\operands ->
                     let
                         nested =
-                            buildOpAndRhsChain operandNodesList flat.ops
+                            buildOpAndRhsChain (Array.map .nodes operands) chain.ops
 
                         forceVertical =
-                            binopForceVertical flat.operands flat.ops
-                                || Array.any operandForcesBinopBreak flat.operands
+                            binopForceVertical chain.operands chain.ops
+                                || Array.any operandForcesBinopBreak chain.operands
                     in
-                    [ lpnNode (Binop { forceVertical = forceVertical }) nested ]
+                    { nodes = [ lpnNode (Binop { forceVertical = forceVertical }) nested ]
+                    , breaks = Array.any .breaks operands
+                    }
                 )
 
 
 {-| `Src.Call` — a function applied to arguments. Arguments the author wrote
 across rows indent +4 from the function name (`AcrossOrVertical`), keeping
 them visually distinct from the surrounding context. -}
-insertCall : { fn : Src.Expression, args : Array Src.Expression } -> Result String (Array LPNode)
+insertCall : { fn : Src.Expression, args : Array Src.Expression } -> Result String Inserted
 insertCall { fn = fnExpr, args = argsExprs } =
-    insertExpression fnExpr
+    insertExpressionWith fnExpr
         |> Result.andThen
-            (\fnNodes ->
-                traverseResult insertExpressionAsItem argsExprs
-                    |> Result.map (\argNodes -> fnNodes ++ argNodes)
+            (\fn ->
+                traverseResult insertExpressionAsItemWith argsExprs
                     |> Result.map
-                        (\allNodes ->
+                        (\args ->
                             let
+                                allNodes =
+                                    fn.nodes ++ Array.map .node args
+
                                 forceVertical =
                                     itemsSpanRows
                                         ([ { start = fnExpr.start, end = fnExpr.end } ]
                                             ++ Array.map (\a -> { start = a.start, end = a.end }) argsExprs
                                         )
                             in
-                            [ lpnNode (AcrossOrVertical { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
+                            { nodes = [ lpnNode (AcrossOrVertical { forceVertical = forceVertical, checkContentVertical = True }) allNodes ]
+                            , breaks = fn.breaks || Array.any .breaks args
+                            }
                         )
             )
 
 
 {-| `Src.Lambda` — `\patterns -> body`. `locExpr.start` anchors the `\`. -}
-insertLambda : Src.Expression -> { patterns : Array Src.Pattern, body : Src.Expression } -> Result String (Array LPNode)
+insertLambda : Src.Expression -> { patterns : Array Src.Pattern, body : Src.Expression } -> Result String Inserted
 insertLambda locExpr { patterns = patterns, body = body } =
     resultConcatMap insertArgPattern patterns
         |> Result.andThen
@@ -923,25 +1011,21 @@ insertLambda locExpr { patterns = patterns, body = body } =
                     -- `IndentedBlock` from the very first format, matching what
                     -- every later reparse settles on.
                     --
-                    -- `exprAlwaysBreaks` is a full-tree recursion — it descends
-                    -- BOTH operands of every binop — so it finds one at any
-                    -- depth, including buried under a tighter operator
-                    -- (`node |> 0 <| (if …) / y` parses as
-                    -- `((node |> 0) <| (if …)) / y`). A left-spine walk would
-                    -- have to be extended per newly-found nesting position; this
-                    -- is closed.
+                    -- `exprAlwaysBreaks` holds of a body with one at any depth,
+                    -- both operands of every binop included, so one buried
+                    -- under a tighter operator counts (`node |> 0 <| (if …) / y`
+                    -- parses as `((node |> 0) <| (if …)) / y`). The body's
+                    -- insertion answers it (`Inserted`).
                     --
                     -- A mixed `|>`/`<|` pipeline used to count as always-breaking
                     -- here. It no longer breaks unless the author broke it, so
                     -- `lambdaBodyForceVertical` above is what decides it, like
                     -- every other row-dependent construct.
-                    bodyAlwaysBreaksVertical =
-                        exprAlwaysBreaks body
-
+                    --
                     -- A `let`/`if`/`when` body always drops to its own line
                     -- under `->` (elm-format never glues the keyword to the
                     -- arrow); other bodies follow the author's row placement.
-                    bodyShape =
+                    bodyShape bodyAlwaysBreaksVertical =
                         if lambdaBodyForceVertical || isBlockBody || bodyAlwaysBreaksVertical then
                             IndentedBlock
 
@@ -950,23 +1034,23 @@ insertLambda locExpr { patterns = patterns, body = body } =
 
                     bodyBlockResult =
                         if isBlockBody then
-                            insertExpression body
-                                |> Result.map (\bodyNodes -> lpnNode bodyShape bodyNodes)
+                            insertExpressionWith body
+                                |> Result.map (\inner -> { block = lpnNode (bodyShape inner.breaks) inner.nodes, breaks = inner.breaks })
 
                         else
-                            insertExpressionAsItem body
-                                |> Result.map (\bodyNode -> lpnNode bodyShape [ bodyNode ])
+                            insertExpressionAsItemWith body
+                                |> Result.map (\item -> { block = lpnNode (bodyShape item.breaks) [ item.node ], breaks = item.breaks })
                 in
                 bodyBlockResult
                     |> Result.map
-                        (\bodyBlock ->
+                        (\{ block = bodyBlock, breaks } ->
                             -- Bundle the `->` with the patterns so the body is
                             -- the only thing that can break to a new line.
                             let
                                 patsWithArrow =
                                     plainAcross (updatedPatNodes ++ [ arrowNode ])
                             in
-                            [ patsWithArrow, bodyBlock ]
+                            { nodes = [ patsWithArrow, bodyBlock ], breaks = breaks }
                         )
             )
 
@@ -1282,19 +1366,26 @@ body still glues to `->` (its own `SoftIndentedBlock` decides that, unchanged).
 -}
 insertExpressionAsItem : Src.Expression -> Result String LPNode
 insertExpressionAsItem locExpr =
-    insertExpression locExpr
+    insertExpressionAsItemWith locExpr
+        |> Result.map .node
+
+
+{-| `insertExpressionAsItem`, with whether the item always breaks. -}
+insertExpressionAsItemWith : Src.Expression -> Result String { node : LPNode, breaks : Bool }
+insertExpressionAsItemWith locExpr =
+    insertExpressionWith locExpr
         |> Result.andThen
-            (\nodes ->
+            (\{ nodes, breaks } ->
                 when Array.popFirst nodes is
                     Nothing ->
                         Err "insertExpressionAsItem: empty expression"
 
                     Just { first = onlyNode, rest = rest } ->
                         if Array.isEmpty rest then
-                            Ok onlyNode
+                            Ok { node = onlyNode, breaks = breaks }
 
                         else
-                            Ok (lpnNode BodyBlock nodes)
+                            Ok { node = lpnNode BodyBlock nodes, breaks = breaks }
             )
 
 
@@ -1361,8 +1452,8 @@ field through the list-item rendering path, and the update through
 `makeRecordUpdateBox`; both dispatch on the container shape so the
 `IndentedBlock`/`BodyBlock` intent is honored either way.
 -}
-insertRecordField : Src.RecordField -> Result String LPNode
-insertRecordField field =
+insertRecordFieldWith : Src.RecordField -> Result String { node : LPNode, breaks : Bool }
+insertRecordFieldWith field =
     let
         fieldNameNode =
             lpnLeaf (mkTextFromLocString field.field)
@@ -1373,13 +1464,13 @@ insertRecordField field =
         plainContainer valueNodes =
             plainAcross ([ fieldNameNode, eqNode ] ++ valueNodes)
     in
-    insertExpression field.value
+    insertExpressionWith field.value
         |> Result.map
-            (\valueNodes ->
+            (\{ nodes = valueNodes, breaks } ->
                 let
                     container =
                         when field.value.value is
-                            Src.Lambda lam ->
+                            Src.Lambda _ ->
                                 -- Drop the WHOLE lambda below `field =` (`BodyBlock`,
                                 -- +0) whenever the lambda renders multi-line, so
                                 -- `\pats ->` lands at the field's indent — matching
@@ -1403,8 +1494,9 @@ insertRecordField field =
                                 --     `IndentedBlock` glued the head, then reparse — body
                                 --     now on its own row — flipped it to the drop.
                                 --     `exprAlwaysBreaks` is the row-independent content
-                                --     test that makes both formats agree.
-                                if lambdaValueNodesAreBroken valueNodes || exprAlwaysBreaks lam.body then
+                                --     test that makes both formats agree; of a
+                                --     lambda it is its body's, which `breaks` is.
+                                if lambdaValueNodesAreBroken valueNodes || breaks then
                                     plainAcross [ fieldNameNode, eqNode, lpnNode BodyBlock valueNodes ]
 
                                 else
@@ -1419,7 +1511,7 @@ insertRecordField field =
                                 else
                                     plainContainer valueNodes
                 in
-                container
+                { node = container, breaks = breaks }
             )
 
 
@@ -1532,34 +1624,6 @@ exprAlwaysBreaks expr =
 
         _ ->
             False
-
-
-{-| True when some ITEM of a bracketed literal breaks on its own — an `if`/
-`when`/`let` or a mixed `|>`/`<|` chain, at any depth inside the item.
-
-The container then renders one item per line with its `]`/`}` on a row of its
-own, exactly as if the author had written it across rows, so
-`authoredBracketList` is given the vertical shape up front. Committing on the
-first format is the point: the alternative is emitting the inline shape, letting
-the content break it open anyway, and having the reparse — which now sees items
-spanning rows — pick the vertical shape on the second pass. Nothing about the
-BYTES differs between the two shapes here (verified: a flat-authored list with a
-breaking item renders identically to the same list authored across rows), but
-the shape is what `Comments.bracketRendersMultiline` reads to decide whether a
-trailing `{- -}` has a closing-bracket row to glue onto — so with the inline shape
-stored, the comment took a row BELOW the declaration's last token, which the
-reparse re-homes to column 1. -}
-itemsAlwaysBreak : Array Src.Expression -> Bool
-itemsAlwaysBreak items =
-    Array.any exprAlwaysBreaks items
-
-
-{-| `itemsAlwaysBreak` for a record literal's / record update's fields: a field
-VALUE that always breaks opens the record the same way an always-breaking item
-opens an array. The field NAME cannot break. -}
-fieldValuesAlwaysBreak : Array Src.RecordField -> Bool
-fieldValuesAlwaysBreak fields =
-    Array.any (\f -> exprAlwaysBreaks f.value) fields
 
 
 {-| The nodes of a `let` definition, for `resultConcatMap`.
