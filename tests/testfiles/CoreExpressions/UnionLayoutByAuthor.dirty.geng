@@ -10,7 +10,7 @@ type Vertical
     | East
 
 
-type WithPayloads = Wrap Int | Pair Int Int
+type WithPayloads = Wrap Int | Pair (Two Int Int)
 
 
 type Overflows = AlphaVariant | BetaVariant | GammaVariant | DeltaVariant | EpsilonVariant | ZetaVariant

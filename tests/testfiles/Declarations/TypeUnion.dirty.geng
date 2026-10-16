@@ -8,4 +8,4 @@ type Maybe a
 
 type Shape
     = Circle Int
-    | Rectangle Int Int
+    | Rectangle (Pair Int Int)

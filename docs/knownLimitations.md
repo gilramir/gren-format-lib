@@ -415,6 +415,11 @@ operator. The real Gren compiler reads it as subtraction (a module using it as a
 [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
 which carries the AST dumps, the column grid and a one-line proposed fix.
 
+*On this branch the limitation is gone: the fork's parser carries upstream's
+fix, `c0dc2ea`, which compares the row as well as the column (geng-lang D738,
+`m3-sweep.md` §SW42), and `geng fmt` writes the example as `10` ⏎ `- 3`. A
+`gren-format` built on `compiler-common` 3.0.0 still has it.*
+
 The trigger is **the column**, and nothing else: the right operand starting one
 past the `-`, on a later row. `argOrOperatorLoop` decides "no space after the
 operator" by comparing `operator.end.col == pos.col` *after* the whitespace
@@ -876,6 +881,13 @@ without error, and `gren-format` duly formats it. Tracked at
 
 Two of this package's own fixtures depend on the gap and are reduced to 0/1
 argument variants when it closes; `gen-random.py` already avoids emitting them.
+
+*On this branch it is closed: the fork's parser takes a variant's argument as
+one term, as upstream's `e149122` does, and a type's arguments as terms too
+(geng-lang D738, `m3-sweep.md` §SW42), so `Person String Int` is refused as
+`geng make` refuses it. Seven fixtures held a variant of two or more arguments;
+each now holds one parenthesized argument, a comment that sat between two
+arguments sitting between the same two inside the parentheses.*
 
 ## A comment run just inside a bracket doesn't keep its rows
 

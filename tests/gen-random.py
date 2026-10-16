@@ -2959,7 +2959,8 @@ class Gen:
         for a chain of bare constructor-name arguments (compiler-common#32:
         https://github.com/gren-lang/compiler-common/issues/32) — this
         generator still caps arity at 1 to match current valid Gren rather
-        than lean on that gap."""
+        than lean on that gap. The fork's parser enforces it (geng-lang
+        D738)."""
         r = self.rng.random()
         var_pool = params if params else ["a", "b", "c"]
         if depth <= 0 or r < 0.45:

@@ -57,7 +57,7 @@ type Shape
     | Square {- 9 a
                 9 b
                 9 c -}
-        Int Int
+        (Pair Int Int)
 
 
 sig :

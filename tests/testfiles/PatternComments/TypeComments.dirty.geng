@@ -6,8 +6,8 @@ type Shape
     -- comment between `=` and first variant
     = Circle Float
     -- comment between two variants
-    | Rectangle Float {- block comment between two payload args -} Float
-    | Triangle {- comment between variant name and first payload -} Float Float Float
+    | Rectangle (Pair Float {- block comment between two payload args -} Float)
+    | Triangle {- comment between variant name and first payload -} (Three Float Float Float)
     -- single-line comment between variants
     | Empty
 

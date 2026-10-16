@@ -340,7 +340,10 @@ def known_upstream_issue(workdir, source):
          run — and it is what separates it from a probe that merely happens to
          contain a keyword/name split while failing for some other reason.
 
-    **compiler-common#35** — a binary `-` whose right operand starts on a later
+    **compiler-common#35** — on this branch the fork's parser carries
+    upstream's fix (geng-lang D738), so the label no longer fires here; a CLI
+    built on `compiler-common` 3.0.0 still meets it. A binary `-` whose right
+    operand starts on a later
     row at the operator's own column is parsed as a unary negation, so `10 -` ⏎
     `        3` becomes `Call (10, [Negate 3])`. A `--` written after that `-`
     then renders between the negation and its operand and comes out as `---`,

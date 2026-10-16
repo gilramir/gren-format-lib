@@ -184,8 +184,8 @@ multilineStringExample =
 
 
 type LongUnion
-    = VariantAlpha ArgumentTypeOne ArgumentTypeTwo
-    | VariantBeta ArgumentTypeOne ArgumentTypeTwo ArgumentTypeThree ArgumentTypeFour ArgumentTypeFive ArgumentTypeSix
+    = VariantAlpha (ArgumentTypeOne ArgumentTypeTwo)
+    | VariantBeta (ArgumentTypeOne ArgumentTypeTwo ArgumentTypeThree ArgumentTypeFour ArgumentTypeFive ArgumentTypeSix)
     | VariantGamma
 
 

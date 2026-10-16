@@ -12,7 +12,7 @@ type Vertical
 
 
 type WithPayloads
-    = Wrap Int | Pair Int Int
+    = Wrap Int | Pair (Two Int Int)
 
 
 type Overflows
