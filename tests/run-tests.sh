@@ -39,4 +39,5 @@ devbox run build_test || {
 }
 
 popd
-node app "$@"
+set -e
+devbox run test
