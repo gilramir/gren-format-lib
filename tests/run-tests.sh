@@ -39,4 +39,12 @@ devbox run build_test || {
 }
 
 popd
-node app "$@"
+set -e
+# Run the app built above rather than `devbox run test`: neither a devbox script
+# nor `gren run` passes arguments on to the program. devbox runs the command from
+# the project root and evals it as one string, so cd back to tests/ (where the
+# fixtures are found) and %q-quote each argument. No arguments must add nothing:
+# an empty '' would be a pattern that matches no test.
+ARGS=""
+if [ $# -gt 0 ]; then ARGS="$(printf ' %q' "$@")"; fi
+devbox run -- "cd $(printf %q "$(pwd)") && exec node app${ARGS}"

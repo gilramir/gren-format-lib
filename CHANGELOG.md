@@ -26,46 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renderer's folds pushed each branch's or variant's box onto the array of the
   ones before it, which copies it: `BoxOps.stackWithBlanks`,
   `renderWhenBranchesBox` and `makeUnionBodyVerticalBox`. Each now builds into
-  an `Array.Builder`, holding the last box beside it for a comment that glues
-  onto it. Output is unchanged. Through the CLI, a `when` of 16,000 branches
-  takes 14.0 s where it took 17.1 s, and a custom type of 16,000 variants
-  34.6 s where it took 41.9 s.
+  an `Array.Builder`.
 - **A long call or record, and other constructs of many parts, format faster.**
   Fifteen folds that built the logical tree took the array of nodes made so far
   and pushed the next one onto it, which copies it, so a construct of n parts
   copied about n²/2 nodes: record fields, `let` definitions, `when` branches,
   arguments, patterns, a signature's arrows, a type's fields and variants, and a
-  class's and an instance's methods. Each now says what it adds, and
-  `Formatter.Results` collects them into an `Array.Builder` (`traverseResult`,
-  now one fold rather than three passes, and a new `resultConcatMap`). A flow's
-  current row and its measures go into builders too. Output is unchanged.
-  Through the CLI, a call of 64,000 arguments on one line takes 36.1 s where it
-  took 85.4 s, and a record of 64,000 fields 23.4 s where it took 39.6 s; what
-  is left of both is `compiler-common` 3.0.0's parser, which collects a call's
-  arguments and a record's fields the same way.
+  class's and an instance's methods. Now they use `Array.Builder`.
 - **A long operator chain or pipeline formats, in time proportional to its
   length.** A chain of 2,000 operators overflowed node's stack: the logical
   tree nested each `op operand` step inside the one before it, so every walk
   over the tree, and over the parser's left-nested expression, went one level
   deeper per operator, and the kth comment of a chain went down k levels to
-  its place. A chain is now flat, one `OpAndRhs` per operator side by side; the
-  comment walk and the renderer that read the nesting reproduce it, so output
-  is unchanged. The parser's chains are walked in loops (`flattenBinop`,
-  `flattenPipeline`, the AST comparison), and five folds that grew an array
-  one element at a time build it whole. Through the CLI, which formats twice,
-  4,000 terms each with a `--` comment take 2.2 s where they took 16.5 s with a
-  raised stack, and 16,000 terms one a line 3.5 s where they could not be
-  formatted. A chain on one row with inline comments still nests when
-  rendered, and overflows at about 1,000 terms as before.
+  its place. A chain is now flat, one `OpAndRhs` per operator.
 - **A container with thousands of comments, and a long `let`, format faster
   still.** Placing a comment rebuilt the cached bounds of the node it landed
   in over all its children; they are now updated from the child that changed,
   and the child that owns the comment and the place it is inserted are found
-  by bisection rather than by a search from the end. A flow of many rows
-  pushed each row onto an array, which copies it, and now builds them in an
-  `Array.Builder`. Output is unchanged. A list of 4,000 items each with a
-  `--` comment went from 4.1 s to 2.0 s, a record of 4,000 such fields from
-  6.8 s to 3.1 s, and a `let` of 16,000 definitions from 13.1 s to 9.6 s.
+  by bisection rather than by a search from the end.
 - **A module or a list with thousands of comments formats in time close to
   proportional to its size.** Placing a comment walked every sibling of the
   node it landed in, and for each of them computed a dozen tests whether they
@@ -75,33 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   re-classified, over all its siblings, each time another was inserted, which
   was cubic too. Each search now stops where it has its answer, the
   re-classification looks only at the comments around the new one, and the
-  tests a branch does not read are not computed. Rebuilding a node's cached
-  positions no longer allocates a record per child, and pairing leading
-  comments with the item they lead no longer folds over every earlier item.
-  Output is unchanged. 1,000 line comments in one function body went from
-  29.3 s to 0.27 s, and a 500-item list with a `{- c -}` on each item from
-  49.7 s to 0.37 s. A module of 4,000 declarations each carrying comments
-  still takes 6.4 s, most of it in `gren-lang/core` 7.4.2's parser, whose
-  `findSubString` scans the rest of the file for each line comment; core 7.5.0
-  fixes that.
+  tests a branch does not read are not computed.
 - **A module with thousands of declarations, or a list with thousands of
   items, formats in time proportional to its size.** Six places built an
   array one element at a time with `Array.pushLast` (or `++`) inside a fold.
-  Each call copies the whole array, so n siblings cost n * n / 2 copies:
-  `RenderTree.lowerChildren` and `segmentsBrokenAtArrow` (which ran on every
-  node, the RootBox included), `Box.stack1` / `Box.andThen` / `Box.allBy`,
-  the list-item and call-argument folds in `InsertExpressions`, and
-  `CommentBox.pairInlineComments`. Each now builds its result with whole-array
-  operations. Output is unchanged. A module of 40,000 one-line declarations
-  went from 137 s to 19 s and from 1.1 GB to 560 MB peak; a 40,000-item list
-  from 73 s to 14 s. Files of ordinary size are unaffected. What is still
-  superlinear is in `gren-lang/compiler-common`'s parser.
+  Each call copies the whole array, so n siblings cost n * n / 2 copies.
+  Each now builds its result with whole-array operations.
 - **`Compiler.Ast.Compare` compares two arrays in time proportional to their
   length.** `compareArrayItems` took the first element of each array with
   `popFirst` at every step, which copies the rest, so comparing two arrays of
-  `n` items copied `n * n / 2` of them. It now walks both by index. On a
-  formatter run over a large source tree this was 141 MB of the 6.5 GB it
-  allocates.
+  `n` items copied `n * n / 2` of them. It now walks both by index.
 
 ## [1.1.1] - 2026-09-04
 
