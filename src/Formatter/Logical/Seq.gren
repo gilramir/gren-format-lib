@@ -1,0 +1,465 @@
+module Formatter.Logical.Seq exposing
+    ( Seq
+    , all
+    , any
+    , append
+    , dropFirst
+    , empty
+    , findFirst
+    , findFirstIndex
+    , findIndexedBefore
+    , findLast
+    , first
+    , foldl
+    , fromArray
+    , get
+    , isEmpty
+    , last
+    , length
+    , popFirst
+    , popLast
+    , push
+    , pushFirst
+    , pushSeq
+    , set
+    , takeFirst
+    , toArray
+    )
+
+{-| A sequence held as windows onto arrays, one after another, so that taking
+part of it, or reading across two of them, copies nothing.
+
+Placing comments keeps a container's children split at the point the last
+comment went in: the children before it, which grow at their end as later
+comments go in further along, and the children after it, which shrink at their
+front. With arrays, each comment's split copied every child of the container,
+and placing a container's comments was quadratic in them. Here, dropping the
+front of a sequence narrows a window, and a part of one is the windows it
+covers.
+
+A sequence grown with `push` and `pushSeq` keeps each window at least twice as
+long as the one after it, by joining the last two when it is not. A join
+grows every element's window by half at least, so an element is copied a
+logarithmic number of times, and a sequence has a logarithmic number of
+windows, which is what `get` walks.
+
+No window is empty. A negative index is out of range here, where `Array.get`
+counts it from the end.
+
+-}
+
+
+type alias Window a =
+    { array : Array a
+    , start : Int
+    , end : Int
+    }
+
+
+type alias Seq a =
+    Array (Window a)
+
+
+empty : Seq a
+empty =
+    []
+
+
+fromArray : Array a -> Seq a
+fromArray array =
+    if Array.isEmpty array then
+        []
+
+    else
+        [ { array = array, start = 0, end = Array.length array } ]
+
+
+windowLength : Window a -> Int
+windowLength w =
+    w.end - w.start
+
+
+windowArray : Window a -> Array a
+windowArray w =
+    if w.start == 0 && w.end == Array.length w.array then
+        w.array
+
+    else
+        Array.slice w.start w.end w.array
+
+
+length : Seq a -> Int
+length seq =
+    Array.foldl (\w acc -> acc + windowLength w) 0 seq
+
+
+isEmpty : Seq a -> Bool
+isEmpty seq =
+    Array.isEmpty seq
+
+
+toArray : Seq a -> Array a
+toArray seq =
+    when Array.first seq is
+        Nothing ->
+            []
+
+        Just w ->
+            if Array.length seq == 1 then
+                windowArray w
+
+            else
+                Array.flatten (Array.map windowArray seq)
+
+
+get : Int -> Seq a -> Maybe a
+get index seq =
+    getHelp index 0 seq
+
+
+getHelp : Int -> Int -> Seq a -> Maybe a
+getHelp index at seq =
+    when Array.get at seq is
+        Nothing ->
+            Nothing
+
+        Just w ->
+            let
+                len =
+                    windowLength w
+            in
+            if index < 0 then
+                Nothing
+
+            else if index < len then
+                Array.get (w.start + index) w.array
+
+            else
+                getHelp (index - len) (at + 1) seq
+
+
+{-| The element at `index` replaced, which copies the window it is in. -}
+set : Int -> a -> Seq a -> Seq a
+set index value seq =
+    setHelp index value 0 seq
+
+
+setHelp : Int -> a -> Int -> Seq a -> Seq a
+setHelp index value at seq =
+    when Array.get at seq is
+        Nothing ->
+            seq
+
+        Just w ->
+            let
+                len =
+                    windowLength w
+            in
+            if index < 0 then
+                seq
+
+            else if index < len then
+                Array.set at { array = Array.set index value (windowArray w), start = 0, end = len } seq
+
+            else
+                setHelp (index - len) value (at + 1) seq
+
+
+first : Seq a -> Maybe a
+first seq =
+    Array.first seq
+        |> Maybe.andThen (\w -> Array.get w.start w.array)
+
+
+last : Seq a -> Maybe a
+last seq =
+    Array.last seq
+        |> Maybe.andThen (\w -> Array.get (w.end - 1) w.array)
+
+
+{-| The first `n` elements. -}
+takeFirst : Int -> Seq a -> Seq a
+takeFirst n seq =
+    takeFirstHelp n 0 seq []
+
+
+takeFirstHelp : Int -> Int -> Seq a -> Seq a -> Seq a
+takeFirstHelp n at seq acc =
+    if n <= 0 then
+        acc
+
+    else
+        when Array.get at seq is
+            Nothing ->
+                acc
+
+            Just w ->
+                let
+                    len =
+                        windowLength w
+                in
+                if n < len then
+                    Array.pushLast { w | end = w.start + n } acc
+
+                else
+                    takeFirstHelp (n - len) (at + 1) seq (Array.pushLast w acc)
+
+
+{-| All but the first `n` elements. -}
+dropFirst : Int -> Seq a -> Seq a
+dropFirst n seq =
+    dropFirstHelp n 0 seq
+
+
+dropFirstHelp : Int -> Int -> Seq a -> Seq a
+dropFirstHelp n at seq =
+    when Array.get at seq is
+        Nothing ->
+            []
+
+        Just w ->
+            let
+                len =
+                    windowLength w
+            in
+            if n <= 0 then
+                Array.dropFirst at seq
+
+            else if n < len then
+                Array.pushFirst { w | start = w.start + n } (Array.dropFirst (at + 1) seq)
+
+            else
+                dropFirstHelp (n - len) (at + 1) seq
+
+
+popFirst : Seq a -> Maybe { first : a, rest : Seq a }
+popFirst seq =
+    when first seq is
+        Just x ->
+            Just { first = x, rest = dropFirst 1 seq }
+
+        Nothing ->
+            Nothing
+
+
+popLast : Seq a -> Maybe { last : a, initial : Seq a }
+popLast seq =
+    when Array.last seq is
+        Just w ->
+            when Array.get (w.end - 1) w.array is
+                Just x ->
+                    let
+                        front =
+                            Array.dropLast 1 seq
+                    in
+                    Just
+                        { last = x
+                        , initial =
+                            if windowLength w > 1 then
+                                Array.pushLast { w | end = w.end - 1 } front
+
+                            else
+                                front
+                        }
+
+                Nothing ->
+                    Nothing
+
+        Nothing ->
+            Nothing
+
+
+pushFirst : a -> Seq a -> Seq a
+pushFirst x seq =
+    Array.pushFirst { array = [ x ], start = 0, end = 1 } seq
+
+
+{-| The two one after the other, for reading: it keeps no window's length in
+check, as `push` does. -}
+append : Seq a -> Seq a -> Seq a
+append front back =
+    front ++ back
+
+
+{-| `x` added at the end, and the last two windows joined while the one before
+the last is not at least twice as long as the last. -}
+push : a -> Seq a -> Seq a
+push x seq =
+    pushWindow { array = [ x ], start = 0, end = 1 } seq
+
+
+{-| `push` for each element of `more`, its windows added whole. -}
+pushSeq : Seq a -> Seq a -> Seq a
+pushSeq more seq =
+    Array.foldl pushWindow seq more
+
+
+pushWindow : Window a -> Seq a -> Seq a
+pushWindow w seq =
+    settle (Array.pushLast w seq)
+
+
+settle : Seq a -> Seq a
+settle seq =
+    let
+        n =
+            Array.length seq
+    in
+    if n < 2 then
+        seq
+
+    else
+        settleLastTwo n seq
+
+
+settleLastTwo : Int -> Seq a -> Seq a
+settleLastTwo n seq =
+    when { prev = Array.get (n - 2) seq, lst = Array.get (n - 1) seq } is
+        { prev = Just p, lst = Just l } ->
+            if windowLength p < 2 * windowLength l then
+                let
+                    joined =
+                        windowArray p ++ windowArray l
+                in
+                settle (Array.pushLast { array = joined, start = 0, end = Array.length joined } (Array.dropLast 2 seq))
+
+            else
+                seq
+
+        _ ->
+            seq
+
+
+foldl : (a -> b -> b) -> b -> Seq a -> b
+foldl fn init seq =
+    Array.foldl (\w acc -> foldlWindow fn w w.start acc) init seq
+
+
+foldlWindow : (a -> b -> b) -> Window a -> Int -> b -> b
+foldlWindow fn w index acc =
+    if index >= w.end then
+        acc
+
+    else
+        when Array.get index w.array is
+            Just x ->
+                foldlWindow fn w (index + 1) (fn x acc)
+
+            Nothing ->
+                acc
+
+
+{-| The first element `pred` holds of, and its index. -}
+findFirstIndex : (a -> Bool) -> Seq a -> Maybe { index : Int, value : a }
+findFirstIndex pred seq =
+    findIndexedBefore (\_ -> False) (\_ x -> pred x) seq
+
+
+{-| The first element `pred` holds of, given its index too, and its index,
+giving up at the first element `past` holds of. -}
+findIndexedBefore : (a -> Bool) -> (Int -> a -> Bool) -> Seq a -> Maybe { index : Int, value : a }
+findIndexedBefore past pred seq =
+    findIndexedHelp past pred seq 0 0
+
+
+findIndexedHelp : (a -> Bool) -> (Int -> a -> Bool) -> Seq a -> Int -> Int -> Maybe { index : Int, value : a }
+findIndexedHelp past pred seq at offset =
+    when Array.get at seq is
+        Nothing ->
+            Nothing
+
+        Just w ->
+            when findInWindow past pred w (offset - w.start) w.start is
+                Stopped ->
+                    Nothing
+
+                Found found ->
+                    Just found
+
+                NotFound ->
+                    findIndexedHelp past pred seq (at + 1) (offset + windowLength w)
+
+
+type Search a
+    = Stopped
+    | Found { index : Int, value : a }
+    | NotFound
+
+
+findInWindow : (a -> Bool) -> (Int -> a -> Bool) -> Window a -> Int -> Int -> Search a
+findInWindow past pred w shift index =
+    if index >= w.end then
+        NotFound
+
+    else
+        when Array.get index w.array is
+            Just x ->
+                if past x then
+                    Stopped
+
+                else if pred (shift + index) x then
+                    Found { index = shift + index, value = x }
+
+                else
+                    findInWindow past pred w shift (index + 1)
+
+            Nothing ->
+                NotFound
+
+
+findFirst : (a -> Bool) -> Seq a -> Maybe a
+findFirst pred seq =
+    findFirstIndex pred seq |> Maybe.map .value
+
+
+findLast : (a -> Bool) -> Seq a -> Maybe a
+findLast pred seq =
+    findLastHelp pred seq (Array.length seq - 1)
+
+
+findLastHelp : (a -> Bool) -> Seq a -> Int -> Maybe a
+findLastHelp pred seq at =
+    when (if at < 0 then Nothing else Array.get at seq) is
+        Nothing ->
+            Nothing
+
+        Just w ->
+            when findLastInWindow pred w (w.end - 1) is
+                Just x ->
+                    Just x
+
+                Nothing ->
+                    findLastHelp pred seq (at - 1)
+
+
+findLastInWindow : (a -> Bool) -> Window a -> Int -> Maybe a
+findLastInWindow pred w index =
+    if index < w.start then
+        Nothing
+
+    else
+        when Array.get index w.array is
+            Just x ->
+                if pred x then
+                    Just x
+
+                else
+                    findLastInWindow pred w (index - 1)
+
+            Nothing ->
+                Nothing
+
+
+all : (a -> Bool) -> Seq a -> Bool
+all pred seq =
+    not (any (\x -> not (pred x)) seq)
+
+
+any : (a -> Bool) -> Seq a -> Bool
+any pred seq =
+    when findFirstIndex pred seq is
+        Just _ ->
+            True
+
+        Nothing ->
+            False

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A list, record or body with many comments formats faster.** Placing a
+  comment split its container's children at the comment and joined them
+  again, which copied all of them, so a container of n commented items copied
+  about n²/2 nodes. The path from the declaration down to where the last
+  comment went is now held open, each level's children split at that point
+  into two halves that later comments grow and shrink. The halves are held in
+  a new `Formatter.Logical.Seq`, windows onto arrays, so moving the split and
+  reading across it copy only the occasional join of two windows. The
+  declarations a module's comments have not reached yet are a `Seq` too, where
+  reslicing them at each commented declaration copied the rest of the module.
+  Output is unchanged. Through the CLI, at 16,000 commented items, placing the
+  comments of a list takes 0.58 s where it took 24.4 s, and of a record 0.59 s
+  where 25.9 s; what is left of those formats is the parser.
 - **A `when` or a custom type of many branches formats faster.** Three of the
   renderer's folds pushed each branch's or variant's box onto the array of the
   ones before it, which copies it: `BoxOps.stackWithBlanks`,

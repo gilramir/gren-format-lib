@@ -36,9 +36,11 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnReplaceChildrenGrown
+    , lpnReplaceChildrenGrownParts
     , lpnSetCommentRole
     , lpnShape
     , lpnWithBracketStart
+    , lpnWithChildren
     , lpnWithShape
     , prefixGlyph
     , recordKindToString
@@ -119,6 +121,7 @@ Each constructor's own comment below carries the detailed rationale (much of it
 about idempotency); this table is the map, those comments are the territory.
 -}
 
+import Formatter.Logical.Seq as Seq exposing (Seq)
 import Math exposing (maxSafeInteger)
 
 import Compiler.SourcePosition exposing (Located, Position)
@@ -1531,10 +1534,23 @@ which nests one two-child node in the next, took 60% longer with them.
 -}
 lpnReplaceChildrenGrown : LPNode -> Array LPNode -> Array LPNode -> Array LPNode -> LPNode
 lpnReplaceChildrenGrown old removed added newChildren =
+    lpnWithChildren newChildren (lpnReplaceChildrenGrownParts old removed added (Seq.fromArray newChildren))
+
+
+{-| `lpnReplaceChildrenGrown`, where the new children are held as a `Seq`, and
+the node answered keeps `old`'s children wherever it can, since the caller holds
+the new ones itself. Comment placement keeps a container's children split at
+the point it last placed a comment, and joining them for each comment was the
+copy that made placing them quadratic; it sets the children with
+`lpnWithChildren` when it joins them. The bounds read only the new children's
+own fields, so the sequence may hold a node whose children are not yet its own,
+if its fields are. -}
+lpnReplaceChildrenGrownParts : LPNode -> Array LPNode -> Array LPNode -> Seq LPNode -> LPNode
+lpnReplaceChildrenGrownParts old removed added parts =
     when old is
         LPNode r ->
-            if Array.length newChildren <= 16 then
-                lpnReplaceChildren old newChildren
+            if Seq.length parts <= 16 then
+                lpnReplaceChildren old (Seq.toArray parts)
 
             else
                 let
@@ -1560,19 +1576,30 @@ lpnReplaceChildrenGrown old removed added newChildren =
                 if removedInsideAdded && bracketEndUnmoved then
                     let
                         firstPos =
-                            mergedFirstPos self.firstPos newChildren
+                            when self.firstPos is
+                                Just _ ->
+                                    self.firstPos
+
+                                Nothing ->
+                                    Seq.findFirst (\child -> hasValue (lpnFirstPos child)) parts
+                                        |> Maybe.andThen lpnFirstPos
                     in
                     LPNode
                         { r
-                            | children = newChildren
-                            , firstPos =
+                            | firstPos =
                                 when r.bracketStart is
                                     Just openStart ->
                                         pullBackToBracketStart openStart firstPos
 
                                     Nothing ->
                                         firstPos
-                            , lastPos = mergedLastPos self.lastPos newChildren
+                            , lastPos =
+                                when Seq.findLast (\child -> hasValue (lpnLastPos child)) parts |> Maybe.andThen lpnLastPos is
+                                    Just pos ->
+                                        Just pos
+
+                                    Nothing ->
+                                        self.lastPos
                             , minRow = min r.minRow addedMinRow
                             , maxRow = max r.maxRow addedMaxRow
                             , bracketEndExact = hasValue r.lastBracketEnd && r.bracketEndExact
@@ -1580,11 +1607,21 @@ lpnReplaceChildrenGrown old removed added newChildren =
                             , hasComment =
                                 shapeIsComment r.shape
                                     || Array.any lpnHasComment added
-                                    || Array.any lpnHasComment newChildren
+                                    || Seq.any lpnHasComment parts
                         }
 
                 else
-                    lpnReplaceChildren old newChildren
+                    lpnReplaceChildren old (Seq.toArray parts)
+
+
+{-| `node` with `children` in place of its own, its bounds left as they are: for
+a caller that has already computed the bounds of those children
+(`lpnReplaceChildrenGrownParts`). -}
+lpnWithChildren : Array LPNode -> LPNode -> LPNode
+lpnWithChildren children node =
+    when node is
+        LPNode r ->
+            LPNode { r | children = children }
 
 
 {-| The bounds a shape contributes by itself (independent of children).
