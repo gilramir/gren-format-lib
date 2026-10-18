@@ -130,6 +130,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , RecordKind(..)
     , SyntaxType(..)
     , commentLeadsNext
+    , commentRole
     , commentRendersOwnLine
     , firstRowInSubtree
     , gluesTrailingComment
@@ -146,9 +147,10 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , lpnLeaf
     , lpnNode
     , lpnReplaceChildren
-    , lpnReplaceChildrenGrown
+    , lpnReplaceChildrenGrownParts
     , lpnSetCommentRole
     , lpnShape
+    , lpnWithChildren
     , shapeCommentFacts
     , spanTrailingOwnLine
     , subtreeRowRange
@@ -179,9 +181,156 @@ past / settled at most once, and `rest` is only ever resliced when the
 search actually needs to move past `target`. -}
 type alias CommentState =
     { settled : Builder.Builder LPNode
-    , target : Maybe LPNode
+    , target : Maybe Open
     , rest : Array LPNode
     }
+
+
+{-| A node on the path the last comment was placed along, held open: the same
+cursor `CommentState` keeps over the top level, kept at every level from the
+target declaration down (geng-lang m3-comments.md §CM4).
+
+Its children are `before`, then `child` when there is one, then `after`. The
+comment was placed between `before` and `after`, or inside `child`. `node`
+carries the shape and the bounds the current children give it, but not those
+children: they are joined only when the node is closed (`closeOpen`), once a
+later comment leaves it. A comment placed in the same container appends to
+`before`, which grows in place on the end of its buffer, and one placed inside
+the same child changes nothing here but the bounds. Splitting the children at
+each comment and joining them again copied all of them, and was quadratic in a
+container's comments (§CM1).
+
+Every decision reads the children as it did when they were joined: `kidsGet`
+answers each in order, with the open child answered by `openSummary`, whose
+fields are what the child's would be. Above the level a comment lands on,
+nothing reads a child's own children but to ask whether it has any (§CM3), and
+at that level the open child is closed before anything else is asked. -}
+type Open
+    = Open
+        { node : LPNode
+        , before : Array LPNode
+        , child : Maybe Open
+        , after : Array LPNode
+        }
+
+
+openNode : LPNode -> Open
+openNode node =
+    Open { node = node, before = [], child = Nothing, after = lpnChildren node }
+
+
+{-| The node, its children joined. -}
+closeOpen : Open -> LPNode
+closeOpen (Open o) =
+    lpnWithChildren (openChildren o) o.node
+
+
+openChildren : { node : LPNode, before : Array LPNode, child : Maybe Open, after : Array LPNode } -> Array LPNode
+openChildren o =
+    when o.child is
+        Just c ->
+            o.before ++ [ closeOpen c ] ++ o.after
+
+        Nothing ->
+            if Array.isEmpty o.after then
+                o.before
+
+            else
+                o.before ++ o.after
+
+
+{-| What an open node's parent sees of it: its shape and bounds, and children
+that are empty exactly when its own are, which is all a parent reads of them. -}
+openSummary : Open -> LPNode
+openSummary (Open o) =
+    if not (Array.isEmpty o.before) then
+        lpnWithChildren o.before o.node
+
+    else if not (Array.isEmpty o.after) then
+        lpnWithChildren o.after o.node
+
+    else
+        when o.child is
+            Just c ->
+                lpnWithChildren [ openSummary c ] o.node
+
+            Nothing ->
+                lpnWithChildren [] o.node
+
+
+{-| The node's own children, with the open child's summary in its place: as
+many as the node has, for a caller that reads them all. -}
+openDirectChildren : Open -> Array LPNode
+openDirectChildren (Open o) =
+    when o.child is
+        Just c ->
+            o.before ++ [ openSummary c ] ++ o.after
+
+        Nothing ->
+            o.before ++ o.after
+
+
+{-| A container's children split at a gap, with no child open. -}
+type alias Split =
+    { before : Array LPNode
+    , after : Array LPNode
+    }
+
+
+splitGet : Split -> Int -> Maybe LPNode
+splitGet split index =
+    let
+        lb =
+            Array.length split.before
+    in
+    if index < lb then
+        Array.get index split.before
+
+    else
+        Array.get (index - lb) split.after
+
+
+splitLength : Split -> Int
+splitLength split =
+    Array.length split.before + Array.length split.after
+
+
+{-| The same children with the gap at `index`. Moving it forward by k appends
+k children onto `before`, in place on its buffer's end; moving it back joins
+`after` onto the front of it, which copies `after`. -}
+moveGap : Int -> Split -> Split
+moveGap index split =
+    let
+        lb =
+            Array.length split.before
+
+        at =
+            clamp 0 (splitLength split) index
+    in
+    if at == lb then
+        split
+
+    else if at > lb then
+        { before = split.before ++ Array.takeFirst (at - lb) split.after
+        , after = Array.dropFirst (at - lb) split.after
+        }
+
+    else
+        { before = Array.takeFirst at split.before
+        , after = Array.dropFirst at split.before ++ split.after
+        }
+
+
+{-| An open node's children with its open child closed in place, the gap after
+it. -}
+closeChild : { node : LPNode, before : Array LPNode, child : Maybe Open, after : Array LPNode } -> Split
+closeChild o =
+    when o.child is
+        Just c ->
+            { before = o.before ++ [ closeOpen c ], after = o.after }
+
+        Nothing ->
+            { before = o.before, after = o.after }
 
 
 lptAddComments : Ctx.Context -> LPNode -> LPNode
@@ -199,7 +348,7 @@ lptAddComments ctx root =
         finalChildren =
             (when final.target is
                 Just t ->
-                    Builder.pushLast t final.settled
+                    Builder.pushLast (closeOpen t) final.settled
 
                 Nothing ->
                     final.settled
@@ -711,9 +860,10 @@ addOneComment locComment state =
 the current `target` (no search needed) and when `advanceAndSearch` has just
 found or created the target via `findOrCreateOrigRow`. Exactly the former
 body of `lptAddCommentGeneric` from `commentNode` onward, factored out so
-both call sites share it verbatim. -}
-applyCommentToOrigRow : Located Ctx.Comment -> LPNode -> Bool -> LPNode -> LPNode
-applyCommentToOrigRow locComment baseCommentNode created origRowNode =
+both call sites share it verbatim. The declaration is held open, as the path
+below it is (`Open`). -}
+applyCommentToOrigRow : Located Ctx.Comment -> LPNode -> Bool -> Open -> Open
+applyCommentToOrigRow locComment baseCommentNode created origRowOpen =
     let
         row =
             locComment.start.row
@@ -732,8 +882,13 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
             else
                 baseCommentNode
 
+        updatedOpen =
+            insertCommentIntoSubtree commentNode row col origRowOpen
+
         updatedOrigRow =
-            insertCommentIntoSubtree commentNode row col origRowNode
+            when updatedOpen is
+                Open o ->
+                    o.node
 
         endRow =
             when locComment.value is
@@ -766,15 +921,24 @@ applyCommentToOrigRow locComment baseCommentNode created origRowNode =
     when lpnShape updatedOrigRow is
         OriginalRows rowInfo ->
             if coveredRow > rowInfo.last then
-                lpnNode
-                    (OriginalRows { rowInfo | last = coveredRow })
-                    (lpnChildren updatedOrigRow)
+                -- Rebuilt from its own children's fields, the open child's
+                -- summary standing in for it; its children are joined when it
+                -- is closed.
+                when updatedOpen is
+                    Open o ->
+                        Open
+                            { o
+                                | node =
+                                    lpnNode
+                                        (OriginalRows { rowInfo | last = coveredRow })
+                                        (openDirectChildren updatedOpen)
+                            }
 
             else
-                updatedOrigRow
+                updatedOpen
 
         _ ->
-            updatedOrigRow
+            updatedOpen
 
 
 addCommentGeneric : Located Ctx.Comment -> CommentState -> CommentState
@@ -796,7 +960,7 @@ addCommentGeneric locComment state =
     in
     when state.target is
         Just t ->
-            when lpnShape t is
+            when lpnShape (openSummary t) is
                 OriginalRows { first, last } ->
                     if first <= row && row <= last then
                         -- Re-hit: the comment still belongs to `target`.
@@ -804,10 +968,10 @@ addCommentGeneric locComment state =
                         { state | target = Just (applyCommentToOrigRow locComment baseCommentNode False t) }
 
                     else
-                        advanceAndSearch locComment baseCommentNode row stype { state | settled = Builder.pushLast t state.settled, target = Nothing }
+                        advanceAndSearch locComment baseCommentNode row stype { state | settled = Builder.pushLast (closeOpen t) state.settled, target = Nothing }
 
                 _ ->
-                    advanceAndSearch locComment baseCommentNode row stype { state | settled = Builder.pushLast t state.settled, target = Nothing }
+                    advanceAndSearch locComment baseCommentNode row stype { state | settled = Builder.pushLast (closeOpen t) state.settled, target = Nothing }
 
         Nothing ->
             advanceAndSearch locComment baseCommentNode row stype state
@@ -824,7 +988,7 @@ advanceAndSearch locComment baseCommentNode row stype state =
             findOrCreateOrigRow row stype state.rest
 
         newTarget =
-            applyCommentToOrigRow locComment baseCommentNode created origRowNode
+            applyCommentToOrigRow locComment baseCommentNode created (openNode origRowNode)
     in
     { settled = Builder.append before state.settled
     , target = Just newTarget
@@ -891,10 +1055,14 @@ tryLeadingGluedAttach locComment state =
                 endPos =
                     locComment.end
 
+                -- The target is asked about through its own children, the
+                -- open one's summary standing in for it, which is all
+                -- `firstTokenPos`, `commentLeadsDecl` and `coveredByOtherDecl`
+                -- read; it is closed only if the comment glues to it.
                 activeChildren =
                     when state.target is
                         Just t ->
-                            [ t ] ++ state.rest
+                            [ lpnWithChildren (openDirectChildren t) (openSummary t) ] ++ state.rest
 
                         Nothing ->
                             state.rest
@@ -954,34 +1122,28 @@ tryLeadingGluedAttach locComment state =
                     let
                         commentNode =
                             lpnSetCommentRole LeadsInline (lpnLeaf (mkCommentLpShape locComment))
-
-                        updatedChildren =
-                            when Array.get index activeChildren is
-                                Just child ->
-                                    Array.set index (attachLeadingChild startPos commentNode child) activeChildren
-
-                                Nothing ->
-                                    activeChildren
                     in
-                    Just (restoreState state updatedChildren)
+                    when state.target is
+                        Just t ->
+                            if index == 0 then
+                                Just { state | target = Just (openNode (attachLeadingChild startPos commentNode (closeOpen t))) }
+
+                            else
+                                Just { state | rest = attachAt (index - 1) startPos commentNode state.rest }
+
+                        Nothing ->
+                            Just { state | rest = attachAt index startPos commentNode state.rest }
 
 
-{-| Rebuild `state` from `activeChildren` — the same `[target?] ++ rest`
-sequence `tryLeadingGluedAttach` searched, with exactly one element possibly
-replaced — splitting it back into `target`/`rest` at the same boundary. -}
-restoreState : CommentState -> Array LPNode -> CommentState
-restoreState state activeChildren =
-    when state.target is
-        Just _ ->
-            when Array.popFirst activeChildren is
-                Just { first = newTarget, rest = newRest } ->
-                    { state | target = Just newTarget, rest = newRest }
-
-                Nothing ->
-                    state
+{-| `attachLeadingChild` on the declaration at `index` of `decls`. -}
+attachAt : Int -> Position -> LPNode -> Array LPNode -> Array LPNode
+attachAt index startPos commentNode decls =
+    when Array.get index decls is
+        Just child ->
+            Array.set index (attachLeadingChild startPos commentNode child) decls
 
         Nothing ->
-            { state | rest = activeChildren }
+            decls
 
 
 {-| Insert `commentNode` among a declaration's children at the position dictated
@@ -1397,7 +1559,7 @@ createOrigRow row stype nodes =
    then insert the comment among that node's children.
    Mirrors the current findDeepestParent + insertAmongChildren logic.
 -}
-insertCommentIntoSubtree : LPNode -> Int -> Int -> LPNode -> LPNode
+insertCommentIntoSubtree : LPNode -> Int -> Int -> Open -> Open
 insertCommentIntoSubtree commentNode row col node =
     insertCommentIntoLevel False commentNode row col node
 
@@ -1406,12 +1568,48 @@ insertCommentIntoSubtree commentNode row col node =
 follows `node`'s last child: `node` is an `OpAndRhs` other than the chain's
 last. Until geng-lang m3-sweep.md §SW36 each `OpAndRhs` held the next as its last
 child, so its last operand always had a following sibling, and the walk asks
-whether a child has one. -}
-insertCommentIntoLevel : Bool -> LPNode -> Int -> Int -> LPNode -> LPNode
-insertCommentIntoLevel continues commentNode row col node =
+whether a child has one.
+
+`node` is held open (`Open`): its children are read through `kidsGet`, with
+the child the last comment went into answered by its summary, and the comment
+goes into that child without the node being rebuilt, or the child is closed and
+the gap moves (geng-lang m3-comments.md §CM4). -}
+insertCommentIntoLevel : Bool -> LPNode -> Int -> Int -> Open -> Open
+insertCommentIntoLevel continues commentNode row col (Open here) =
     let
-        children =
-            lpnChildren node
+        node =
+            here.node
+
+        lb =
+            Array.length here.before
+
+        openChild =
+            Maybe.map openSummary here.child
+
+        kidsLength =
+            lb + Array.length here.after + (when openChild is
+                                                Just _ ->
+                                                    1
+
+                                                Nothing ->
+                                                    0
+                                           )
+
+        kidsGet index =
+            if index < lb then
+                Array.get index here.before
+
+            else
+                when openChild is
+                    Just c ->
+                        if index == lb then
+                            Just c
+
+                        else
+                            Array.get (index - lb - 1) here.after
+
+                    Nothing ->
+                        Array.get (index - lb) here.after
 
         inOrder =
             childrenInSourceOrder (lpnShape node)
@@ -1433,7 +1631,7 @@ insertCommentIntoLevel continues commentNode row col node =
         -- costs a long list's comments a logarithm each where a search from
         -- the end cost the items after them (§SW35).
         lastStartingAtOrBefore =
-            lastIndexAtOrBefore inOrder lpnFirstPos row col children
+            lastIndexAtOrBefore inOrder lpnFirstPos row col kidsGet kidsLength
 
         -- No child before `lastStartingAtOrBefore` can own the comment, since
         -- a later sibling claims it; the search starts there.
@@ -1447,7 +1645,7 @@ insertCommentIntoLevel continues commentNode row col node =
         -- Find the first child that has its own children and contains the row,
         -- from `ownerSearchStart`, stopping there.
         ownerFrom index =
-            when Array.get index children is
+            when kidsGet index is
                 Nothing ->
                     Nothing
 
@@ -1502,7 +1700,7 @@ insertCommentIntoLevel continues commentNode row col node =
                             -- before that record's `}` belongs inside it, so widening
                             -- the test there reintroduces non-idempotency.
                             nextSiblingIsBoundary =
-                                when Array.get (index + 1) children is
+                                when kidsGet (index + 1) is
                                     Just sib ->
                                         when lpnShape sib is
                                             IndentedBlock ->
@@ -1527,7 +1725,7 @@ insertCommentIntoLevel continues commentNode row col node =
                                 not (Array.isEmpty childChildren) || commentInsideEmptyBracket child row col
 
                             hasNoFollowingSibling =
-                                when Array.get (index + 1) children is
+                                when kidsGet (index + 1) is
                                     Nothing ->
                                         not continues
 
@@ -1742,7 +1940,7 @@ insertCommentIntoLevel continues commentNode row col node =
                     -- that end is the last link's. A comment within it lands in
                     -- the last link starting at or before it, as it did, and a
                     -- comment past it stays here.
-                    if row <= max (subtreeRowRange link).maxRow (lastLinkMaxRow children) then
+                    if row <= max (subtreeRowRange link).maxRow (lastLinkMaxRow kidsGet kidsLength) then
                         Just { index = lastStartingAtOrBefore, child = link, continues = hasValue (binopLinkAt (lastStartingAtOrBefore + 1)) }
 
                     else
@@ -1755,7 +1953,7 @@ insertCommentIntoLevel continues commentNode row col node =
         binopLinkAt index =
             when lpnShape node is
                 Binop _ ->
-                    Array.get index children
+                    kidsGet index
                         |> Maybe.andThen
                             (\child ->
                                 when lpnShape child is
@@ -1782,28 +1980,66 @@ insertCommentIntoLevel continues commentNode row col node =
     when owner is
         Just found ->
             -- The one child that owns it takes it; the rest stay as they are,
-            -- and the bounds are updated from the child alone (§SW35).
+            -- and the bounds are updated from the child alone (§SW35). The
+            -- child is held open, and stays so while the comments after this
+            -- one go into it too.
             let
-                newChild =
-                    insertCommentIntoLevel found.continues commentNode row col found.child
+                descendedInto split ownerOpen =
+                    let
+                        newChild =
+                            insertCommentIntoLevel found.continues commentNode row col ownerOpen
+
+                        summary =
+                            openSummary newChild
+                    in
+                    Open
+                        { node = grown (lpnReplaceChildrenGrownParts node [ found.child ] [ summary ] [ split.before, [ summary ], split.after ])
+                        , before = split.before
+                        , child = Just newChild
+                        , after = split.after
+                        }
             in
-            grown (lpnReplaceChildrenGrown node [ found.child ] [ newChild ] (Array.set found.index newChild children))
+            when here.child is
+                Just c ->
+                    if found.index == lb then
+                        descendedInto { before = here.before, after = here.after } c
+
+                    else
+                        descendInto descendedInto found.index found.child (closeChild here)
+
+                Nothing ->
+                    descendInto descendedInto found.index found.child (closeChild here)
 
         Nothing ->
-            -- No matching child found; insert at this level
+            -- No matching child found; insert at this level, the open child
+            -- closed first, since what is asked here may read inside it.
             let
                 inserted =
-                    insertAmongChildren (lpnShape node) commentNode row col children
+                    insertAmongChildren (lpnShape node) commentNode row col (closeChild here)
+
+                -- `repairTornGapRun` changes only comments' roles, which no
+                -- bound reads, so the bounds are updated from what the
+                -- insertion changed (§SW35).
+                repaired =
+                    repairTornGapRun (lpnShape node) inserted.at { before = inserted.before, after = inserted.after }
             in
-            -- `repairTornGapRun` changes only comments' roles, which no
-            -- bound reads, so the bounds are updated from what the insertion
-            -- changed (§SW35).
-            grown
-                (lpnReplaceChildrenGrown node
-                    inserted.removed
-                    inserted.added
-                    (repairTornGapRun (lpnShape node) inserted.at inserted.children)
-                )
+            Open
+                { node = grown (lpnReplaceChildrenGrownParts node inserted.removed inserted.added [ repaired.before, repaired.after ])
+                , before = repaired.before
+                , child = Nothing
+                , after = repaired.after
+                }
+
+
+{-| Move the gap to `child`, at `index`, open it, and hand both to `k`, the
+children split around it. -}
+descendInto : (Split -> Open -> Open) -> Int -> LPNode -> Split -> Open
+descendInto k index child split =
+    let
+        moved =
+            moveGap index split
+    in
+    k { before = moved.before, after = Array.dropFirst 1 moved.after } (openNode child)
 
 
 {-| Re-decide any `LeadsNext` sibling now that the comment after it exists.
@@ -1846,7 +2082,7 @@ list whose items each carry a crossing `{- c -}` (geng-lang m3-sweep.md §SW34).
 And only a bracket container is asked at all: `classifyCommentKind` answers
 `LeadsNext` only for one, and a comment is classified by the container it is
 spliced into, so no other container holds such a comment. -}
-repairTornGapRun : LPShape -> Int -> Array LPNode -> Array LPNode
+repairTornGapRun : LPShape -> Int -> Split -> Split
 repairTornGapRun containerShape at children =
     if not (isBracketContainerShape containerShape) then
         children
@@ -1855,36 +2091,66 @@ repairTornGapRun containerShape at children =
         repairTornGapRunAt containerShape at children
 
 
-repairTornGapRunAt : LPShape -> Int -> Array LPNode -> Array LPNode
+{-| Over the children split at the gap, each comment of the window asked
+against the children before it and after it as they were, read across the gap
+without joining it (`Seq`), and its role written back only when it changes, so
+that a window whose roles stand copies nothing (geng-lang m3-comments.md §CM4). -}
+repairTornGapRunAt : LPShape -> Int -> Split -> Split
 repairTornGapRunAt containerShape at children =
     let
-        reclassifyAt index child =
-            if not (commentLeadsNext child) then
-                child
+        lb =
+            Array.length children.before
+
+        sidesOf index =
+            if index < lb then
+                { before = [ Array.takeFirst index children.before ]
+                , after = [ Array.dropFirst (index + 1) children.before, children.after ]
+                }
 
             else
-                let
-                    before =
-                        Array.slice 0 index children
+                { before = [ children.before, Array.takeFirst (index - lb) children.after ]
+                , after = [ Array.dropFirst (index - lb + 1) children.after ]
+                }
 
-                    after =
-                        Array.slice (index + 1) (Array.length children) children
-                in
-                lpnSetCommentRole
-                    (classifyCommentKind
-                        containerShape
-                        child
-                        before
-                        after
-                        (firstRowInSubtree child)
-                    )
-                    child
+        reclassifyAt index acc =
+            when splitGet children index is
+                Just child ->
+                    if not (commentLeadsNext child) then
+                        acc
+
+                    else
+                        let
+                            sides =
+                                sidesOf index
+
+                            reclassified =
+                                lpnSetCommentRole
+                                    (classifyCommentKind
+                                        containerShape
+                                        child
+                                        sides.before
+                                        sides.after
+                                        (firstRowInSubtree child)
+                                    )
+                                    child
+                        in
+                        if commentRole (lpnShape reclassified) == commentRole (lpnShape child) then
+                            acc
+
+                        else if index < lb then
+                            { acc | before = Array.set index reclassified acc.before }
+
+                        else
+                            { acc | after = Array.set (index - lb) reclassified acc.after }
+
+                Nothing ->
+                    acc
 
         length =
-            Array.length children
+            splitLength children
 
         commentAt index =
-            when Array.get index children is
+            when splitGet children index is
                 Just child ->
                     isCommentNode child
 
@@ -1918,10 +2184,15 @@ repairTornGapRunAt containerShape at children =
 
             else
                 length
+
+        reclassifyFrom index acc =
+            if index < windowEnd then
+                reclassifyFrom (index + 1) (reclassifyAt index acc)
+
+            else
+                acc
     in
-    Array.slice 0 windowStart children
-        ++ Array.indexedMap (\offset child -> reclassifyAt (windowStart + offset) child) (Array.slice windowStart windowEnd children)
-        ++ Array.slice windowEnd length children
+    reclassifyFrom windowStart children
 
 
 {-
@@ -1930,9 +2201,9 @@ repairTornGapRunAt containerShape at children =
    is an IndentedBlock, redirect the comment as its first child so it renders
    at IndentedBlock indentation.
 -}
-insertAmongChildren : LPShape -> LPNode -> Int -> Int -> Array LPNode -> { children : Array LPNode, at : Int, removed : Array LPNode, added : Array LPNode }
+insertAmongChildren : LPShape -> LPNode -> Int -> Int -> Split -> { before : Array LPNode, after : Array LPNode, at : Int, removed : Array LPNode, added : Array LPNode }
 insertAmongChildren containerShape commentNode row col children =
-    if Array.isEmpty children then
+    if splitLength children == 0 then
         -- No siblings to classify against. A comment inside a bracket container
         -- (`{ {- c -} }`) classifies via the bracket branch (leads its own line);
         -- otherwise keep the role the caller pre-set (`Standalone` for a fresh
@@ -1946,7 +2217,8 @@ insertAmongChildren containerShape commentNode row col children =
                     commentNode
         in
         { at = 0
-        , children = [ placed ]
+        , before = [ placed ]
+        , after = []
         , removed = []
         , added = [ placed ]
         }
@@ -1956,10 +2228,12 @@ insertAmongChildren containerShape commentNode row col children =
             -- Just past the last child that ends before the comment, found by
             -- bisection (§SW35).
             insertionIndex =
-                lastIndexAtOrBefore (childrenInSourceOrder containerShape) lpnLastPos row col children + 1
+                lastIndexAtOrBefore (childrenInSourceOrder containerShape) lpnLastPos row col (splitGet children) (splitLength children) + 1
 
+            -- The gap moved to the insertion point: forward, as it usually
+            -- is, appends onto `before` in place (§CM4).
             { before, after } =
-                splitAt insertionIndex children
+                moveGap insertionIndex children
 
             -- Advance past any synthesized (position-less) nodes at the boundary.
             -- This prevents comments from being inserted between a pattern and its
@@ -2018,9 +2292,13 @@ insertAmongChildren containerShape commentNode row col children =
                             Nothing ->
                                 Array.length after
                 in
-                { before = before ++ Array.takeFirst skipped after
-                , after = Array.dropFirst skipped after
-                }
+                if skipped == 0 then
+                    { before = before, after = after }
+
+                else
+                    { before = before ++ Array.takeFirst skipped after
+                    , after = Array.dropFirst skipped after
+                    }
 
             -- …and step BACK over a type's `->`, for the one comment shape that
             -- keeps the row it was written on. See
@@ -2044,7 +2322,7 @@ insertAmongChildren containerShape commentNode row col children =
             -- leads that body on its own line (`LeadsLine`); everything else
             -- is classified by `classifyCommentKind`.
             classifiedRole =
-                classifyCommentKind containerShape commentNode finalBefore finalAfter row
+                classifyCommentKind containerShape commentNode [ finalBefore ] [ finalAfter ] row
 
             classifiedComment =
                 lpnSetCommentRole classifiedRole commentNode
@@ -2057,14 +2335,17 @@ insertAmongChildren containerShape commentNode row col children =
             -- next node replaced by itself with the comment first, so that
             -- the container's bounds are updated from them alone.
             -- Functions, since Gren computes every binding of a `let`.
+            -- The children stay split, the gap past what was placed.
             inserted comment =
-                { children = finalBefore ++ [ comment ] ++ finalAfter
+                { before = finalBefore ++ [ comment ]
+                , after = finalAfter
                 , removed = []
                 , added = [ comment ]
                 }
 
             redirected nextNode newNextNode afterRest =
-                { children = finalBefore ++ [ newNextNode ] ++ afterRest
+                { before = finalBefore ++ [ newNextNode ]
+                , after = afterRest
                 , removed = [ nextNode ]
                 , added = [ newNextNode ]
                 }
@@ -2230,7 +2511,8 @@ insertAmongChildren containerShape commentNode row col children =
                         inserted classifiedComment
         in
         { at = Array.length finalBefore
-        , children = placement.children
+        , before = placement.before
+        , after = placement.after
         , removed = placement.removed
         , added = placement.added
         }
@@ -2414,28 +2696,12 @@ posAtOrBefore pos row col =
     pos.row < row || (pos.row == row && pos.col <= col)
 
 
-{-
-   splitAt is a small helper that divides an array at a given index. An index
-   below 0 is 0, since `Array.slice` counts one from the end. Two slices, where
-   a `pushLast` for each item was quadratic in the children, and with one
-   insertion for each comment of a body, cubic in them (geng-lang
-   m3-sweep.md §SW33).
--}
-splitAt : Int -> Array a -> { before : Array a, after : Array a }
-splitAt index arr =
-    let
-        at =
-            max 0 index
-    in
-    { before = Array.takeFirst at arr, after = Array.dropFirst at arr }
-
-
 {-| The last row of a binop chain's last `OpAndRhs`, among a `Binop`'s
 children, -1 for none. Only comments can follow it. -}
-lastLinkMaxRow : Array LPNode -> Int
-lastLinkMaxRow children =
+lastLinkMaxRow : (Int -> Maybe LPNode) -> Int -> Int
+lastLinkMaxRow get length =
     when
-        Array.findLast
+        findLastBy
             (\child ->
                 when lpnShape child is
                     OpAndRhs ->
@@ -2444,13 +2710,33 @@ lastLinkMaxRow children =
                     _ ->
                         False
             )
-            children
+            get
+            (length - 1)
     is
         Just found ->
             (subtreeRowRange found.value).maxRow
 
         Nothing ->
             -1
+
+
+{-| The last node at or before `index` that `pred` holds of, read by `get`. -}
+findLastBy : (LPNode -> Bool) -> (Int -> Maybe LPNode) -> Int -> Maybe { index : Int, value : LPNode }
+findLastBy pred get index =
+    if index < 0 then
+        Nothing
+
+    else
+        when get index is
+            Just node ->
+                if pred node then
+                    Just { index = index, value = node }
+
+                else
+                    findLastBy pred get (index - 1)
+
+            Nothing ->
+                Nothing
 
 
 {-| True when the positions of a container's children never decrease, which
@@ -2478,14 +2764,14 @@ position, and that stretch is out of every later probe's range. Otherwise, or
 for 16 nodes or fewer, where bisecting costs more, it is searched from the end.
 Placing each comment of a long list by searching from the end was quadratic in
 its items (geng-lang m3-sweep.md §SW35). -}
-lastIndexAtOrBefore : Bool -> (LPNode -> Maybe Position) -> Int -> Int -> Array LPNode -> Int
-lastIndexAtOrBefore inOrder getPos row col nodes =
-    if inOrder && Array.length nodes > 16 then
-        lastIndexAtOrBeforeHelp getPos row col nodes 0 (Array.length nodes - 1) -1
+lastIndexAtOrBefore : Bool -> (LPNode -> Maybe Position) -> Int -> Int -> (Int -> Maybe LPNode) -> Int -> Int
+lastIndexAtOrBefore inOrder getPos row col nodes length =
+    if inOrder && length > 16 then
+        lastIndexAtOrBeforeHelp getPos row col nodes 0 (length - 1) -1
 
     else
         when
-            Array.findLast
+            findLastBy
                 (\node ->
                     when getPos node is
                         Just pos ->
@@ -2495,6 +2781,7 @@ lastIndexAtOrBefore inOrder getPos row col nodes =
                             False
                 )
                 nodes
+                (length - 1)
         is
             Just found ->
                 found.index
@@ -2503,7 +2790,7 @@ lastIndexAtOrBefore inOrder getPos row col nodes =
                 -1
 
 
-lastIndexAtOrBeforeHelp : (LPNode -> Maybe Position) -> Int -> Int -> Array LPNode -> Int -> Int -> Int -> Int
+lastIndexAtOrBeforeHelp : (LPNode -> Maybe Position) -> Int -> Int -> (Int -> Maybe LPNode) -> Int -> Int -> Int -> Int
 lastIndexAtOrBeforeHelp getPos row col nodes lo hi best =
     if lo > hi then
         best
@@ -2525,13 +2812,13 @@ lastIndexAtOrBeforeHelp getPos row col nodes lo hi best =
                     lastIndexAtOrBeforeHelp getPos row col nodes lo (found.index - 1) best
 
 
-positionedAtOrBefore : (LPNode -> Maybe Position) -> Array LPNode -> Int -> Int -> Maybe { index : Int, pos : Position }
+positionedAtOrBefore : (LPNode -> Maybe Position) -> (Int -> Maybe LPNode) -> Int -> Int -> Maybe { index : Int, pos : Position }
 positionedAtOrBefore getPos nodes lo index =
     if index < lo then
         Nothing
 
     else
-        when Array.get index nodes |> Maybe.andThen getPos is
+        when nodes index |> Maybe.andThen getPos is
             Just pos ->
                 Just { index = index, pos = pos }
 
@@ -2704,7 +2991,7 @@ that at all.
 `before` / `after` are the comment's siblings in source order, so the run is the
 contiguous comment suffix of the first and the contiguous comment prefix of the
 second — a real item between two comments means a different gap. -}
-gapRunCrossesTogether : Array LPNode -> Array LPNode -> Bool
+gapRunCrossesTogether : Seq -> Seq -> Bool
 gapRunCrossesTogether before after =
     let
         -- The first node that is not a comment ends the run; the run stays if
@@ -2714,7 +3001,7 @@ gapRunCrossesTogether before after =
         -- copying the run out was quadratic in it (§SW34).
         runStays found =
             when found is
-                Just { value } ->
+                Just value ->
                     isCommentNode value
 
                 Nothing ->
@@ -2723,8 +3010,70 @@ gapRunCrossesTogether before after =
         endsRunOrStays n =
             not (isCommentNode n) || not (commentIsSingleLineBlock n)
     in
-    not (runStays (Array.findLast endsRunOrStays before))
-        && not (runStays (Array.findFirst endsRunOrStays after))
+    not (runStays (seqFindLast endsRunOrStays before))
+        && not (runStays (seqFindFirst endsRunOrStays after))
+
+
+{-| A comment's siblings on one side, the arrays one after another: the
+children split at the gap are read across it without being joined (geng-lang
+m3-comments.md §CM4). -}
+type alias Seq =
+    Array (Array LPNode)
+
+
+seqFindFirst : (LPNode -> Bool) -> Seq -> Maybe LPNode
+seqFindFirst pred parts =
+    Array.foldl
+        (\part acc ->
+            when acc is
+                Just _ ->
+                    acc
+
+                Nothing ->
+                    Array.findFirst pred part |> Maybe.map .value
+        )
+        Nothing
+        parts
+
+
+seqFindLast : (LPNode -> Bool) -> Seq -> Maybe LPNode
+seqFindLast pred parts =
+    Array.foldr
+        (\part acc ->
+            when acc is
+                Just _ ->
+                    acc
+
+                Nothing ->
+                    Array.findLast pred part |> Maybe.map .value
+        )
+        Nothing
+        parts
+
+
+seqAll : (LPNode -> Bool) -> Seq -> Bool
+seqAll pred parts =
+    Array.all (Array.all pred) parts
+
+
+seqIsEmpty : Seq -> Bool
+seqIsEmpty parts =
+    Array.all Array.isEmpty parts
+
+
+seqFoldl : (LPNode -> b -> b) -> b -> Seq -> b
+seqFoldl fn init parts =
+    Array.foldl (\part acc -> Array.foldl fn acc part) init parts
+
+
+seqLast : Seq -> Maybe LPNode
+seqLast parts =
+    seqFindLast (\_ -> True) parts
+
+
+seqFirst : Seq -> Maybe LPNode
+seqFirst parts =
+    seqFindFirst (\_ -> True) parts
 
 
 {-| True when this comment was written BEFORE a record update's base name — the
@@ -3393,7 +3742,7 @@ pinned by a fixture under `tests/testfiles/` (one directory per suite):
   - generic flow, elided `->` scoping, and the deliberate `let … in`
     divergence — `LetInTrailingComment`.
 -}
-classifyCommentKind : LPShape -> LPNode -> Array LPNode -> Array LPNode -> Int -> CommentRole
+classifyCommentKind : LPShape -> LPNode -> Seq -> Seq -> Int -> CommentRole
 classifyCommentKind containerShape commentNode before after row =
     let
         -- A binop chain (`Binop` / one `OpAndRhs` step) glues a same-row trailing
@@ -3464,7 +3813,7 @@ classifyCommentKind containerShape commentNode before after row =
         -- A function, as `chainedRefRow` is, so that only the branches that
         -- read it fold over every sibling before the comment (§SW34).
         refRow {} =
-            Array.foldl
+            seqFoldl
                 (\n acc ->
                     if isCommentNode n then
                         acc
@@ -3490,7 +3839,7 @@ classifyCommentKind containerShape commentNode before after row =
         -- to its own row below the chain — where the reparse, seeing a comment
         -- past the declaration's last token, re-homes it to column 1.
         chainedRefRow {} =
-            Array.foldl
+            seqFoldl
                 (\n acc ->
                     if isCommentNode n && firstRowInSubtree n <= acc then
                         max acc (lastRowInSubtree n)
@@ -3502,10 +3851,7 @@ classifyCommentKind containerShape commentNode before after row =
                 before
 
         prev =
-            Array.last before
-
-        next =
-            Array.first after
+            seqLast before
 
         -- A `--` runs to end-of-line, so it is unambiguously trailing: it glues
         -- onto the previous item's line-glue row (or any elided token), else it
@@ -3556,7 +3902,7 @@ classifyCommentKind containerShape commentNode before after row =
                         && refRow {} >= 0
                         && row >= refRow {}
                         && row <= info.last
-                        && Array.all (\n -> lpnFirstPos n == Nothing) after
+                        && seqAll (\n -> lpnFirstPos n == Nothing) after
 
                 _ ->
                     False
@@ -3677,7 +4023,7 @@ classifyCommentKind containerShape commentNode before after row =
         -- indented equally — the output stops parsing. The comment stays
         -- own-line there, which is the placement the item's shape forces anyway.
         leadsAcrossItemSeparator =
-            not (Array.isEmpty before)
+            not (seqIsEmpty before)
                 && not (isExposingListShape containerShape)
                 && commentIsSingleLineBlock commentNode
                 && gapRunCrossesTogether before after
@@ -3711,9 +4057,9 @@ classifyCommentKind containerShape commentNode before after row =
         -- (§SW34). A function, as `refRow` is: the item's whole subtree is
         -- searched, and only the bracket branch reads it.
         nextItemBlocksFrontGlue {} =
-            when Array.findFirst (\n -> not (isCommentNode n)) after is
+            when seqFindFirst (\n -> not (isCommentNode n)) after is
                 Just found ->
-                    subtreeHasMultilineString found.value
+                    subtreeHasMultilineString found
 
                 Nothing ->
                     False
@@ -3731,9 +4077,9 @@ classifyCommentKind containerShape commentNode before after row =
                         _ ->
                             (subtreeRowRange n).minRow
             in
-            when Array.findFirst (\n -> not (isCommentNode n) && itemRow n >= 0) after is
+            when seqFindFirst (\n -> not (isCommentNode n) && itemRow n >= 0) after is
                 Just found ->
-                    itemRow found.value
+                    itemRow found
 
                 Nothing ->
                     -1
@@ -3762,7 +4108,7 @@ classifyCommentKind containerShape commentNode before after row =
         -- A function, read only by the bracket branch: in a body that is all
         -- comments so far, every sibling before the comment is one (§SW34).
         inOpenerRun {} =
-            Array.all isCommentNode before
+            seqAll isCommentNode before
 
         -- A comment that glues to whatever precedes it inside a bracket, by its
         -- own shape: a single-line `{- -}` rides the line (`RidesInline`, the
@@ -3811,7 +4157,7 @@ classifyCommentKind containerShape commentNode before after row =
         -- slot is the leading run of comment children whose role is none of
         -- `LeadsNext` / `LeadsLine` / `TrailsHead`. A comment TRAILING a field
         -- is not in that leading run and keeps the ordinary same-row rules.
-        if isRecordUpdateShape containerShape && Array.all isCommentNode before then
+        if isRecordUpdateShape containerShape && seqAll isCommentNode before then
             -- Somewhere in the base … first-field region. `before` being all
             -- comments (rather than empty) is what keeps a SECOND comment here
             -- in the same region as the first — `{ {- a -} rec {- b -} | x = 1 }`
@@ -3845,7 +4191,7 @@ classifyCommentKind containerShape commentNode before after row =
         then
             LeadsNext
 
-        else if not (Array.isEmpty before) && not (inOpenerRun {}) && (bracketPrevRow < 0 || row /= bracketPrevRow) then
+        else if not (seqIsEmpty before) && not (inOpenerRun {}) && (bracketPrevRow < 0 || row /= bracketPrevRow) then
             LeadsLine
 
         else if inOpenerRun {} && nextItemBlocksFrontGlue {} then

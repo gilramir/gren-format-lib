@@ -38,9 +38,11 @@ module Formatter.Logical.LogicalPrintingTree exposing
     , lpnNode
     , lpnReplaceChildren
     , lpnReplaceChildrenGrown
+    , lpnReplaceChildrenGrownParts
     , lpnSetCommentRole
     , lpnShape
     , lpnWithBracketStart
+    , lpnWithChildren
     , lpnWithShape
     , prefixGlyph
     , recordKindToString
@@ -1568,10 +1570,23 @@ which nests one two-child node in the next, took 60% longer with them.
 -}
 lpnReplaceChildrenGrown : LPNode -> Array LPNode -> Array LPNode -> Array LPNode -> LPNode
 lpnReplaceChildrenGrown old removed added newChildren =
+    lpnWithChildren newChildren (lpnReplaceChildrenGrownParts old removed added [ newChildren ])
+
+
+{-| `lpnReplaceChildrenGrown`, where the new children are the arrays of `parts`
+one after another, and the node answered keeps `old`'s children wherever it can,
+since the caller holds the new ones itself. Comment placement keeps a
+container's children split at the point it last placed a comment, and joining
+them for each comment was the copy that made placing them quadratic (geng-lang
+m3-comments.md §CM4); it sets the children with `lpnWithChildren` when it joins
+them. The bounds read only the new children's own fields, so a part may hold a
+node whose children are not yet its own, if its fields are. -}
+lpnReplaceChildrenGrownParts : LPNode -> Array LPNode -> Array LPNode -> Array (Array LPNode) -> LPNode
+lpnReplaceChildrenGrownParts old removed added parts =
     when old is
         LPNode r ->
-            if Array.length newChildren <= 16 then
-                lpnReplaceChildren old newChildren
+            if Array.foldl (\part acc -> acc + Array.length part) 0 parts <= 16 then
+                lpnReplaceChildren old (Array.flatten parts)
 
             else
                 let
@@ -1597,19 +1612,29 @@ lpnReplaceChildrenGrown old removed added newChildren =
                 if removedInsideAdded && bracketEndUnmoved then
                     let
                         firstPos =
-                            mergedFirstPos self.firstPos newChildren
+                            when self.firstPos is
+                                Just _ ->
+                                    self.firstPos
+
+                                Nothing ->
+                                    partsFirstPos parts
                     in
                     LPNode
                         { r
-                            | children = newChildren
-                            , firstPos =
+                            | firstPos =
                                 when r.bracketStart is
                                     Just openStart ->
                                         pullBackToBracketStart openStart firstPos
 
                                     Nothing ->
                                         firstPos
-                            , lastPos = mergedLastPos self.lastPos newChildren
+                            , lastPos =
+                                when partsLastPos parts is
+                                    Just pos ->
+                                        Just pos
+
+                                    Nothing ->
+                                        self.lastPos
                             , minRow = min r.minRow addedMinRow
                             , maxRow = max r.maxRow addedMaxRow
                             , bracketEndExact = hasValue r.lastBracketEnd && r.bracketEndExact
@@ -1617,11 +1642,53 @@ lpnReplaceChildrenGrown old removed added newChildren =
                             , hasComment =
                                 shapeIsComment r.shape
                                     || Array.any lpnHasComment added
-                                    || Array.any lpnHasComment newChildren
+                                    || Array.any (Array.any lpnHasComment) parts
                         }
 
                 else
-                    lpnReplaceChildren old newChildren
+                    lpnReplaceChildren old (Array.flatten parts)
+
+
+{-| `mergedFirstPos` and `mergedLastPos` of the children, over the parts they
+are split into, without a shape's own position. -}
+partsFirstPos : Array (Array LPNode) -> Maybe Position
+partsFirstPos parts =
+    Array.foldl
+        (\part acc ->
+            when acc is
+                Just _ ->
+                    acc
+
+                Nothing ->
+                    mergedFirstPos Nothing part
+        )
+        Nothing
+        parts
+
+
+partsLastPos : Array (Array LPNode) -> Maybe Position
+partsLastPos parts =
+    Array.foldr
+        (\part acc ->
+            when acc is
+                Just _ ->
+                    acc
+
+                Nothing ->
+                    mergedLastPos Nothing part
+        )
+        Nothing
+        parts
+
+
+{-| `node` with `children` in place of its own, its bounds left as they are: for
+a caller that has already computed the bounds of those children
+(`lpnReplaceChildrenGrownParts`). -}
+lpnWithChildren : Array LPNode -> LPNode -> LPNode
+lpnWithChildren children node =
+    when node is
+        LPNode r ->
+            LPNode { r | children = children }
 
 
 {-| The bounds a shape contributes by itself (independent of children).
