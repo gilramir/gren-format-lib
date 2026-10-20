@@ -41,6 +41,7 @@ Nothing here is gren-format-specific; it mirrors the Haskell 1:1 so the
 first-slice comparison is against elm's actual arithmetic, not an approximation.
 -}
 
+import Array.Builder as Builder exposing (Builder)
 import Json.Encode as Json
 
 
@@ -73,13 +74,100 @@ type Line
 {-| A `Box` holds at least one line. `SingleLine` can appear mid-line; a
 `Stack` (2+ lines) must appear on its own.
 
+A `Stack` keeps its first and last lines, which the combinators read and
+replace, and the lines between as a tree, `Lines`, which only `render`,
+`toJson` and `destructure` flatten. `stack1` puts its children's trees under
+a new node instead of copying their lines into one array, so a `let` nested k
+deep is not restacked k times (geng-lang m3-closeout.md §CL27.2, D789).
+
 elm-format's `Box.hs` has a third constructor, `MustBreak`, as its mechanism for
 `--` comments. This port does not: it carries that fact on the comment's own
 `Line` leaf instead (`LineComment`, read by `endsOpen`), for the reason
 `asJoinable` gives below. -}
 type Box
     = SingleLine Line
-    | Stack { first : Line, second : Line, rest : Array Line }
+    | Stack { first : Line, middle : Lines, last : Line, height : Int }
+
+
+{-| A stack's lines between its first and its last, in order: a run of lines,
+or the concatenation of several trees. -}
+type Lines
+    = Run (Array Line)
+    | Join (Array Lines)
+
+
+noLines : Lines
+noLines =
+    Run []
+
+
+{-| The lines of `trees` one after another, any empty ones left out. -}
+joinLines : Array Lines -> Lines
+joinLines trees =
+    let
+        kept =
+            Array.keepIf (\t -> not (linesEmpty t)) trees
+    in
+    when Array.get 0 kept is
+        Nothing ->
+            noLines
+
+        Just only ->
+            if Array.length kept == 1 then
+                only
+
+            else
+                Join kept
+
+
+linesEmpty : Lines -> Bool
+linesEmpty lines =
+    when lines is
+        Run ls ->
+            Array.isEmpty ls
+
+        Join _ ->
+            False
+
+
+flattenLines : Lines -> Array Line
+flattenLines lines =
+    Builder.toArray (flattenInto lines (Builder.empty 0))
+
+
+flattenInto : Lines -> Builder Line -> Builder Line
+flattenInto lines acc =
+    when lines is
+        Run ls ->
+            Array.foldl Builder.pushLast acc ls
+
+        Join trees ->
+            Array.foldl flattenInto acc trees
+
+
+mapLinesTree : (Line -> Line) -> Lines -> Lines
+mapLinesTree fn lines =
+    when lines is
+        Run ls ->
+            Run (Array.map fn ls)
+
+        Join trees ->
+            Join (Array.map (mapLinesTree fn) trees)
+
+
+{-| Every line of the box, in order. -}
+allLines : Box -> Array Line
+allLines b =
+    when b is
+        SingleLine l ->
+            [ l ]
+
+        Stack s ->
+            Builder.empty 0
+                |> Builder.pushLast s.first
+                |> flattenInto s.middle
+                |> Builder.pushLast s.last
+                |> Builder.toArray
 
 
 keyword : String -> Line
@@ -140,28 +228,7 @@ destructure b =
             { first = l1, rest = [] }
 
         Stack s ->
-            { first = s.first, rest = [ s.second ] ++ s.rest }
-
-
-stackPrime : Box -> Box -> Box
-stackPrime b1 b2 =
-    let
-        d1 =
-            destructure b1
-
-        d2 =
-            destructure b2
-
-        tailLines =
-            d1.rest ++ [ d2.first ] ++ d2.rest
-    in
-    when Array.popFirst tailLines is
-        Nothing ->
-            -- unreachable: tailLines always contains d2.first
-            SingleLine d1.first
-
-        Just { first = second, rest = more } ->
-            Stack { first = d1.first, second = second, rest = more }
+            { first = s.first, rest = Array.dropFirst 1 (allLines b) }
 
 
 andThen : Array Box -> Box -> Box
@@ -169,38 +236,90 @@ andThen rest first =
     stack1 (Array.pushFirst first rest)
 
 
-{-| `stack1` = `foldr1 stackPrime`.
+{-| `stack1` = `foldr1 stackPrime`, elm-format's, where `stackPrime` puts one
+box's lines under another's.
 
-`stackPrime` only concatenates its two boxes' lines, so the fold is the
-concatenation of every child's lines, built here in one pass. Folding
-`stackPrime` itself copied the accumulated lines at every step, which made a
-long stack (a list literal of n items) cost n * n / 2 line copies.
+The first child's first line is the stack's first line and the last child's
+last is its last; between them go every child's lines in order, a run of the
+lines met one at a time and each `Stack` child's middle tree as it is. Copying
+the lines into one array instead, as this did, cost a stack of n nested stacks
+n * n / 2 line copies, and folding `stackPrime` cost a long stack the same
+before that.
 -}
 stack1 : Array Box -> Box
 stack1 children =
     let
-        lines =
-            Array.mapAndFlatten
-                (\b ->
-                    when b is
-                        SingleLine l ->
-                            [ l ]
+        -- `line` is the one line met last: whether it goes between or last is
+        -- known only when the next one comes or the children end.
+        place l st =
+            when st.first is
+                Nothing ->
+                    { st | first = Just l, height = st.height + 1 }
 
-                        Stack st ->
-                            [ st.first, st.second ] ++ st.rest
-                )
+                Just _ ->
+                    { st
+                        | run =
+                            when st.line is
+                                Just prev ->
+                                    Builder.pushLast prev st.run
+
+                                Nothing ->
+                                    st.run
+                        , line = Just l
+                        , height = st.height + 1
+                    }
+
+        step b st =
+            when b is
+                SingleLine l ->
+                    place l st
+
+                Stack s ->
+                    let
+                        placed =
+                            place s.first st
+
+                        run =
+                            when placed.line is
+                                Just prev ->
+                                    Builder.pushLast prev placed.run
+
+                                Nothing ->
+                                    placed.run
+                    in
+                    { first = placed.first
+                    , run = Builder.empty 0
+                    , trees =
+                        placed.trees
+                            |> Builder.pushLast (Run (Builder.toArray run))
+                            |> Builder.pushLast s.middle
+                    , line = Just s.last
+                    , height = placed.height - 1 + s.height
+                    }
+
+        done =
+            Array.foldl step
+                { first = Nothing, run = Builder.empty 0, trees = Builder.empty 0, line = Nothing, height = 0 }
                 children
+
+        trees =
+            Builder.pushLast (Run (Builder.toArray done.run)) done.trees
     in
-    when { first = Array.get 0 lines, second = Array.get 1 lines } is
+    when { first = done.first, last = done.line } is
         { first = Nothing } ->
             -- elm errors on empty; a blank line is a harmless stand-in here
             blankLine
 
-        { first = Just l1, second = Nothing } ->
+        { first = Just l1, last = Nothing } ->
             SingleLine l1
 
-        { first = Just l1, second = Just l2 } ->
-            Stack { first = l1, second = l2, rest = Array.dropFirst 2 lines }
+        { first = Just l1, last = Just ln } ->
+            Stack
+                { first = l1
+                , middle = joinLines (Builder.toArray trees)
+                , last = ln
+                , height = done.height
+                }
 
 
 mapFirstLine : (Line -> Line) -> (Line -> Line) -> Box -> Box
@@ -210,7 +329,7 @@ mapFirstLine firstFn restFn b =
             SingleLine (firstFn l1)
 
         Stack s ->
-            Stack { first = firstFn s.first, second = restFn s.second, rest = Array.map restFn s.rest }
+            Stack { first = firstFn s.first, middle = mapLinesTree restFn s.middle, last = restFn s.last, height = s.height }
 
 
 mapLines : (Line -> Line) -> Box -> Box
@@ -241,7 +360,7 @@ height b =
             1
 
         Stack s ->
-            2 + Array.length s.rest
+            s.height
 
 
 {-| `isLine`, refused for a box that something else must follow on its line.
@@ -258,7 +377,7 @@ for the two combinators where a delimiter follows *every* child.
 
 This is the fact elm-format gets from rendering a `--` as a `MustBreak` box,
 which its `isLine` rejects. This port has no `MustBreak` constructor at all,
-because the combinators that build a comment onto a line (`stackPrime`,
+because the combinators that build a comment onto a line (`stack1`,
 `addSuffixBox`) would destructure it back to a `Stack`/`SingleLine` and the fact
 would be lost the first time a comment was glued anywhere. Carrying it on the
 comment's own leaf instead survives all of them; this function is where the two
@@ -443,19 +562,24 @@ old `prefix (row [ line, space ]) comment` sites did); and (2) a comment after a
 `prefix` cannot express because the base isn't a single `Line`. -}
 addSuffixBox : Box -> Box -> Box
 addSuffixBox suffixBox base =
-    let
-        b =
-            destructure base
-    in
-    when Array.popLast b.rest is
-        Nothing ->
+    when base is
+        SingleLine l ->
             -- base is single-line: its line is the whole prefix of the suffix
-            prefix b.first suffixBox
+            prefix l suffixBox
 
-        Just { last = baseLast, initial = initial } ->
-            line b.first
-                |> andThen (Array.map line initial)
-                |> andThen [ prefix baseLast suffixBox ]
+        Stack s ->
+            -- the base's lines above its last, then the glued last line
+            when prefix s.last suffixBox is
+                SingleLine glued ->
+                    Stack { s | last = glued }
+
+                Stack g ->
+                    Stack
+                        { first = s.first
+                        , middle = joinLines [ s.middle, Run [ g.first ], g.middle ]
+                        , last = g.last
+                        , height = s.height - 1 + g.height
+                        }
 
 
 -- RENDER
@@ -626,12 +750,7 @@ endsOpen box_ =
             lineEndsOpen l
 
         Stack s ->
-            when Array.last s.rest is
-                Just l ->
-                    lineEndsOpen l
-
-                Nothing ->
-                    lineEndsOpen s.second
+            lineEndsOpen s.last
 
 
 lineEndsOpen : Line -> Bool
@@ -667,8 +786,8 @@ render box_ =
         SingleLine l ->
             renderOneLine l ++ "\n"
 
-        Stack s ->
-            String.join "\n" (Array.map renderOneLine ([ s.first, s.second ] ++ s.rest)) ++ "\n"
+        Stack _ ->
+            String.join "\n" (Array.map renderOneLine (allLines box_)) ++ "\n"
 
 
 -- JSON (debug)
@@ -687,10 +806,10 @@ toJson box_ =
         SingleLine l ->
             wrap "SingleLine" [ { key = "line", value = lineToJson l } ]
 
-        Stack s ->
+        Stack _ ->
             wrap "Stack"
                 [ { key = "lines"
-                  , value = Json.array lineToJson ([ s.first, s.second ] ++ s.rest)
+                  , value = Json.array lineToJson (allLines box_)
                   }
                 ]
 
