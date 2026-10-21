@@ -7,6 +7,7 @@ union variant payloads, and port signatures.
 -}
 
 import Compiler.Ast.Source as Src
+import Compiler.Parse.Number as PN
 
 import Formatter.Logical.LPTHelpers exposing
     ( fixupParensChildrenNodesAt
@@ -21,8 +22,10 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , LPShape(..)
     , ListBrackets(..)
     , ParenKind(..)
+    , PrefixKind(..)
     , RecordKind(..)
     , lpnBracketNode
+    , lpnNode
     , lpnLeaf
     , lpnWithBracketStart
     )
@@ -227,6 +230,43 @@ makeSignatureBranch locType =
         Src.TVar name ->
             Ok [ lpnLeaf (mkText locType.start name) ]
 
+        -- e.g.:
+        -- (b : Bytes)
+        -- (i : Int where 0 <= i && i < Bytes.length b)
+        Src.TNamed { name = name, type_ = inner, refinement = maybeRefinement } ->
+            makeSignatureBranch inner
+                |> Result.andThen
+                    (\typeNodes ->
+                        let
+                            -- `:` has no AST position, and is anchored at the
+                            -- end of the name, as every elided token is
+                            -- (`mkZeroWidthText`). `where` has one: anchored
+                            -- at the type's end instead, a comment written
+                            -- before it sorted after it, and moved again on
+                            -- the next pass.
+                            head =
+                                [ lpnLeaf (mkTextFromLocString name)
+                                , lpnLeaf (mkZeroWidthText name.end ":")
+                                ]
+                                    ++ typeNodes
+
+                            refinement =
+                                when maybeRefinement is
+                                    Just { whereAt, predicate } ->
+                                        predicateNodes predicate
+                                            |> Result.map (\nodes -> [ lpnLeaf (mkText whereAt "where") ] ++ nodes)
+
+                                    Nothing ->
+                                        Ok []
+                        in
+                        -- On one line, as every signature is: how a long
+                        -- refinement breaks is the formatter's to settle later
+                        -- (geng-lang `m4-refine.md` D820).
+                        refinement
+                            |> Result.andThen (\nodes -> fixupParensChildrenNodesAt False locType.end (head ++ nodes))
+                            |> Result.map (Array.map (lpnWithBracketStart locType.start))
+                    )
+
         Src.TRecord { fields = fields, extending = extending } ->
             let
                 insertField field =
@@ -315,3 +355,61 @@ makeSignatureBranch locType =
                                             |> lpnWithBracketStart locType.start
                                         ]
                     )
+
+
+{-| A refinement's predicate as a flow of leaves. It cannot go through
+`InsertExpressions`, which imports this module, and it does not need to: the
+type parser reads only names, integers, a measure applied to a name, `not`,
+unary `-`, operators and parentheses (geng-lang `m4-refine.md` D815), and on
+the one line a signature takes (D820) each is a leaf in order. -}
+predicateNodes : Src.Expression -> Result String (Array LPNode)
+predicateNodes locExpr =
+    when locExpr.value is
+        Src.Var { name } ->
+            Ok [ lpnLeaf (mkText locExpr.start name) ]
+
+        Src.VarQual { qualifier, name } ->
+            Ok [ lpnLeaf (mkText locExpr.start (qualifier ++ "." ++ name)) ]
+
+        Src.NumberLiteral outcome ->
+            let
+                text =
+                    when outcome is
+                        PN.Integer n ->
+                            n.text
+
+                        PN.FloatingPoint n ->
+                            n.text
+
+                        PN.Hex n ->
+                            n.text
+            in
+            Ok [ lpnLeaf (mkText locExpr.start text) ]
+
+        Src.Binops { left, operator, right } ->
+            Result.map2
+                (\leftNodes rightNodes -> leftNodes ++ [ lpnLeaf (mkTextFromLocString operator) ] ++ rightNodes)
+                (predicateNodes left)
+                (predicateNodes right)
+
+        Src.Call { fn, args } ->
+            Result.map2 (++) (predicateNodes fn) (resultConcatMap predicateNodes args)
+
+        Src.Negate inner ->
+            let
+                negLoc =
+                    { start = locExpr.start
+                    , end = { row = locExpr.start.row, col = locExpr.start.col + 1 }
+                    , value = PrefixMinus
+                    }
+            in
+            predicateNodes inner
+                |> Result.map (\innerNodes -> [ lpnNode (PrefixGlue negLoc) innerNodes ])
+
+        Src.Parens inner ->
+            predicateNodes inner
+                |> Result.andThen (fixupParensChildrenNodesAt False locExpr.end)
+                |> Result.map (Array.map (lpnWithBracketStart locExpr.start))
+
+        _ ->
+            Err "a refinement holds an expression its grammar does not read"

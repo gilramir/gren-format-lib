@@ -28,6 +28,7 @@ main README; for how the formatter arrives at these decisions internally, see
   - [Classes and instances](#classes-and-instances)
   - [Attributes](#attributes)
   - [Expression annotations](#expression-annotations)
+  - [Named and refined types](#named-and-refined-types)
 - [Records](#records)
   - [Record values](#record-values)
   - [Record updates](#record-updates)
@@ -1027,6 +1028,23 @@ the colon's row, and a record after it drops as an argument does:
 
 A `)` the author wrote on a row of its own stays there, as for any
 parenthesized expression.
+
+### Named and refined types
+
+`(name : Type)` and `(name : Type where predicate)` (geng-lang D814) are laid
+out on one line, as a signature is, however the author spaced or broke them:
+one space either side of the colon, the `where` and each operator, none inside
+the parentheses, and `-` and `not`'s argument as in an expression (geng-lang
+D820). Parentheses the author wrote inside a predicate stay.
+
+```gren
+getAt : (i : Int where 0 <= i && i < Bytes.length b) -> (b : Bytes) -> UInt8
+```
+
+A signature broken before each `->` stays broken, and a named type is one
+segment. A type inside one that breaks on its own, a record written across
+rows, breaks the parentheses open, `where` and the predicate on the row after
+the type.
 
 ---
 

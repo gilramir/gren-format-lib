@@ -448,6 +448,13 @@ compareType_ ctx a b =
         { fst = Src.TParens ta, snd = Src.TParens tb } ->
             compareType (within ctx " (parens)") ta tb
 
+        { fst = Src.TNamed na, snd = Src.TNamed nb } ->
+            chainAll
+                [ compareStr (within ctx " named type's name") na.name.value nb.name.value
+                , compareType (within ctx (" named '" ++ na.name.value ++ "'")) na.type_ nb.type_
+                , compareMaybe (within ctx (" refinement of '" ++ na.name.value ++ "'")) (compareExpr ctx) (Maybe.map .predicate na.refinement) (Maybe.map .predicate nb.refinement)
+                ]
+
         _ ->
             Err (renderCtx ctx ++ ": type constructors differ")
 

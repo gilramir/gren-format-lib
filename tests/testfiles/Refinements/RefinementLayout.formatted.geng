@@ -1,0 +1,34 @@
+module RefinementLayout exposing (a, b, c, d, e, f)
+
+
+a : (i : Int where 0 <= i && i < Bytes.length b) -> (b : Bytes) -> Int
+a i b =
+    i
+
+
+b :
+    (i : Int where 0 <= i)
+    -> (n : Int)
+    -> Int
+b i n =
+    i
+
+
+c : (i : Int where 0 <= i && i < n) -> (n : Int) -> Int
+c i n =
+    i
+
+
+d : (i : Int where 0 <= i {- low -} && i < n) -> (n : Int) -> Int -- trailing
+d i n =
+    i
+
+
+e : (i : Int where not (i == 0) || (-i) < -1) -> (f : ((k : Int where k > 0) -> Int)) -> Int
+e i f =
+    i
+
+
+f : (r : { x : Int } where True) -> (s : (Maybe Int)) -> Int
+f r s =
+    0

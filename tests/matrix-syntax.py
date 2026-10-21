@@ -1102,6 +1102,13 @@ TYPE_CONSTRUCTS = [
     Construct("tyRecord2",    "{ a : Int, b : String }",  True,  "{ a : Int\n, b : String }", False),
     Construct("tyRecordNest", "{ a : { b : Int } }",      True,  "{ a :\n{ b : Int } }",      False),
     Construct("tyExtRecord",  "{ r | a : Int }",          True,  "{ r\n| a : Int }",          False),
+    # Geng's named and refined types (geng-lang D814). A predicate written
+    # across rows comes back on one, as a signature does (D820), so the broken
+    # forms lean on oracles 2-3.
+    Construct("tyNamed",      "(n : Int)",                True,  "(n :\nInt)",                False),
+    Construct("tyRefined",    "(n : Int where 0 <= n)",   True,  "(n : Int\nwhere 0 <= n)",   False),
+    Construct("tyRefinedLen", "(a : Array Int where Array.length a > 0)", True,
+              "(a : Array Int where Array.length a\n> 0)", False),
 ]
 
 # A type context's template is a WHOLE declaration, not a `v = ` body, so each
@@ -1136,13 +1143,15 @@ TYPE_CONTEXTS = [
     Context("primSig",        "@prim(\"p\")\nfoo : {x}",                       True,  True,  "type"),
     Context("externSig",      "@extern(js, \"M\", \"f\")\nfoo : {x} -> Int",   True,  False, "type"),
     Context("annotationType", "v =\n    (one : {x})",                          True,  True,  "type"),
+    Context("refinedArgType", "foo : (n : {x} where n > 0) -> Int\nfoo q =\n    one", True, True, "type"),
 ]
 
 # Cells elm-format cannot read: Geng's syntax has no Elm spelling, so oracle 4
 # (parity) is not asked about them. Oracles 1-3 are truths and run on them all.
 GENG_ONLY = {"annotated", "annotatedCall", "annotatedRecord", "annotatedExpr",
              "sigConstraint", "sigContextArg", "classMethod", "instanceHead",
-             "primSig", "externSig", "annotationType"}
+             "primSig", "externSig", "annotationType",
+             "tyNamed", "tyRefined", "tyRefinedLen", "refinedArgType"}
 
 
 def geng_only(construct, context):

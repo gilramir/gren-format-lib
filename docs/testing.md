@@ -97,8 +97,8 @@ the mapping stops being 1:1 in either direction.
 
 **Every gate reads Geng.** On the `geng` branch the `../gren-format/app` the
 python gates drive is built by the Geng fork from this library and the fork's
-`compiler-common` (geng-lang `m1a-fmt.md` §F18), so `Classes/`, `Attributes/`
-and `ExpressionAnnotation/` go through the same fuzzers as the rest, and
+`compiler-common` (geng-lang `m1a-fmt.md` §F18), so `Classes/`, `Attributes/`,
+`ExpressionAnnotation/` and `Refinements/` go through the same fuzzers as the rest, and
 `gen-random.py` and `matrix-syntax.py` generate Geng's syntax themselves
 (`matrix-syntax.py --geng` runs only those cells). geng-lang's
 `harness/fmt-fuzz.py` runs the fuzzers over that syntax as a gate, and

@@ -1345,6 +1345,11 @@ def emit_type(t):
         return "{ " + base + " | " + ", ".join(f + " : " + emit_type(ft) for f, ft, _ in fields) + " }"
     if kind == "paren":
         return "(" + emit_type(t[1]) + ")"
+    if kind == "named":
+        # Geng's `(name : Type)` and `(name : Type where predicate)` (geng-lang
+        # D814), already in the formatter's one-line shape (D820).
+        _, name, inner, pred = t
+        return "(" + name + " : " + emit_type(inner) + (" where " + pred if pred else "") + ")"
     raise ValueError("emit_type")
 
 def _type_atom(t):
@@ -1776,6 +1781,9 @@ def emit_function_decl(d):
 class Gen:
     def __init__(self, rng, max_depth, comment_rate):
         self.rng = rng
+        # Refinements' own stream (see `gen_type`), seeded from the first
+        # one's state, which reading does not advance.
+        self.named_rng = random.Random(hash(rng.getstate()[1]))
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2725,6 +2733,48 @@ class Gen:
         return ("app", self.qualify_type_name(head), args)
 
     def gen_type(self, depth, vars=None, top=False):
+        """A type, sometimes named or refined (geng-lang D814). The choice and
+        the predicate come from `named_rng`, a stream of their own, so every
+        seed still makes the module it made before they existed, with some of
+        its types wrapped. A `top` type is never wrapped: a broken record
+        there renders through `emit_type_multiline`, which a wrapper would
+        bypass, dropping its field comments."""
+        t = self._gen_type(depth, vars, top)
+        if top or not self.named_rng.random() < 0.06:
+            return t
+        name = self.named_rng.choice(["n", "m", "i", "xs"])
+        pred = self.gen_predicate(name) if self.named_rng.random() < 0.75 else None
+        return ("named", name, t, pred)
+
+    def gen_predicate(self, name, depth=2):
+        """A predicate over `name`, in the formatter's spacing: integers, the
+        name, a measure applied to it, `not`, unary `-`, D808's operators and
+        parentheses."""
+        rng = self.named_rng
+
+        def atom():
+            r = rng.random()
+            if r < 0.35:
+                return name
+            if r < 0.6:
+                return str(rng.randint(0, 99))
+            if r < 0.75:
+                return rng.choice(["Array.length", "Bytes.length", "String.count"]) + " " + name
+            if r < 0.85:
+                return "-" + name
+            return rng.choice(["True", "False"]) if depth <= 0 else "(" + self.gen_predicate(name, depth - 1) + ")"
+
+        cmp = atom() + " " + rng.choice(["<", "<=", ">", ">=", "==", "/="]) + " " + atom()
+        r = rng.random()
+        if r < 0.5 or depth <= 0:
+            return cmp
+        if r < 0.65:
+            return "not (" + cmp + ")"
+        if r < 0.8:
+            return cmp + " " + rng.choice(["&&", "||"]) + " " + self.gen_predicate(name, depth - 1)
+        return atom() + " " + rng.choice(["+", "-", "*"]) + " " + atom() + " < " + atom()
+
+    def _gen_type(self, depth, vars=None, top=False):
         """`top=True` marks a call that generates the WHOLE type of a
         signature/alias RHS (the only two call sites that pass it) — never a
         nested field type, type-app arg, or arrow segment, which always leave

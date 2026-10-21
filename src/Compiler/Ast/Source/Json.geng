@@ -362,6 +362,14 @@ encType_ typ =
                 , { key = "inner", value = encType inner }
                 ]
 
+        Src.TNamed { name, type_, refinement } ->
+            Json.object
+                [ { key = "type", value = Json.string "named" }
+                , { key = "name", value = encLocated Json.string name }
+                , { key = "inner", value = encType type_ }
+                , { key = "predicate", value = encMaybe encExpression (Maybe.map .predicate refinement) }
+                ]
+
 
 encTRecordField : Src.TRecordField -> Json.Value
 encTRecordField fld =
