@@ -646,25 +646,32 @@ compareBinops ctx a b =
 
 
 {-| `compareBinops`' levels from `level` up to the outermost, each its operator
-and then its right operand, in a loop. -}
+and then its right operand, in a loop. It stops below level 0 by testing it:
+`Array.get -1` is the last element, so a walk that waited for `Nothing`
+compared every level twice, and each parenthesised right operand doubled the
+time (geng-lang m4-refine.md §RF7.4). -}
 compareBinopLevels : (Int -> Ctx) -> Array BinopLevel -> Array BinopLevel -> Int -> Result String {}
 compareBinopLevels levelCtx levelsA levelsB level =
-    when { fst = Array.get level levelsA, snd = Array.get level levelsB } is
-        { fst = Just la, snd = Just lb } ->
-            when
-                chainAll
-                    [ compareStr (within (levelCtx level) " binop.op") la.operator.value lb.operator.value
-                    , compareExpr (within (levelCtx level) " binop.right") la.right lb.right
-                    ]
-            is
-                Err e ->
-                    Err e
+    if level < 0 then
+        Ok {}
 
-                Ok {} ->
-                    compareBinopLevels levelCtx levelsA levelsB (level - 1)
+    else
+        when { fst = Array.get level levelsA, snd = Array.get level levelsB } is
+            { fst = Just la, snd = Just lb } ->
+                when
+                    chainAll
+                        [ compareStr (within (levelCtx level) " binop.op") la.operator.value lb.operator.value
+                        , compareExpr (within (levelCtx level) " binop.right") la.right lb.right
+                        ]
+                is
+                    Err e ->
+                        Err e
 
-        _ ->
-            Ok {}
+                    Ok {} ->
+                        compareBinopLevels levelCtx levelsA levelsB (level - 1)
+
+            _ ->
+                Ok {}
 
 
 type alias BinopLevel =
