@@ -239,23 +239,42 @@ For a full write-up, with examples, see: **[Known Limitations](knownLimitations.
 Furthermore, here is a list of the GitHub issues we are tracking in upstream
 packages that affect the output of `gren-format`.
 
+**Fixed upstream, not yet adopted.** These are fixed in
+`gren-lang/compiler-common` 4.0.0 / 4.1.0 (released October 2026), and each was
+checked against a `gren-format` built on 4.1.0. `gren-format-lib` still depends
+on compiler-common 3.x, so they still affect `gren-format` today. 4.0.0 and
+4.1.0 have a parser regression that rejects ordinary `let` and `when` code
+(see the next list), and compiler-node 5.0.0 still pins compiler-common < 4.0.0,
+so the dependency can't be bumped yet.
 
-* [compiler-common#11 - Gren parser is more strict with indentation in when..is expressions
-](https://github.com/gren-lang/compiler-common/issues/11)
-* [compiler-common#14 - New parser rejects same-column arguments in multi-line function calls](https://github.com/gren-lang/compiler-common/issues/14)
-* [compiler-common#25 - The wrong row number is assigned to "import", "type", "type alias", and "port" in the AST](https://github.com/gren-lang/compiler-common/issues/25)
-* [compiler-common#27 - Parser misparses postfix record access after parens, record literals, record updates, and qualified variables
-](https://github.com/gren-lang/compiler-common/issues/27)
-* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"
-](https://github.com/gren-lang/compiler-common/issues/31)
-* [compiler-common#32 - Parser accepts custom-type variants with more than one bare-constructor argument
- ](https://github.com/gren-lang/compiler-common/issues/32)
-* [compiler-common#34 - Expand the recording of the original string for some literals
-](https://github.com/gren-lang/compiler-common/issues/34)
-* [compiler-common#35 - A binops minus sign ("-") split across rows is parsed as negation when the right operand happens to start at the column immediately after the minus sign](https://github.com/gren-lang/compiler-common/issues/35)
-* [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37)
-* [core#134 - String.toInt returns the wrong value for 24 exactly-representable integers near 2^53
- ](https://github.com/gren-lang/core/issues/134)
+* [compiler-common#11 - Gren parser is more strict with indentation in when..is expressions](https://github.com/gren-lang/compiler-common/issues/11)
+  (closed as a duplicate of #14)
+* [compiler-common#14 - New parser rejects same-column arguments in multi-line function calls](https://github.com/gren-lang/compiler-common/issues/14) — fixed in 4.0.0
+* [compiler-common#25 - The wrong row number is assigned to "import", "type", "type alias", and "port" in the AST](https://github.com/gren-lang/compiler-common/issues/25) — fixed in 4.0.0.
+  The declaration's start is now where its parse begins, so when a doc comment
+  is present it is the doc comment's start, not the keyword's.
+* [compiler-common#27 - Parser misparses postfix record access after parens, record literals, record updates, and qualified variables](https://github.com/gren-lang/compiler-common/issues/27) — record-update case fixed in 4.0.0
+* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) — fixed in 4.0.0
+* [compiler-common#32 - Parser accepts custom-type variants with more than one bare-constructor argument](https://github.com/gren-lang/compiler-common/issues/32) — fixed in 4.0.0
+* [compiler-common#35 - A binops minus sign ("-") split across rows is parsed as negation when the right operand happens to start at the column immediately after the minus sign](https://github.com/gren-lang/compiler-common/issues/35) — fixed in 4.0.0
+* [compiler-common#36 - hexFolder returns the wrong value for 27 exactly-representable hex literals near 2^53](https://github.com/gren-lang/compiler-common/issues/36) — fixed in 4.0.0
+* [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37) — fixed in 4.0.0
+* [core#134 - String.toInt returns the wrong value for 24 exactly-representable integers near 2^53](https://github.com/gren-lang/core/issues/134) — fixed in
+  `gren-lang/core` 7.5.0. compiler-common 4.1.0 requires core 7.6.1, so this
+  comes in with the bump.
+
+**Still open**:
+
+* **Regression in compiler-common 4.0.0 / 4.1.0 (not yet filed):** a `let`
+  binding or `when` branch whose body ends in a variable or call swallows the
+  *next* binding or branch as an argument, so the file is rejected
+  (`a = max 1 2` ⏎ `b = 3`, or `0 -> n` ⏎ `_ -> 0`). Introduced by
+  compiler-common commit 37df278, the #14 fix.
+* **Lossy AST in compiler-common 4.0.0 / 4.1.0 (not yet filed):** the
+  parentheses around a variant payload, `MyCmd (Task.Task Never msg)`, are
+  consumed without a `TParens` node (commit e149122, the #32 fix), so a
+  formatter that prints the AST drops them and changes the meaning.
+* [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---
 

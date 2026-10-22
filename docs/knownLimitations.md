@@ -38,6 +38,11 @@ nothing is going wrong.
 
 ## A compiler bug with field access on a record-update base
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#27). `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
+
 Field access directly after a closing paren, a plain record literal, or a
 qualified name — `(getUser model).name`, `{ x = 1 }.x`,
 `Config.default.timeout` — parses and formats correctly. But a
@@ -57,6 +62,11 @@ which fixed every other kind of base but not this one.
 
 ## An unparenthesized constructor pattern can't be aliased with `as`
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#31). `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
+
 ```gren
 f x =
     when x is
@@ -75,6 +85,11 @@ this exact shape and can't be formatted until it's fixed. Tracked at
 Workaround: add the parens yourself, `(Just y) as whole`.
 
 ## A continuation line at the same column as the body above it
+
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#14; #11 was closed as its duplicate). `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
 
 When the body of a block construct starts on the row *after* its keyword, the
 parser scopes the body's indent to that first token's column and then requires a
@@ -238,6 +253,11 @@ compiler-common#14.
 
 ## A declaration that doesn't start in column 1 is accepted
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#37): a declaration off column 1 is now refused. `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
+
 A top-level declaration must begin in column 1. Elm requires it, and so does the
 real Gren compiler — `chompDecls` guards every declaration with
 `Space.checkFreshLine E.DeclStart`, which is literally `col == 1`.
@@ -398,6 +418,11 @@ formatted output above compiles as written.
 
 ## A binary `-` whose right operand starts at the operator's own column
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#35). `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
+
 `10 -` ⏎ `        3` is read by the parser as the **call** `10 (-3)` — the `-`
 becomes a unary negation on the operand below instead of the subtraction
 operator. The real Gren compiler reads it as subtraction (a module using it as an
@@ -531,6 +556,10 @@ Both fixes are one-line parenthesizations, and neither can be worked around
 here — when both have shipped and the `core` / `compiler-common` dependencies
 are bumped, this whole entry can be deleted.
 
+(Both halves are **fixed upstream**: the decimal half, core#134, in `gren-lang/core`
+7.5.0, and the hex half, #36, in compiler-common 4.0.0. Neither is adopted here
+yet; `gren-format-lib` still allows core 7.4.x and depends on compiler-common 3.x.)
+
 **Hex** goes through `Compiler.Parse.Number.hexFolder` in `compiler-common`,
 which does `16 * acc + charCode - 48` (and `16 * acc + 10 + charCode - 65` for
 `A-F`). Tracked at
@@ -653,6 +682,11 @@ parser, does not have to collapse anything, and renders each of the two spelling
 differently. See [divergence #22](elmFormatComparison.md#divergence-22).
 
 ## A line break inside a declaration's head
+
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#25). `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
 
 A line break *inside* a declaration's keyword (e.g. `import` on one line,
 the module name on the next) can cause a blank line to appear between a
@@ -1037,6 +1071,11 @@ verbatim; that was a divergence from elm-format, which re-indents the body the
 same way described here, so it was removed.)
 
 ## A custom-type variant with two or more arguments still parses
+
+> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#32): `type P = P String Int` is now refused. `gren-format-lib`
+> still depends on compiler-common 3.x, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.x parser regression;
+> see [the upstream issue list](index.md).
 
 Since [the 24w release](https://gren-lang.org/news/161224_gren_24w), a custom
 type's variant is limited to 0 or 1 argument — `type Person = Person String
