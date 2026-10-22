@@ -244,7 +244,7 @@ packages that affect the output of `gren-format`.
 checked against a `gren-format` built on 4.1.0. `gren-format-lib` still depends
 on compiler-common 3.x, so they still affect `gren-format` today. 4.0.0 and
 4.1.0 have a parser regression that rejects ordinary `let` and `when` code
-(see the next list), and compiler-node 5.0.0 still pins compiler-common < 4.0.0,
+(#43, in the next list), and compiler-node 5.0.0 still pins compiler-common < 4.0.0,
 so the dependency can't be bumped yet.
 
 * [compiler-common#11 - Gren parser is more strict with indentation in when..is expressions](https://github.com/gren-lang/compiler-common/issues/11)
@@ -265,15 +265,15 @@ so the dependency can't be bumped yet.
 
 **Still open**:
 
-* **Regression in compiler-common 4.0.0 / 4.1.0 (not yet filed):** a `let`
-  binding or `when` branch whose body ends in a variable or call swallows the
-  *next* binding or branch as an argument, so the file is rejected
-  (`a = max 1 2` ⏎ `b = 3`, or `0 -> n` ⏎ `_ -> 0`). Introduced by
-  compiler-common commit 37df278, the #14 fix.
-* **Lossy AST in compiler-common 4.0.0 / 4.1.0 (not yet filed):** the
-  parentheses around a variant payload, `MyCmd (Task.Task Never msg)`, are
-  consumed without a `TParens` node (commit e149122, the #32 fix), so a
-  formatter that prints the AST drops them and changes the meaning.
+* [compiler-common#43 - 4.0.0 regression: a `let` binding or `when` branch swallows the next one as an argument](https://github.com/gren-lang/compiler-common/issues/43) —
+  introduced by the #14 fix; ordinary code like `a = max 1 2` ⏎ `b = 3`, or
+  `0 -> n` ⏎ `_ -> 0`, fails to parse. Blocks the 4.x bump.
+* [compiler-common#44 - 4.0.0: the parentheses around a variant payload are not recorded in the AST](https://github.com/gren-lang/compiler-common/issues/44) —
+  introduced by the #32 fix; the formatter would print `MyCmd (Task.Task Never msg)`
+  as `MyCmd Task.Task Never msg`, which means something else. Blocks the 4.x bump.
+* [compiler-common#45 - A type application takes a following `->` into its last argument: `Maybe a -> b` parses as `Maybe (a -> b)`](https://github.com/gren-lang/compiler-common/issues/45) —
+  in 3.0.0 and 4.1.0. The tree is wrong but prints back as written, so it
+  doesn't change `gren-format`'s output today.
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---

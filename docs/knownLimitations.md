@@ -40,8 +40,9 @@ nothing is going wrong.
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#27). `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 Field access directly after a closing paren, a plain record literal, or a
 qualified name — `(getUser model).name`, `{ x = 1 }.x`,
@@ -64,8 +65,9 @@ which fixed every other kind of base but not this one.
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#31). `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 ```gren
 f x =
@@ -88,8 +90,9 @@ Workaround: add the parens yourself, `(Just y) as whole`.
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#14; #11 was closed as its duplicate). `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 When the body of a block construct starts on the row *after* its keyword, the
 parser scopes the body's indent to that first token's column and then requires a
@@ -255,8 +258,9 @@ compiler-common#14.
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#37): a declaration off column 1 is now refused. `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 A top-level declaration must begin in column 1. Elm requires it, and so does the
 real Gren compiler — `chompDecls` guards every declaration with
@@ -420,8 +424,9 @@ formatted output above compiles as written.
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#35). `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 `10 -` ⏎ `        3` is read by the parser as the **call** `10 (-3)` — the `-`
 becomes a unary negation on the operand below instead of the subtraction
@@ -685,8 +690,9 @@ differently. See [divergence #22](elmFormatComparison.md#divergence-22).
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#25). `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 A line break *inside* a declaration's keyword (e.g. `import` on one line,
 the module name on the next) can cause a blank line to appear between a
@@ -1074,8 +1080,9 @@ same way described here, so it was removed.)
 
 > **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#32): `type P = P String Int` is now refused. `gren-format-lib`
 > still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by a 4.x parser regression;
-> see [the upstream issue list](index.md).
+> dependency is bumped. That is blocked for now by two 4.x regressions,
+> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
+> [#44](https://github.com/gren-lang/compiler-common/issues/44).
 
 Since [the 24w release](https://gren-lang.org/news/161224_gren_24w), a custom
 type's variant is limited to 0 or 1 argument — `type Person = Person String
