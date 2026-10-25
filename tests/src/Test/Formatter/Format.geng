@@ -7,7 +7,6 @@ import FileSystem.Path as Path
 import Task exposing (Task)
 import Test.Runner.UnitNode as U
 
-import Array.Builder as Builder
 import Compiler.Ast.Compare as AstCompare
 import Compiler.Ast.Source as Src
 import Compiler.Parse.Context as Context
@@ -258,10 +257,10 @@ checkCommentCountPreserved originalContext rendered =
         Ok { context = renderedContext } ->
             let
                 originalCount =
-                    Array.length (Builder.toArray originalContext.comments)
+                    Array.length originalContext.comments
 
                 renderedCount =
-                    Array.length (Builder.toArray renderedContext.comments)
+                    Array.length renderedContext.comments
             in
             if originalCount == renderedCount then
                 Expect.pass
@@ -299,7 +298,7 @@ contextsExactlyEqual : Context.Context -> Context.Context -> Bool
 contextsExactlyEqual a b =
     a.indent == b.indent
         && a.lineStart == b.lineStart
-        && Builder.toArray a.comments == Builder.toArray b.comments
+        && a.comments == b.comments
 
 
 {-| Idempotency check: re-format the already-formatted source and require the

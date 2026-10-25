@@ -6,7 +6,6 @@ module Compiler.Parse.Context.Json exposing (encodeContext)
 
 -}
 
-import Array.Builder as Builder
 import Compiler.Parse.Context as Ctx
 import Compiler.SourcePosition as SP
 import Json.Encode as Json
@@ -20,7 +19,7 @@ internal parser state and not meaningful after parsing completes.
 encodeContext : Ctx.Context -> Json.Value
 encodeContext ctx =
     Json.object
-        [ { key = "comments", value = Json.array encodeLocatedComment (Builder.toArray ctx.comments) } ]
+        [ { key = "comments", value = Json.array encodeLocatedComment ctx.comments } ]
 
 
 encodeLocatedComment : SP.Located Ctx.Comment -> Json.Value

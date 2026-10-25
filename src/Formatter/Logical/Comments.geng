@@ -343,7 +343,7 @@ lptAddComments ctx root =
             }
 
         final =
-            Array.foldl addOneComment initial (Builder.toArray ctx.comments)
+            Array.foldl addOneComment initial ctx.comments
 
         finalChildren =
             (when final.target is
