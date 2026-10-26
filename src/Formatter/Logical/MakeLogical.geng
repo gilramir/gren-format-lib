@@ -114,7 +114,7 @@ makeOrigRows firstRow stype children =
 {-| Append `child` to the running root-children builder, returning the
 updated builder. Amortized O(1) — see `lptFromAst`.
 -}
-addRootChild : LPNode -> Builder.Builder LPNode -> Builder.Builder LPNode
+addRootChild : LPNode -> (moved builder : Builder.Builder LPNode) -> Builder.Builder LPNode
 addRootChild child builder =
     Builder.pushLast child builder
 
@@ -127,7 +127,7 @@ addRootChild child builder =
 `port module` and `effect module` were the other two kinds, and the parser
 refuses both now (geng-lang `m1b-source.md` §SO20).
 -}
-processModuleLine : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processModuleLine : Src.Module -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processModuleLine modAst root =
     let
         -- Zero-width, anchored at row 1 column 1, NOT at the module name's row:
@@ -362,7 +362,7 @@ exposingListShape spansRows =
         AllAcrossOrAllVertical (ListParen ParenExposing)
 
 
-processImports : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processImports : Src.Module -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processImports modAst root =
     Ok <| Array.foldl processImport root modAst.imports
 
@@ -374,7 +374,7 @@ processImports modAst root =
     import Foo exposing (a, b)
     import Foo as F exposing (..)
 -}
-processImport : Located Src.Import -> Builder.Builder LPNode -> Builder.Builder LPNode
+processImport : Located Src.Import -> (moved root : Builder.Builder LPNode) -> Builder.Builder LPNode
 processImport locImport root =
     let
         keywordNode =
@@ -474,7 +474,7 @@ a primitive's name is a single string literal and there is no second shape for
 it in the grammar -- and it lives inside the declaration's own `OriginalRows`,
 so `VerticalSpace` puts no blank line between the two rows.
 -}
-processPrimDecl : Src.ModuleDeclaration Src.Prim -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processPrimDecl : Src.ModuleDeclaration Src.Prim -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processPrimDecl modDecl root =
     let
         prim =
@@ -524,7 +524,7 @@ comment written inside `@extern(` ended on the leaf's row and glued in front of
 it, `{- … -} @extern(js, …)`, which does not parse (geng-lang `m3-sweep.md`
 §SW43).
 -}
-processExternDecl : Src.ModuleDeclaration Src.Extern -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processExternDecl : Src.ModuleDeclaration Src.Extern -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processExternDecl modDecl root =
     let
         extern =
@@ -602,7 +602,7 @@ primText primName =
         = Nothing
         | Just a
 -}
-processUnionDecl : Src.ModuleDeclaration Src.Union -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processUnionDecl : Src.ModuleDeclaration Src.Union -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processUnionDecl modDecl root =
     let
         union_ =
@@ -687,7 +687,7 @@ introduces the block, so with no block there is nothing for it to introduce and
 
     class Num a
 -}
-processClassDecl : Src.ModuleDeclaration Src.Class -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processClassDecl : Src.ModuleDeclaration Src.Class -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processClassDecl modDecl root =
     let
         class_ =
@@ -755,7 +755,7 @@ The head is an annotation — an optional context and then a type — so it goes
 through the same `makeAnnotationBranch` a signature does. Each method is a
 definition with no annotation of its own.
 -}
-processInstanceDecl : Src.ModuleDeclaration Src.Instance -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processInstanceDecl : Src.ModuleDeclaration Src.Instance -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processInstanceDecl modDecl root =
     let
         instance_ =
@@ -866,7 +866,7 @@ processVariantNode isFirst locVariant =
     type alias Point =
         { x : Int, y : Int }
 -}
-processAliasDecl : Src.ModuleDeclaration Src.Alias -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processAliasDecl : Src.ModuleDeclaration Src.Alias -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processAliasDecl modDecl root =
     let
         alias_ =
@@ -934,7 +934,7 @@ processAliasDecl modDecl root =
     foo x =
         x + 1
 -}
-processModDecl : Src.ModuleDeclaration Src.Value -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processModDecl : Src.ModuleDeclaration Src.Value -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processModDecl modDecl root =
     let
         rootWithDoc =
@@ -956,7 +956,7 @@ simple the body is.
     answer =
         42
 -}
-processFunctionBody : Src.Value -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processFunctionBody : Src.Value -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processFunctionBody modVal root =
     let
         nameNode =
@@ -988,7 +988,7 @@ processFunctionBody modVal root =
 
 {-| Maybe or maybe not insert a DocComment for this function
 -}
-processFunctionDoc : Maybe (Located String) -> Builder.Builder LPNode -> Builder.Builder LPNode
+processFunctionDoc : Maybe (Located String) -> (moved root : Builder.Builder LPNode) -> Builder.Builder LPNode
 processFunctionDoc maybeLocString root =
     when maybeLocString is
         Just locString ->
@@ -1028,7 +1028,7 @@ both parsers demand it, and the attribute is a line of its own above it — laid
 with a Geng body is, an attribute row, the annotation and then the equation, so
 it shares `StExternSignature`.
 -}
-processFunctionSignature : Maybe { at : Position, text : String } -> Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processFunctionSignature : Maybe { at : Position, text : String } -> Located String -> Maybe { start : Position, constraints : Array Src.Constraint, type_ : Located Src.Type_ } -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processFunctionSignature attribute locName maybeType root =
     when maybeType is
         Nothing ->
@@ -1111,7 +1111,7 @@ processFunctionSignature attribute locName maybeType root =
                     )
 
 
-processInfixDecls : Src.Module -> Builder.Builder LPNode -> Result String (Builder.Builder LPNode)
+processInfixDecls : Src.Module -> (moved root : Builder.Builder LPNode) -> Result String (Builder.Builder LPNode)
 processInfixDecls modAst root =
     Ok <| Array.foldl processInfixDecl root modAst.binops
 
@@ -1120,7 +1120,7 @@ processInfixDecls modAst root =
 
     infix left 6 (+) = add
 -}
-processInfixDecl : Located Src.Infix -> Builder.Builder LPNode -> Builder.Builder LPNode
+processInfixDecl : Located Src.Infix -> (moved root : Builder.Builder LPNode) -> Builder.Builder LPNode
 processInfixDecl locInfix root =
     let
         infix_ =

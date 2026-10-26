@@ -794,7 +794,7 @@ binopSpine expr =
     binopSpineHelp expr (Builder.empty 0)
 
 
-binopSpineHelp : Src.Expression_ -> Builder BinopLevel -> { levels : Array BinopLevel, base : Src.Expression_ }
+binopSpineHelp : Src.Expression_ -> (moved levels : Builder BinopLevel) -> { levels : Array BinopLevel, base : Src.Expression_ }
 binopSpineHelp expr levels =
     when expr is
         Src.Binops binops ->
@@ -825,7 +825,7 @@ renderCtx ctx =
     renderCtxHelp ctx (Builder.empty 0)
 
 
-renderCtxHelp : Ctx -> Builder String -> String
+renderCtxHelp : Ctx -> (moved parts : Builder String) -> String
 renderCtxHelp ctx parts =
     when ctx is
         Root name ->

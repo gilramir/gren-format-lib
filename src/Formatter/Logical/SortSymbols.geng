@@ -450,7 +450,7 @@ takeGluedLeadingIdx nodes i =
     takeGluedLeadingIdxHelp nodes i (Builder.empty 0)
 
 
-takeGluedLeadingIdxHelp : Array LPNode -> Int -> Builder.Builder LPNode -> { leading : Array LPNode, afterLeadingIndex : Int }
+takeGluedLeadingIdxHelp : Array LPNode -> Int -> (moved leadingAcc : Builder.Builder LPNode) -> { leading : Array LPNode, afterLeadingIndex : Int }
 takeGluedLeadingIdxHelp nodes i leadingAcc =
     when Array.get i nodes is
         Just node ->
@@ -477,7 +477,7 @@ takeSameRowTrailingIdx item nodes i =
     takeSameRowTrailingIdxHelp (rowSpan item |> .last) nodes i (Builder.empty 0)
 
 
-takeSameRowTrailingIdxHelp : Int -> Array LPNode -> Int -> Builder.Builder LPNode -> { trailing : Array LPNode, afterTrailingIndex : Int }
+takeSameRowTrailingIdxHelp : Int -> Array LPNode -> Int -> (moved acc : Builder.Builder LPNode) -> { trailing : Array LPNode, afterTrailingIndex : Int }
 takeSameRowTrailingIdxHelp prevLastRow nodes i acc =
     when Array.get i nodes is
         Just node ->
@@ -515,7 +515,7 @@ takeIndentedTrailingIdx prevLastRow nodes i =
     takeIndentedTrailingIdxHelp prevLastRow nodes i (Builder.empty 0)
 
 
-takeIndentedTrailingIdxHelp : Int -> Array LPNode -> Int -> Builder.Builder LPNode -> { trailing : Array LPNode, afterTrailingIndex : Int }
+takeIndentedTrailingIdxHelp : Int -> Array LPNode -> Int -> (moved acc : Builder.Builder LPNode) -> { trailing : Array LPNode, afterTrailingIndex : Int }
 takeIndentedTrailingIdxHelp prevLastRow nodes i acc =
     when Array.get i nodes is
         Just node ->
@@ -644,7 +644,7 @@ time: either alone is O(n) per call, and this loop calls one of them once per
 node, so an O(n) outer loop times an O(n) per-call cost was O(n^2) on a wide
 file (thousands of top-level declarations, or of comments with few/no
 imports). -}
-walkTop : Array LPNode -> Int -> Builder.Builder LPNode -> Array LPNode
+walkTop : Array LPNode -> Int -> (moved acc : Builder.Builder LPNode) -> Array LPNode
 walkTop nodes i acc =
     let
         attempt =
@@ -693,7 +693,7 @@ collectRun nodes firstUnit i =
     collectRunHelp nodes firstUnit i (Builder.empty 0)
 
 
-collectRunHelp : Array LPNode -> ImportUnit -> Int -> Builder.Builder ImportUnit -> { units : Array ImportUnit, afterIndex : Int }
+collectRunHelp : Array LPNode -> ImportUnit -> Int -> (moved acc : Builder.Builder ImportUnit) -> { units : Array ImportUnit, afterIndex : Int }
 collectRunHelp nodes unit i acc =
     let
         newAcc =

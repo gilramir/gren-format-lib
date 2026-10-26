@@ -135,7 +135,7 @@ flattenLines lines =
     Builder.toArray (flattenInto lines (Builder.empty 0))
 
 
-flattenInto : Lines -> Builder Line -> Builder Line
+flattenInto : Lines -> (moved acc : Builder Line) -> Builder Line
 flattenInto lines acc =
     when lines is
         Run ls ->

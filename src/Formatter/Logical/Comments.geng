@@ -838,7 +838,7 @@ commentRunStype node =
             StBlockComment
 
 
-addOneComment : Located Ctx.Comment -> CommentState -> CommentState
+addOneComment : Located Ctx.Comment -> (moved state : CommentState) -> CommentState
 addOneComment locComment state =
     when locComment.value is
         Ctx.Line _ ->
@@ -941,7 +941,7 @@ applyCommentToOrigRow locComment baseCommentNode created origRowOpen =
             updatedOpen
 
 
-addCommentGeneric : Located Ctx.Comment -> CommentState -> CommentState
+addCommentGeneric : Located Ctx.Comment -> (moved state : CommentState) -> CommentState
 addCommentGeneric locComment state =
     let
         baseCommentNode =
@@ -981,7 +981,7 @@ addCommentGeneric locComment state =
 `state.rest` — unchanged from `findOrCreateOrigRow`'s existing search+create
 logic — to find or create the new target, permanently settling everything
 found strictly before it. -}
-advanceAndSearch : Located Ctx.Comment -> LPNode -> Int -> SyntaxType -> CommentState -> CommentState
+advanceAndSearch : Located Ctx.Comment -> LPNode -> Int -> SyntaxType -> (moved state : CommentState) -> CommentState
 advanceAndSearch locComment baseCommentNode row stype state =
     let
         { origRowNode, before, after, created } =
@@ -1043,7 +1043,7 @@ doc comment), and `coveredByOtherDecl`'s `first <= row && row <= last` check
 can never hold for one of them. Searching the smaller active window instead
 of the whole tree is what keeps this from being an O(n) rescan on every block
 comment. -}
-tryLeadingGluedAttach : Located Ctx.Comment -> CommentState -> Result CommentState CommentState
+tryLeadingGluedAttach : Located Ctx.Comment -> (moved state : CommentState) -> Result CommentState CommentState
 tryLeadingGluedAttach locComment state =
     when locComment.value is
         Ctx.Line _ ->

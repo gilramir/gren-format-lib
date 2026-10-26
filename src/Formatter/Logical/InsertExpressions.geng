@@ -70,7 +70,7 @@ flattenPipeline locExpr =
     flattenPipelineHelp locExpr (Builder.empty 0)
 
 
-flattenPipelineHelp : Src.Expression -> Builder { op : Located String, body : Src.Expression } -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
+flattenPipelineHelp : Src.Expression -> (moved rightSteps : Builder { op : Located String, body : Src.Expression }) -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
 flattenPipelineHelp locExpr rightSteps =
     let
         -- What is left of the spine is the seed. The steps are handed in,
@@ -142,7 +142,7 @@ flattenBinop locExpr =
     flattenBinopHelp locExpr (Builder.empty 0) (Builder.empty 0)
 
 
-flattenBinopHelp : Src.Expression -> Builder Src.Expression -> Builder (Located String) -> { operands : Array Src.Expression, ops : Array (Located String) }
+flattenBinopHelp : Src.Expression -> (moved rightOperands : Builder Src.Expression) -> (moved rightOps : Builder (Located String)) -> { operands : Array Src.Expression, ops : Array (Located String) }
 flattenBinopHelp locExpr rightOperands rightOps =
     let
         -- What is left of the spine is one operand: the chain's first. The
@@ -1774,7 +1774,7 @@ node a step reads: with an Array, each branch copied every node before it
 (geng-lang m3-sweep.md §SW37).
 
 -}
-folderInsertElseIfBranch : Src.IfBranch -> { nodes : Builder LPNode, lastBody : LPNode } -> Result String { nodes : Builder LPNode, lastBody : LPNode }
+folderInsertElseIfBranch : Src.IfBranch -> (moved acc : { nodes : Builder LPNode, lastBody : LPNode }) -> Result String { nodes : Builder LPNode, lastBody : LPNode }
 folderInsertElseIfBranch branch acc =
     let
         -- `else if` has no AST position. Anchor it zero-width at the end of the
