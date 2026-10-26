@@ -445,10 +445,11 @@ class Variant:
 
 class UnionDecl:
     def __init__(self, name, params, variants, broken=False, doc=None, lead=None, trailing=None,
-                 derives=None):
+                 derives=None, affine=False):
         self.name, self.params, self.variants, self.broken = name, params, variants, broken
         self.doc, self.lead, self.trailing = doc, lead, trailing
         self.derives = derives or []  # `@derive(Eq, Ord)` above `type`
+        self.affine = affine  # `@affine` above `type`, never with `@derive`
 
 
 # Geng's declarations. None carries an expression body the shrinker walks --
@@ -1348,8 +1349,8 @@ def emit_type(t):
     if kind == "named":
         # Geng's `(name : Type)` and `(name : Type where predicate)` (geng-lang
         # D814), already in the formatter's one-line shape (D820).
-        _, name, inner, pred = t
-        return "(" + name + " : " + emit_type(inner) + (" where " + pred if pred else "") + ")"
+        _, name, inner, pred, moved = t
+        return "(" + ("moved " if moved else "") + name + " : " + emit_type(inner) + (" where " + pred if pred else "") + ")"
     raise ValueError("emit_type")
 
 def _type_atom(t):
@@ -1536,6 +1537,8 @@ def emit_union(d):
     lines = [header]
     if d.derives:
         lines.insert(0, "@derive(" + ", ".join(d.derives) + ")")
+    elif d.affine:
+        lines.insert(0, "@affine")
     if not d.broken:
         lines.append(pad(INDENT) + " ".join(parts))
     else:
@@ -1784,6 +1787,8 @@ class Gen:
         # Refinements' own stream (see `gen_type`), seeded from the first
         # one's state, which reading does not advance.
         self.named_rng = random.Random(hash(rng.getstate()[1]))
+        # `moved` and `@affine`'s (geng-lang D920, D921), likewise.
+        self.marks_rng = random.Random(hash(rng.getstate()[1]) + 1)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2744,7 +2749,10 @@ class Gen:
             return t
         name = self.named_rng.choice(["n", "m", "i", "xs"])
         pred = self.gen_predicate(name) if self.named_rng.random() < 0.75 else None
-        return ("named", name, t, pred)
+        # `moved` (geng-lang D920) from a stream of its own again, so the
+        # refinements drawn are the ones drawn before it existed.
+        moved = self.marks_rng.random() < 0.25
+        return ("named", name, t, pred, moved)
 
     def gen_predicate(self, name, depth=2):
         """A predicate over `name`, in the formatter's spacing: integers, the
@@ -3074,8 +3082,9 @@ class Gen:
         trailing = None if last_is_line else self.comment()
         derives = self.rng.sample(["Eq", "Ord", "Inspect"], self.rng.randint(1, 3)) \
             if self.chance(0.2) else []
+        affine = not derives and self.marks_rng.random() < 0.15
         return UnionDecl(name, params, variants, broken=broken, doc=doc,
-                         lead=lead, trailing=trailing, derives=derives)
+                         lead=lead, trailing=trailing, derives=derives, affine=affine)
 
     def infix_decl(self, i):
         assoc = self.pick(["left", "right", "non"])

@@ -645,7 +645,11 @@ processUnionDecl modDecl root =
                     allChildren =
                         when Array.popFirst union_.derives is
                             Nothing ->
-                                declChildren
+                                if union_.affine then
+                                    Array.pushFirst (lpnLeaf (mkText modDecl.start "@affine")) declChildren
+
+                                else
+                                    declChildren
 
                             Just _ ->
                                 Array.pushFirst

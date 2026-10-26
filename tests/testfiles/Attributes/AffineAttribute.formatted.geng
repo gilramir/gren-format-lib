@@ -1,0 +1,13 @@
+module AffineAttribute exposing (Document, Transient)
+
+
+{-| A transient array, written in place. -}
+@affine
+type Transient a
+    = Transient
+
+
+@affine
+type Document
+    = Document { title : String, body : Transient String }
+    | Empty

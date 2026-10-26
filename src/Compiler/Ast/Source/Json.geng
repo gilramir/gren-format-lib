@@ -219,6 +219,7 @@ encUnion union =
         , { key = "vars", value = Json.array (encLocated Json.string) union.vars }
         , { key = "variants", value = Json.array (encLocated encUnionVariant) union.variants }
         , { key = "derives", value = Json.array (encLocated Json.string) union.derives }
+        , { key = "affine", value = Json.bool union.affine }
         , { key = "keyword", value = encPos union.keyword }
         ]
 
@@ -362,9 +363,10 @@ encType_ typ =
                 , { key = "inner", value = encType inner }
                 ]
 
-        Src.TNamed { name, type_, refinement } ->
+        Src.TNamed { movedAt, name, type_, refinement } ->
             Json.object
                 [ { key = "type", value = Json.string "named" }
+                , { key = "movedAt", value = encMaybe encPos movedAt }
                 , { key = "name", value = encLocated Json.string name }
                 , { key = "inner", value = encType type_ }
                 , { key = "predicate", value = encMaybe encExpression (Maybe.map .predicate refinement) }

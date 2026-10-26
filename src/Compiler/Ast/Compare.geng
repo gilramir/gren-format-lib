@@ -246,6 +246,7 @@ compareUnionDecl la lb =
         , compareArray (within ctx " vars") (\la_ lb_ -> compareStr (Root "type var") la_.value lb_.value) a.vars b.vars
         , compareArray (within ctx " variants") compareVariant a.variants b.variants
         , compareArray (within ctx " derives") (\da db -> compareStr (Root "derived class") da.value db.value) a.derives b.derives
+        , compareStr (within ctx " @affine") (boolText a.affine) (boolText b.affine)
         ]
 
 
@@ -451,6 +452,7 @@ compareType_ ctx a b =
         { fst = Src.TNamed na, snd = Src.TNamed nb } ->
             chainAll
                 [ compareStr (within ctx " named type's name") na.name.value nb.name.value
+                , compareStr (within ctx (" moved '" ++ na.name.value ++ "'")) (boolText (na.movedAt /= Nothing)) (boolText (nb.movedAt /= Nothing))
                 , compareType (within ctx (" named '" ++ na.name.value ++ "'")) na.type_ nb.type_
                 , compareMaybe (within ctx (" refinement of '" ++ na.name.value ++ "'")) (compareExpr ctx) (Maybe.map .predicate na.refinement) (Maybe.map .predicate nb.refinement)
                 ]
@@ -914,6 +916,15 @@ compareStr ctx a b =
 
     else
         Err (renderCtx ctx ++ ": '" ++ a ++ "' vs '" ++ b ++ "'")
+
+
+boolText : Bool -> String
+boolText b =
+    if b then
+        "yes"
+
+    else
+        "no"
 
 
 -- Like compareStr but normalizes trailing newlines first.

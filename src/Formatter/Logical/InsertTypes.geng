@@ -233,7 +233,8 @@ makeSignatureBranch locType =
         -- e.g.:
         -- (b : Bytes)
         -- (i : Int where 0 <= i && i < Bytes.length b)
-        Src.TNamed { name = name, type_ = inner, refinement = maybeRefinement } ->
+        -- (moved b : Builder a)
+        Src.TNamed { movedAt = movedAt, name = name, type_ = inner, refinement = maybeRefinement } ->
             makeSignatureBranch inner
                 |> Result.andThen
                     (\typeNodes ->
@@ -244,10 +245,21 @@ makeSignatureBranch locType =
                             -- at the type's end instead, a comment written
                             -- before it sorted after it, and moved again on
                             -- the next pass.
+                            -- `moved` has a position of its own, as `where`
+                            -- does, so a comment before it stays before it.
+                            moved =
+                                when movedAt is
+                                    Just at ->
+                                        [ lpnLeaf (mkText at "moved") ]
+
+                                    Nothing ->
+                                        []
+
                             head =
-                                [ lpnLeaf (mkTextFromLocString name)
-                                , lpnLeaf (mkZeroWidthText name.end ":")
-                                ]
+                                moved
+                                    ++ [ lpnLeaf (mkTextFromLocString name)
+                                       , lpnLeaf (mkZeroWidthText name.end ":")
+                                       ]
                                     ++ typeNodes
 
                             refinement =

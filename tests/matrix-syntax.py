@@ -1109,6 +1109,10 @@ TYPE_CONSTRUCTS = [
     Construct("tyRefined",    "(n : Int where 0 <= n)",   True,  "(n : Int\nwhere 0 <= n)",   False),
     Construct("tyRefinedLen", "(a : Array Int where Array.length a > 0)", True,
               "(a : Array Int where Array.length a\n> 0)", False),
+    # `moved` before the name (geng-lang D920), alone and with a predicate.
+    Construct("tyMoved",      "(moved b : Int)",          True,  "(moved b :\nInt)",          False),
+    Construct("tyMovedRefined", "(moved b : Int where 0 <= b)", True,
+              "(moved b : Int\nwhere 0 <= b)", False),
 ]
 
 # A type context's template is a WHOLE declaration, not a `v = ` body, so each
@@ -1144,6 +1148,7 @@ TYPE_CONTEXTS = [
     Context("externSig",      "@extern(js, \"M\", \"f\")\nfoo : {x} -> Int",   True,  False, "type"),
     Context("annotationType", "v =\n    (one : {x})",                          True,  True,  "type"),
     Context("refinedArgType", "foo : (n : {x} where n > 0) -> Int\nfoo q =\n    one", True, True, "type"),
+    Context("movedArgType",   "foo : (moved n : {x}) -> Int\nfoo q =\n    one", True, True, "type"),
 ]
 
 # Cells elm-format cannot read: Geng's syntax has no Elm spelling, so oracle 4
@@ -1151,7 +1156,8 @@ TYPE_CONTEXTS = [
 GENG_ONLY = {"annotated", "annotatedCall", "annotatedRecord", "annotatedExpr",
              "sigConstraint", "sigContextArg", "classMethod", "instanceHead",
              "primSig", "externSig", "annotationType",
-             "tyNamed", "tyRefined", "tyRefinedLen", "refinedArgType"}
+             "tyNamed", "tyRefined", "tyRefinedLen", "refinedArgType",
+             "tyMoved", "tyMovedRefined", "movedArgType"}
 
 
 def geng_only(construct, context):
