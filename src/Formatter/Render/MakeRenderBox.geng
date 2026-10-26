@@ -2501,8 +2501,11 @@ renderWhenBranchesBox children =
                 Nothing ->
                     builder
 
-        hasLast acc =
-            when acc.last is
+        -- Handed the field, not the accumulator, which holds a builder: a call
+        -- of a local function takes what it is handed (geng-lang m4-own.md
+        -- §OW27).
+        hasLast last =
+            when last is
                 Just _ ->
                     True
 
@@ -2522,7 +2525,7 @@ renderWhenBranchesBox children =
             when
                 FP.containerCommentSlot
                     { atOpener = False
-                    , canGlue = hasLast acc && Array.isEmpty acc.lead
+                    , canGlue = hasLast acc.last && Array.isEmpty acc.lead
                     }
                     node
             is
@@ -2581,7 +2584,7 @@ renderWhenBranchesBox children =
                                 -- boxes is supplied by `stackWithBlanks`, so the
                                 -- marker is a no-op here. Any other position
                                 -- (leading, or after a lead comment) falls back.
-                                if Array.isEmpty acc.lead && hasLast acc then
+                                if Array.isEmpty acc.lead && hasLast acc.last then
                                     Ok acc
 
                                 else
@@ -4093,9 +4096,11 @@ assembleFlowImpl measure flowStart flowIndent items =
         -- onto an Array copied it, which made a long row quadratic, 35% of a
         -- call of 32,000 arguments (geng-lang m3-sweep.md §SW37). A row is
         -- stepped once and never read after, except for `count`, as `rows`
-        -- is; `rowPush` starts a fresh Builder on an empty row, so the one
-        -- `noRow` shares is never pushed to.
-        noRow =
+        -- is; `rowPush` starts a fresh Builder on an empty row. An empty row
+        -- is made at each use, since a builder is used once and one shared
+        -- by every use would be one builder used many times (geng-lang
+        -- m4-own.md §OW27).
+        noRow {} =
             { items = Builder.empty 0, count = 0 }
 
         rowOf l =
@@ -4110,6 +4115,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                 , count = row.count + 1
                 }
 
+        rowIsEmpty : { r | count : Int } -> Bool
         rowIsEmpty row =
             row.count == 0
 
@@ -4191,7 +4197,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                 |> Result.map
                     (\rows ->
                         { rows = rows
-                        , curRow = noRow
+                        , curRow = noRow {}
                         , state = next
                         }
                     )
@@ -4203,10 +4209,14 @@ assembleFlowImpl measure flowStart flowIndent items =
         -- onto its last line.
         placeCommentItem acc decision c =
             let
-                ownLine box =
+                -- Handed the row and the rows, not closed over them: a
+                -- function made here takes what it closes over when it is
+                -- made, and `acc` is used in the other branches (geng-lang
+                -- m4-own.md §OW27).
+                ownLine box curRow rows =
                     Ok
-                        { rows = pushRow box (flushRow acc.curRow acc.rows)
-                        , curRow = noRow
+                        { rows = pushRow box (flushRow curRow rows)
+                        , curRow = noRow {}
                         , state = decision.next
                         }
             in
@@ -4219,13 +4229,13 @@ assembleFlowImpl measure flowStart flowIndent items =
                         -- ENCLOSING flow's nest — but this box, once embedded as a
                         -- first-row item, cannot: its continuation lines are out
                         -- of the enclosing `flowIndent`'s reach. Fall back.
-                        ownLine c.box
+                        ownLine c.box acc.curRow acc.rows
 
                     FP.GlueNoSep ->
-                        ownLine c.box
+                        ownLine c.box acc.curRow acc.rows
 
                     FP.OwnLine ->
-                        ownLine c.box
+                        ownLine c.box acc.curRow acc.rows
 
                     FP.GlueSpace ->
                         if rowIsEmpty acc.curRow then
@@ -4238,7 +4248,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                 |> Result.map
                                     (\rows ->
                                         { rows = rows
-                                        , curRow = noRow
+                                        , curRow = noRow {}
                                         , state = decision.next
                                         }
                                     )
@@ -4256,7 +4266,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                             in
                             Ok
                                 { rows = pushRow (B.prefix prefLine c.box) acc.rows
-                                , curRow = noRow
+                                , curRow = noRow {}
                                 , state = decision.next
                                 }
 
@@ -4295,13 +4305,13 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- comment the policy put on its own line).
                             when decision.placement is
                                 FP.AsFirst ->
-                                    ownLine (B.line l)
+                                    ownLine (B.line l) acc.curRow acc.rows
 
                                 FP.GlueNoSep ->
-                                    ownLine (B.line l)
+                                    ownLine (B.line l) acc.curRow acc.rows
 
                                 FP.OwnLine ->
-                                    ownLine (B.line l)
+                                    ownLine (B.line l) acc.curRow acc.rows
 
                                 FP.GlueSpace ->
                                     -- Same-row glue; the comment still ends the
@@ -4312,7 +4322,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                     else
                                         Ok
                                             { rows = flushRow (rowPush l acc.curRow) acc.rows
-                                            , curRow = noRow
+                                            , curRow = noRow {}
                                             , state = decision.next
                                             }
 
@@ -4406,7 +4416,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                             -- cost of walking the whole subtree to detect it
                             -- (MultilineBlockComments `#13`; broken record-pattern
                             -- headers, PatternLayoutByAuthor).
-                            Ok { rows = pushRow item.box acc.rows, curRow = noRow, state = decision.next }
+                            Ok { rows = pushRow item.box acc.rows, curRow = noRow {}, state = decision.next }
 
                 FP.GlueNoSep ->
                     -- Content begins on the fresh line the previous comment
@@ -4417,7 +4427,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                             Ok { rows = acc.rows, curRow = rowPush l acc.curRow, state = decision.next }
 
                         Err _ ->
-                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = noRow, state = decision.next }
+                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = noRow {}, state = decision.next }
 
                 FP.SoftSep ->
                     when B.isLine item.box is
@@ -4448,7 +4458,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                 -- block genuinely can follow a block here. Each lands
                                 -- on its own line at the flow's indent — elm-format's
                                 -- layout for a broken multi-argument call.
-                                Ok { rows = pushRow item.box acc.rows, curRow = noRow, state = decision.next }
+                                Ok { rows = pushRow item.box acc.rows, curRow = noRow {}, state = decision.next }
 
                             else
                                 let
@@ -4459,7 +4469,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                     AlignCarrying ->
                                         Ok
                                             { rows = pushRow (B.prefix prefLine item.box) acc.rows
-                                            , curRow = noRow
+                                            , curRow = noRow {}
                                             , state = decision.next
                                             }
 
@@ -4473,14 +4483,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                                         -- absolute multiples of 4.
                                         Ok
                                             { rows = pushRow (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
-                                            , curRow = noRow
+                                            , curRow = noRow {}
                                             , state = decision.next
                                             }
 
                                     NestCarrying ->
                                         Ok
                                             { rows = pushRow (B.mapFirstLine (\l -> B.row [ prefLine, l ]) identity item.box) acc.rows
-                                            , curRow = noRow
+                                            , curRow = noRow {}
                                             , state = decision.next
                                             }
 
@@ -4536,7 +4546,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                                 ]
                                                             )
                                                             acc.rows
-                                                    , curRow = noRow
+                                                    , curRow = noRow {}
                                                     , state = decision.next
                                                     }
 
@@ -4560,7 +4570,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                             -- re-snapping to absolute multiples of 4.
                                                             Ok
                                                                 { rows = pushRow (B.prefix prefLine (B.freezeTabs item.box)) acc.rows
-                                                                , curRow = noRow
+                                                                , curRow = noRow {}
                                                                 , state = decision.next
                                                                 }
 
@@ -4577,7 +4587,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                                             -- tab stop, `else`/`)` under the `(`.
                                                             Ok
                                                                 { rows = pushRow (B.prefix prefLine item.box) acc.rows
-                                                                , curRow = noRow
+                                                                , curRow = noRow {}
                                                                 , state = decision.next
                                                                 }
 
@@ -4615,14 +4625,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                             Ok { rows = flushRow acc.curRow acc.rows, curRow = rowOf l, state = decision.next }
 
                         Err _ ->
-                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = noRow, state = decision.next }
+                            Ok { rows = pushRow item.box (flushRow acc.curRow acc.rows), curRow = noRow {}, state = decision.next }
 
                 FP.IndentNoBreak ->
                     -- Block after a line-terminating comment: the item lands on
                     -- the fresh line at +grenIndent, with no extra break.
                     Ok
                         { rows = pushRow (applyIndent grenIndent item.box) (flushRow acc.curRow acc.rows)
-                        , curRow = noRow
+                        , curRow = noRow {}
                         , state = decision.next
                         }
 
@@ -4651,14 +4661,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                         FP.IndentedRule ->
                             Ok
                                 { rows = pushRow (applyIndent grenIndent (withLeading item.box)) (flushRow acc.curRow acc.rows)
-                                , curRow = noRow
+                                , curRow = noRow {}
                                 , state = decision.next
                                 }
 
                         FP.BodyRule ->
                             Ok
                                 { rows = pushRow (withLeading item.box) (flushRow acc.curRow acc.rows)
-                                , curRow = noRow
+                                , curRow = noRow {}
                                 , state = decision.next
                                 }
 
@@ -4687,7 +4697,7 @@ assembleFlowImpl measure flowStart flowIndent items =
                                     -- nested in a paren/call).
                                     Ok
                                         { rows = pushRow (applyIndent grenIndent (withLeading item.box)) (flushRow acc.curRow acc.rows)
-                                        , curRow = noRow
+                                        , curRow = noRow {}
                                         , state = decision.next
                                         }
 
@@ -4715,14 +4725,14 @@ assembleFlowImpl measure flowStart flowIndent items =
                     in
                     Ok
                         { rows = pushRow (applyIndent dropIndent droppedBox) (flushRow acc.curRow acc.rows)
-                        , curRow = noRow
+                        , curRow = noRow {}
                         , state = decision.next
                         }
 
                 FP.BlankLineOnly ->
                     Ok
                         { rows = pushRow B.blankLine (flushRow acc.curRow acc.rows)
-                        , curRow = noRow
+                        , curRow = noRow {}
                         , state = decision.next
                         }
 
@@ -4758,27 +4768,44 @@ assembleFlowImpl measure flowStart flowIndent items =
                     1
                   )
 
+        -- The rows are counted before the step is handed the assembly.
+        -- `totalRows` reads only plain fields, which a step does not write,
+        -- but the ownership checker takes a local that adds a field it reads
+        -- at a type variable, `doneHeight` a `number` here, to take the
+        -- record (geng-lang m4-own.md §OW27.7).
         step paired accResult =
             accResult
                 |> Result.andThen
                     (\acc ->
+                        let
+                            before =
+                                if measure then
+                                    totalRows acc.core
+
+                                else
+                                    0
+                        in
                         stepUnwrapped paired acc.core
                             |> Result.map
                                 (\core ->
-                                    { core = core
-                                    , measures =
+                                    -- `measures` first, since it counts
+                                    -- `core`'s rows, and a record's fields run
+                                    -- in the order they are written
+                                    -- (m4-own.md D934).
+                                    { measures =
                                         -- A Builder, used once per step,
                                         -- for the reason `curRow` is one.
                                         if measure then
                                             Builder.pushLast
                                                 { node = paired.item.node
                                                 , box = paired.item.box
-                                                , rowsAdded = totalRows core - totalRows acc.core
+                                                , rowsAdded = totalRows core - before
                                                 }
                                                 acc.measures
 
                                         else
                                             acc.measures
+                                    , core = core
                                     }
                                 )
                     )
@@ -4882,7 +4909,7 @@ assembleFlowImpl measure flowStart flowIndent items =
     in
     Array.foldl step
         (Ok
-            { core = { rows = emptyRows, curRow = noRow, state = FP.initialFlowState }
+            { core = { rows = emptyRows, curRow = noRow {}, state = FP.initialFlowState }
             , measures = Builder.empty 0
             }
         )

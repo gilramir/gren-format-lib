@@ -849,11 +849,11 @@ addOneComment locComment state =
 
         Ctx.Block _ ->
             when tryLeadingGluedAttach locComment state is
-                Just gluedState ->
+                Ok gluedState ->
                     gluedState
 
-                Nothing ->
-                    addCommentGeneric locComment state
+                Err unglued ->
+                    addCommentGeneric locComment unglued
 
 
 {-| The shared tail of comment placement, used both when a comment re-hits
@@ -1031,7 +1031,9 @@ mkCommentLpShape locComment =
 
 {-| If `locComment` is a block comment glued to the front of a top-level
 declaration, attach it there and return the updated `CommentState`; otherwise
-`Nothing` (the generic placement runs).
+the state as it was, in `Err`, for the generic placement to take (the state
+holds a builder, which is used once, so it is handed back rather than kept by
+the caller too: geng-lang m4-own.md §OW27).
 
 Searches only `state.target` (if any) plus `state.rest` — never
 `state.settled` — because a comment can only glue to a declaration whose
@@ -1041,11 +1043,11 @@ doc comment), and `coveredByOtherDecl`'s `first <= row && row <= last` check
 can never hold for one of them. Searching the smaller active window instead
 of the whole tree is what keeps this from being an O(n) rescan on every block
 comment. -}
-tryLeadingGluedAttach : Located Ctx.Comment -> CommentState -> Maybe CommentState
+tryLeadingGluedAttach : Located Ctx.Comment -> CommentState -> Result CommentState CommentState
 tryLeadingGluedAttach locComment state =
     when locComment.value is
         Ctx.Line _ ->
-            Nothing
+            Err state
 
         Ctx.Block _ ->
             let
@@ -1116,7 +1118,7 @@ tryLeadingGluedAttach locComment state =
             in
             when target is
                 Nothing ->
-                    Nothing
+                    Err state
 
                 Just { index } ->
                     let
@@ -1126,13 +1128,13 @@ tryLeadingGluedAttach locComment state =
                     when state.target is
                         Just t ->
                             if index == 0 then
-                                Just { state | target = Just (openNode (attachLeadingChild startPos commentNode (closeOpen t))) }
+                                Ok { state | target = Just (openNode (attachLeadingChild startPos commentNode (closeOpen t))) }
 
                             else
-                                Just { state | rest = attachAt (index - 1) startPos commentNode state.rest }
+                                Ok { state | rest = attachAt (index - 1) startPos commentNode state.rest }
 
                         Nothing ->
-                            Just { state | rest = attachAt index startPos commentNode state.rest }
+                            Ok { state | rest = attachAt index startPos commentNode state.rest }
 
 
 {-| `attachLeadingChild` on the declaration at `index` of `decls`. -}

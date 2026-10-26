@@ -73,9 +73,11 @@ flattenPipeline locExpr =
 flattenPipelineHelp : Src.Expression -> Builder { op : Located String, body : Src.Expression } -> { seed : Src.Expression, steps : Array { op : Located String, body : Src.Expression } }
 flattenPipelineHelp locExpr rightSteps =
     let
-        -- What is left of the spine is the seed.
-        finish {} =
-            { seed = locExpr, steps = Array.reverse (Builder.toArray rightSteps) }
+        -- What is left of the spine is the seed. The steps are handed in,
+        -- since a builder is used once and is handed on down the spine
+        -- (geng-lang m4-own.md §OW27).
+        finish steps =
+            { seed = locExpr, steps = Array.reverse (Builder.toArray steps) }
     in
     when locExpr.value is
         Src.Binops { left = lhsExpr, operator = op, right = rhsExpr } ->
@@ -83,10 +85,10 @@ flattenPipelineHelp locExpr rightSteps =
                 flattenPipelineHelp lhsExpr (Builder.pushLast { op = op, body = rhsExpr } rightSteps)
 
             else
-                finish {}
+                finish rightSteps
 
         _ ->
-            finish {}
+            finish rightSteps
 
 
 {-| Render the body of a pipeline step.
@@ -143,22 +145,23 @@ flattenBinop locExpr =
 flattenBinopHelp : Src.Expression -> Builder Src.Expression -> Builder (Located String) -> { operands : Array Src.Expression, ops : Array (Located String) }
 flattenBinopHelp locExpr rightOperands rightOps =
     let
-        -- What is left of the spine is one operand: the chain's first.
-        finish {} =
-            { operands = Array.pushFirst locExpr (Array.reverse (Builder.toArray rightOperands))
-            , ops = Array.reverse (Builder.toArray rightOps)
+        -- What is left of the spine is one operand: the chain's first. The
+        -- builders are handed in, as `flattenPipelineHelp`'s are.
+        finish operands ops =
+            { operands = Array.pushFirst locExpr (Array.reverse (Builder.toArray operands))
+            , ops = Array.reverse (Builder.toArray ops)
             }
     in
     when locExpr.value is
         Src.Binops { left = lhs, operator = op, right = rhs } ->
             if isPipelineOp op.value then
-                finish {}
+                finish rightOperands rightOps
 
             else
                 flattenBinopHelp lhs (Builder.pushLast rhs rightOperands) (Builder.pushLast op rightOps)
 
         _ ->
-            finish {}
+            finish rightOperands rightOps
 
 
 {-| True for an operand that's a parenthesized `when`/`if`/`let` — content
