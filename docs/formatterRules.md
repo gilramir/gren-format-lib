@@ -86,24 +86,12 @@ The four core rules:
    produces the same code back. Format once or ten times — same result. A
    torture test inserts a comment into every inter-token gap of every fixture
    file, formats twice, and requires byte-identical output. Nothing shifts.
-   Its **44** residual findings, out of some 143,000 comment probes over the
-   whole fixture corpus, are not shifts at all: every one is an upstream parser
-   bug reached by the probe, in two families.
-
-   **38** are
-   [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
-   which reads `10 -` ⏎ `····3` as the call `10 (-3)`, so a `--` written after
-   that `-` comes back as `---`. The formatter's own AST check catches that and
-   refuses the file (see
-   [knownLimitations.md](knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column)).
-   The other **6** are
-   [compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14),
-   where a continuation line at exactly the same column as the body above it
-   ends that body early — so splicing a comment there changes what the parser
-   believes the code says.
-
-   Nothing left in it is the formatter's to fix; the 44 are registered by name
-   and forgiven, and they stop being reported when those parser fixes ship.
+   Over some 143,000 comment probes across the whole fixture corpus it finds
+   nothing at all. (Until `gren-format` adopted compiler-common 4.1.1 it found
+   44, every one an upstream parser bug the probe reached:
+   [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35)
+   and [#14](https://github.com/gren-lang/compiler-common/issues/14). Both are
+   fixed, and the 44 went with them.)
 
    The same test run with a **run of two** comments in every gap — a comment
    whose neighbour is another comment, which is where the rules are hardest —

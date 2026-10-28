@@ -2078,18 +2078,20 @@ the *shape* of the result, which has been stable:
   axis and every gate wires it identically. The dirty half had never been swept
   until 2026-08-23; its first sweep found **24 findings in 66,252 probe sites**
   that the formatted half could not reach.
-- `fuzz-idempotency.py`'s residual is upstream, not formatter-side: every
-  finding at n=1 classifies to a known parser bug — chiefly
+- `fuzz-idempotency.py` finds nothing at n=1. Until the bump to
+  compiler-common 4.1.1 it had a residual of 44, every one classifying to a
+  known parser bug — chiefly
   [compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
   a binary `-` whose right operand starts at the operator's own column parsing
-  as a negation — and is labeled, counted and **not subtracted**. The
-  formatter-side residual is zero.
+  as a negation — labeled, counted and **not subtracted**. Those cleared with
+  the bump, and the formatter-side residual was already zero.
 - The run axes agree with it and add nothing formatter-side: `--run 2`,
   `--run 3`, `--mix-pairs` and `--mix-triples` each report the same findings,
   all classifying upstream. `check-decision-stability.py` reports the same
   counts with the same issue split in its matching modes — two gates arriving at
   one number over 100k+ probes, which is what "imports the other's probe
-  definitions by path rather than copying them" is supposed to buy.
+  definitions by path rather than copying them" is supposed to buy. (Measured
+  before the 4.1.1 bump; the run axes have not been re-swept since.)
 - `matrix-syntax.py --comments`: **0 failing, 0 UNREVIEWED** — every divergence
   from elm-format names a catalog entry. A minority of cells have **no Elm
   twin at all** (Elm requires a definition below its annotation to start in
@@ -2309,7 +2311,6 @@ three are documented with examples in
   recorded position to measure against. Write the list across several lines and
   the two are tellable apart again.
 
-Plus one that is not ours: `compiler-common#35`, §10.
 
 Where `gren-format` and `elm-format` place a comment differently on purpose —
 and there are several such places, each with a reason on record — the list is
