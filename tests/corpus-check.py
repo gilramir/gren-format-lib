@@ -24,8 +24,10 @@ Usage:
     ./corpus-check.py /path/to/pkgs        # sweep a different root
     ./corpus-check.py -v                   # print the first error line per failure
 
-The parser class F gap (compiler-common#31, `Ctor arg as name`) is out of scope
-for gren-format and is reported separately, not counted as a formatter failure.
+A file the parser rejects is out of scope for gren-format and is reported
+separately, not counted as a formatter failure. (The known instance,
+compiler-common#31 `Ctor arg as name`, is fixed in compiler-common 4.0.0 and
+adopted with 4.1.1.)
 
 Rebuild the `gren-format` app first (`cd ../../gren-format && ./build.sh`) — this
 shells out to it.
@@ -47,8 +49,7 @@ def classify(stdout, stderr, code):
     if code == 0:
         return ("ok", "")
     if "FAILED TO PARSE" in out:
-        # Not a formatter bug — the parser rejected the source. compiler-common#31
-        # (unparenthesized `Ctor arg as name`) is the known class F instance.
+        # Not a formatter bug — the parser rejected the source.
         return ("parse", first_real_line(out))
     if "NOT IDEMPOTENT" in out:
         return ("non-idempotent", first_real_line(out))

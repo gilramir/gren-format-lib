@@ -163,14 +163,7 @@ The four core rules:
 
 4. **Formatting is stable.** Running the formatter on already-formatted code
    produces the same code back. Format once or ten times — same result, and
-   nothing in the test corpus shifts. There is one corner case wher we cannot
-   produce proper formatting: an upstream parser bug
-   ([compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35))
-   reads `10 -` ⏎ `····3` as the call `10 (-3)`, so a `--` written after that
-   `-` comes back as `---`. The formatter's own AST check catches that and
-   refuses to write the file rather than corrupt it. Those cases are registered
-   by name so our automated testing allows that pass, until the bug is fixed. See
-   [Known Limitations](knownLimitations.md#a-binary---whose-right-operand-starts-at-the-operators-own-column).
+   nothing in the test corpus shifts.
 
 A few things are **always fixed**, regardless of how you wrote them:
 
@@ -225,7 +218,6 @@ Each rule, with a "you write / gren-format writes" example for every case, is in
 
 `gren-format` has a handful of known gaps:
 
-* a few inherited compiler/parser bugs
 * a `when` pattern shape the Haskell-based compiler can reject
 * a bracketed pattern broken across rows that the Haskell-base compiler rejects
 * several comment-placement choices forced by a token (`=`,

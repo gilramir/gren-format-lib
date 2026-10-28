@@ -458,6 +458,11 @@ regression can't hide among the known ones and a fix can't leave a stale
 exemption behind. Before this the fuzzer just ran permanently red, and eight
 findings of a real bug sat among the upstream ones for weeks.
 
+(The parser bug itself,
+[compiler-common#35](https://github.com/gren-lang/compiler-common/issues/35),
+is fixed in compiler-common 4.0.0. Since `gren-format` adopted 4.1.1, `10 -` ⏎
+`····3` is read as the subtraction it is, and those registered findings are gone.)
+
 ---
 
 ## 8. How fourteen other formatters cope

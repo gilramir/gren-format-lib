@@ -173,8 +173,10 @@ constructor payload. The `as`-alias *base* uses a strictly stricter test,
 is: bare `as` fails after **any** constructor pattern including a 0-arg one, and
 after a bare `Int` literal, so `Nothing as whole` and `0 as n` do not parse.
 That stricter rule is a **parser workaround**, and it is why the dangerous case
-survives — `(Just y) as whole` keeps its parens (compiler-common#31, see
-[knownLimitations](knownLimitations.md#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)).
+survives — `(Just y) as whole` keeps its parens (compiler-common#31). #31 is
+fixed in compiler-common 4.0.0, adopted with 4.1.1, so all three shapes now
+parse bare; the workaround stays until someone decides to drop it, since doing
+so changes output (today `Nothing as whole` is written `(Nothing) as whole`).
 
 **Why this matters beyond cosmetics.** Dropping a paren *deletes tokens*, which
 can move a comment's anchor. That is the one rewrite class the fixed-point

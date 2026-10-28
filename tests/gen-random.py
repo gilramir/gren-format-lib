@@ -359,11 +359,12 @@ class PArray:
         self.items, self.broken = items, broken
         self.cont_delta, self.close_glued = cont_delta, close_glued
 class PAs:
-    # `inner as name` — the parenthesization rule is verified empirically
-    # (see Gen.pattern_base/pattern): bare `as` parses after PVar/PWild/PStr/
-    # PChar/PArray/PRecord, but NEVER after PInt or PCtor (0-arg included) —
-    # broader than the documented compiler-common#31 gap ("constructor
-    # application"), which doesn't mention 0-arg constructors or int literals.
+    # `inner as name` — the parenthesization rule was verified empirically
+    # against compiler-common 3.x (see Gen.pattern_base/pattern): bare `as`
+    # parsed after PVar/PWild/PStr/PChar/PArray/PRecord, but NEVER after PInt
+    # or PCtor (0-arg included) — broader than the documented
+    # compiler-common#31 gap. 4.x (#31 fixed) parses all of them bare; the
+    # generator still parenthesizes, which is valid either way.
     def __init__(self, inner, name): self.inner, self.name = inner, name
 
 

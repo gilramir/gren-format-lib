@@ -760,9 +760,9 @@ output parses". Failures are bucketed by which of those broke — `crash`,
 a work-list rather than a count.
 
 A file the **parser** rejects is reported separately and not counted as a
-formatter failure: gren-format cannot format what the compiler will not parse,
-and the known instance is upstream (compiler-common#31, an unparenthesized
-`Ctor arg as name`).
+formatter failure: gren-format cannot format what the compiler will not parse.
+The known instance used to be upstream (compiler-common#31, an unparenthesized
+`Ctor arg as name`), fixed in compiler-common 4.0.0 and adopted with 4.1.1.
 
 ### How to run it
 

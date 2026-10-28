@@ -8,8 +8,9 @@ module PostfixAccess exposing (..)
 -- was a silently different program. This locks in that both the base and
 -- the dot glue together with no space, and chained accesses keep gluing.
 --
--- NOT covered here: a record-UPDATE base, e.g. `{ r | a = 1 }.a`, still hits
--- the same misparse (verified 2026-07-03) and is not yet fixed upstream.
+-- A record-UPDATE base, `{ r | a = 1 }.a`, hit the same misparse until
+-- compiler-common 4.0.0; `updateBase` below locks it in now that 4.1.1 is
+-- adopted.
 f : Int -> { value : Int, a : { b : Int } }
 f x =
     { value = x, a = { b = x } }
@@ -33,3 +34,8 @@ recordLiteralBase =
 qualifiedBase : Int
 qualifiedBase =
     Config.default.timeout
+
+
+updateBase : { a : Int } -> Int
+updateBase r =
+    { r | a = 1 }.a
