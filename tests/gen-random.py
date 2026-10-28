@@ -364,8 +364,8 @@ class PAs:
     # parsed after PVar/PWild/PStr/PChar/PArray/PRecord, but NEVER after PInt
     # or PCtor (0-arg included) — broader than the documented
     # compiler-common#31 gap. 4.x parses them bare only as a `when` branch's
-    # whole pattern; inside brackets the gap remains. The generator always
-    # parenthesizes, which is valid everywhere.
+    # whole pattern; inside brackets the gap remains (compiler-common#48). The
+    # generator always parenthesizes, which is valid everywhere.
     def __init__(self, inner, name): self.inner, self.name = inner, name
 
 

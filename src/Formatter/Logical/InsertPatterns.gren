@@ -264,7 +264,7 @@ argNeedsParens pat =
 
 -- The base of an `as`-alias needs parens in more cases than `argNeedsParens`
 -- covers, wherever the alias is not a `when` branch's whole pattern (see
--- `insertBranchPattern`). This works around compiler-common: inside brackets,
+-- `insertBranchPattern`). This works around compiler-common#48: inside brackets,
 -- in a constructor payload, and in a function or lambda argument, the pattern
 -- is read by `topLevelParser`, whose number and constructor branches return
 -- without looking for `as`. So `(Nothing as w)`, `(0 as n)` and

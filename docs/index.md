@@ -268,7 +268,8 @@ of them affect `gren-format` any more.
 * [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) —
   partly fixed in 4.0.0: an alias that is a `when` branch's whole pattern now
   parses (`Nothing as whole ->`), but inside brackets `as` after a number or
-  constructor is still refused (`Just (Nothing as inner)`). See
+  constructor is still refused (`Just (Nothing as inner)`), now tracked as
+  [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48). See
   [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 

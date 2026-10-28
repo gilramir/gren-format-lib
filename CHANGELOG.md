@@ -27,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `0 as z ->`, as elm-format writes them, where `(Nothing) as whole ->` and
   `(0) as z ->` were written before. The parens worked around
   compiler-common#31, which 4.0.0 fixed for this position. Elsewhere, inside
-  brackets, the parser still needs them, so `Just ((Nothing) as inner)` is
-  unchanged.
+  brackets, the parser still needs them (compiler-common#48), so
+  `Just ((Nothing) as inner)` is unchanged.
 
 ### Fixed
 

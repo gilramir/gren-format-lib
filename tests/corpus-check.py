@@ -25,10 +25,9 @@ Usage:
     ./corpus-check.py -v                   # print the first error line per failure
 
 A file the parser rejects is out of scope for gren-format and is reported
-separately, not counted as a formatter failure. (The known instance,
-compiler-common#31, an `as`-alias inside brackets whose base is a number or
-constructor, as in `Just (Nothing as inner)`. 4.0.0 fixed it only for a `when`
-branch's whole pattern.)
+separately, not counted as a formatter failure. (The known instance is
+compiler-common#48, the rest of #31: an `as`-alias inside brackets whose base
+is a number or constructor, as in `Just (Nothing as inner)`.)
 
 Rebuild the `gren-format` app first (`cd ../../gren-format && ./build.sh`) — this
 shells out to it.

@@ -175,7 +175,8 @@ base uses a stricter test, `aliasBaseNeedsParens`, which also wraps any
 constructor and any `Int` literal: `Just ((Nothing) as inner)`,
 `f ((0) as z)`. That stricter rule is a **parser workaround**. Inside
 brackets compiler-common 4.1.1 refuses `as` after a number or constructor,
-the part of compiler-common#31 that 4.0.0 left open; see
+the part of compiler-common#31 that 4.0.0 left open, now
+[compiler-common#48](https://github.com/gren-lang/compiler-common/issues/48); see
 [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
 
 **Why this matters beyond cosmetics.** Dropping a paren *deletes tokens*, which

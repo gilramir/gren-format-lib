@@ -89,7 +89,8 @@ The bare form is valid Gren, but compiler-common 4.1.1 refuses it, so
 gren-format can't write it. This is the part of
 [compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31)
 that 4.0.0 did not fix: inside brackets the parser reads the pattern without
-checking for `as` after a number or constructor. A `let` destructure is
+checking for `as` after a number or constructor. Tracked at
+[compiler-common#48](https://github.com/gren-lang/compiler-common/issues/48). A `let` destructure is
 parsed differently again and refuses `Just n as w`, so gren-format writes
 `(Just n) as w` there.
 
