@@ -1210,8 +1210,7 @@ def emit_pat_rows(p, col, flat=emit_pat):
     expression is.
 
     The baked delta is kept small anyway, and clamped away from column 0: an
-    item at column 0 reads as a new top-level declaration, and divergence #31
-    already owns that shape."""
+    item at column 0 reads as a new top-level declaration."""
     if not getattr(p, "broken", False):
         return [flat(p)]
     cont = max(1, col + p.cont_delta)
