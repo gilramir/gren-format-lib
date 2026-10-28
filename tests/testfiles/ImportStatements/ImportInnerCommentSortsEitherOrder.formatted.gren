@@ -18,11 +18,16 @@ module ImportInnerCommentSortsEitherOrder exposing (v)
 -- Both row tests had to move together. Correcting only the blank-line pass left
 -- `collectRun` still splitting the run: the first format then failed to sort
 -- while the second, reading the hoisted comment back at column 1, succeeded.
+--
+-- Since compiler-common 4.x fixed #25, the parser records the import as
+-- starting on its `import` row, so the inner comment is inside the import and
+-- keeps the row it was written on; nothing is hoisted. Both orders must still
+-- format to the same bytes.
 
-{- k1
-   bravo -} {- k2
-               tango -}
-import Foo2
+import {- k1
+          bravo -}
+    Foo2 {- k2
+            tango -}
 import Qux0
 
 

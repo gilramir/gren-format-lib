@@ -1025,8 +1025,9 @@ def format_diff_class(base_fmt, vf):
       * blank-line only — the two outputs differ solely in blank lines.
         All such drift today is the gap-driven blank spacing around a
         keyword-led declaration reading the wrong source row
-        (compiler-common#25: the parser stores the name's row, not the
-        keyword's).
+        (compiler-common#25: the parser stored the name's row, not the
+        keyword's; fixed in 4.0.0 and adopted with 4.1.1, so this should no
+        longer occur).
       * comment placement only — identical code skeleton and identical set of
         comment texts, so only a comment's home (and blank lines) moved. This
         is the documented residue where a comment anchored to a position-less

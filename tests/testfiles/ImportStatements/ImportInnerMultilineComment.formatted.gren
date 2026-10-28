@@ -17,11 +17,16 @@ module ImportInnerMultilineComment exposing (v)
 -- (`import {- between iz -} Zebra`), whose comment starts and ends on the same
 -- row as its import and so misses both misreadings. Fixed in d2b927c; nothing
 -- but a full dirty-corpus sweep covered it until this fixture.
+--
+-- Since compiler-common 4.x fixed #25, the parser records the import as
+-- starting on its `import` row, so the comment is inside the import: it keeps
+-- the row it was written on and is no longer promoted to a sibling. The
+-- fixture still pins that the sort carries it with `Dict`.
 
 import Array
-{- x
-   y -}
-import Dict
+import {- x
+          y -}
+    Dict
 import Set
 
 

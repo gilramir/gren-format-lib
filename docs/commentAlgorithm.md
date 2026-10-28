@@ -1849,6 +1849,14 @@ the default for `fuzz-idempotency.py`, `check-decision-stability.py` and
 
 #### The mechanism is narrower than "the anchor moved"
 
+(Since compiler-common 4.x fixed
+[#25](https://github.com/gren-lang/compiler-common/issues/25), the parser
+records an import as starting on its `import` row, so a comment written
+between `import` and the module name is inside the import's range and stays
+there, on the row it was written on. The shapes below no longer reach this
+path; the fixtures that pinned it still check that the sort carries the
+comment with its import.)
+
 Worth stating exactly, because the precise shape is what makes the class hard to
 test for. **Attachment promotes a comment written *inside* a statement to a
 sibling of that statement** (§4.2). The sibling's row range then *straddles* the

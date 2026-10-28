@@ -242,6 +242,14 @@ Sorting imports moves the `import` a comment was anchored to. When we got that
 bookkeeping wrong, the comment stayed put while its anchor sailed away, and the
 second run classified it differently.
 
+(Since compiler-common 4.x fixed
+[#25](https://github.com/gren-lang/compiler-common/issues/25), the parser
+records an import as starting on its `import` row, so a comment written
+between `import` and the module name is inside the import's range and stays
+there, on the row it was written on. The shapes below no longer reach this
+path; the fixtures that pinned it still check that the sort carries the
+comment with its import.)
+
 Here's one of the bugs we hit. The comment is written *inside* an `import`,
 which is a place the tree has no room for a comment, so the formatter has to
 promote it to a line of its own. The goal was to sort the Alpha, Mu, and Zeta

@@ -20,6 +20,11 @@ module ImportInnerAndTrailingMultiline exposing (v)
 -- This order happened to be the one that worked: it pins the sorter's row rule.
 -- `ImportInnerCommentSortsEitherOrder` pins the same two imports written the
 -- OTHER way round, which needed the unit's row EXTENT as well.
+--
+-- Since compiler-common 4.x fixed #25, the parser records the import as
+-- starting on its `import` row, so the inner comment is inside the import and
+-- keeps the row it was written on, instead of merging with the trailing one
+-- into a sibling. The sort must still carry both comments with `Foo2`.
 
 
 import Qux0

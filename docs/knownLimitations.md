@@ -20,7 +20,6 @@ nothing is going wrong.
   - [Where it showed up](#where-it-showed-up)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
-- [A line break inside a declaration's head](#a-line-break-inside-a-declarations-head)
 - [Comments near an effect module's `where` block](#comments-near-an-effect-modules-where-block)
 - [A comment right after `exposing` doesn't sort with the first name](#a-comment-right-after-exposing-doesnt-sort-with-the-first-name)
 - [A module `exposing` list's closing paren isn't recorded](#a-module-exposing-lists-closing-paren-isnt-recorded)
@@ -517,41 +516,6 @@ it. That is uniform across all three separators, which is why it was chosen — 
 it costs elm-format parity on the record update, because elm-format has its own
 parser, does not have to collapse anything, and renders each of the two spellings
 differently. See [divergence #22](elmFormatComparison.md#divergence-22).
-
-## A line break inside a declaration's head
-
-> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#25). `gren-format-lib`
-> still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by two 4.x regressions,
-> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
-> [#44](https://github.com/gren-lang/compiler-common/issues/44).
-
-A line break *inside* a declaration's keyword (e.g. `import` on one line,
-the module name on the next) can cause a blank line to appear between a
-comment and that declaration. The root cause is a parser bug that records the
-wrong line number for keyword-led declarations:
-[compiler-common#25](https://github.com/gren-lang/compiler-common/issues/25).
-
-```gren
--- a comment
-import
-    String
-```
-
-formats to:
-
-```gren
--- a comment
-
-import String
-```
-
-with a spurious blank line pushed between the comment and the import it was
-written directly above — even though writing the same import on one line
-(`-- a comment` / `import String`) formats with no blank line at all. The
-parser records the position of `String` (the name) rather than `import` (the
-keyword), so the formatter sees a bigger gap between the comment and the
-declaration than the author actually left.
 
 ## Comments near an effect module's `where` block
 

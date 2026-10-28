@@ -346,7 +346,9 @@ def known_upstream_issue(workdir, source):
     hoisted out of the declaration and one kept inside, and the blank-line count
     above the torn run differs between the two formats. Not fixable here — the
     keyword's true row is simply not in the AST. Write-up in
-    `../../COMPILER_COMMON_BUG_decl_start_row.md`.
+    `../../COMPILER_COMMON_BUG_decl_start_row.md`. Fixed in compiler-common
+    4.0.0 and adopted with 4.1.1, so this label should no longer fire; one that
+    does is worth a look.
 
     Its two signals:
 

@@ -826,6 +826,14 @@ adds or drops the `port` keyword on a module header (and a fourth on request:
 
 ### 7.2 The bug we hit
 
+(Since compiler-common 4.x fixed
+[#25](https://github.com/gren-lang/compiler-common/issues/25), the parser
+records an import as starting on its `import` row, so a comment written
+between `import` and the module name is inside the import's range and stays
+there, on the row it was written on. The shapes below no longer reach this
+path; the fixtures that pinned it still check that the sort carries the
+comment with its import.)
+
 A comment's **anchor** is the code its placement was decided against. Requirement
 (ii) fails when the formatter moves that code out from under the decision.
 Ours did, for a comment written inside an import statement:
