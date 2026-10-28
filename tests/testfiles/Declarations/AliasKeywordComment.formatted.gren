@@ -1,11 +1,12 @@
-module M exposing (S, T, U, V)
+module M exposing (S, T, U, V, W, X, Y)
 
 
 type alias T =
     Int
 
 
-type alias {- own row -} S =
+{- own row -}
+type alias S =
     Int
 
 
@@ -16,3 +17,17 @@ type alias U =
 
 type {- union -} V
     = A
+
+
+{- below alias -}
+type alias W =
+    Int
+
+
+-- line comment
+type alias X =
+    Int
+
+
+type alias {- name row -} Y =
+    Int

@@ -216,6 +216,25 @@ else
 `then` has no recorded position, so "the end of the condition" and "the start of
 the body" are the same place. Nothing here distinguishes them.
 
+`type alias` is another. The `alias` keyword has no recorded position, so a
+comment between `type` and the name can't be kept on either side of it. One
+written on any row before the name's row moves above the declaration, whether
+you wrote it on the `type` row or on a row of its own. One on the name's row
+stays in the header before the name:
+
+```gren
+-- you write:                      -- gren-format writes:
+type {- c -} alias S =             {- c -}
+    Int                            type alias S =
+                                       Int
+type
+    {- c -}                        {- c -}
+    alias S =                      type alias S =
+    Int                                Int
+```
+
+elm-format keeps the comment where you wrote it, `type {- c -} alias S =`.
+
 The clearest case is a `--` at a `,` or a `|`, because the two spellings that
 collapse are the two you are most likely to have meant differently. These:
 

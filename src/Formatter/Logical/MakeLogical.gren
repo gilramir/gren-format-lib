@@ -770,8 +770,27 @@ processAliasDecl modDecl root =
         alias_ =
             modDecl.value.value
 
+        -- The parser records no position for `alias`, so a comment between
+        -- `type` and the name can't be placed relative to it. A comment
+        -- inside the keyword's span leads the declaration. When the name is
+        -- on a later row, the span runs to the start of the name's row, so a
+        -- comment on any row before the name leads the declaration too,
+        -- whether it was written on the `type` row or on a row of its own.
+        typeAliasStart =
+            { row = modDecl.start.row, col = 1 }
+
         typeAliasNode =
-            lpnLeaf (mkText { row = modDecl.start.row, col = 1 } "type alias")
+            if alias_.name.start.row > typeAliasStart.row then
+                lpnLeaf
+                    (UnbreakableText
+                        { start = typeAliasStart
+                        , end = { row = alias_.name.start.row, col = 1 }
+                        , value = "type alias"
+                        }
+                    )
+
+            else
+                lpnLeaf (mkText typeAliasStart "type alias")
 
         nameNode =
             lpnLeaf (mkTextFromLocString alias_.name)
