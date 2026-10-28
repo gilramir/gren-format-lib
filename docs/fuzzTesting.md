@@ -207,13 +207,16 @@ counted per generation, sampled into `fuzzrun-out/quarantine/<hash>/`, and
 reported by `status`. This number should be zero. If it isn't, fix the generator
 before trusting the crash and idempotency findings around it.
 
-One known exception: since the move to compiler-common 4.1.1, about 3% of the
-`dense-comments` lane's modules are quarantined because of
+One known exception: since the move to compiler-common 4.1.1, a lane that
+generates comments has some modules quarantined because of
 [compiler-common#50](https://github.com/gren-lang/compiler-common/issues/50). A
 block comment at the start of a line makes the lines below it need deeper
-indentation, and the generator's indentation is correct for gren 0.6.6. The other
-lanes stay at zero. Read a dense-comments quarantine as #50 only after checking
-the samples, since a new generator bug would show up in the same count.
+indentation, and the generator's indentation is correct for gren 0.6.6. The
+first 3-hour sweep after the move (2026-10-28) quarantined 2.8% of
+`dense-comments`, 0.7% of `default-mix` and none of `deep-structure`, which has
+no comments. Every sample checked (61) parsed once its line-leading comments
+were taken out of the way. A new generator bug would show up in the same count,
+so check the samples before putting a quarantine down to #50.
 
 ---
 
