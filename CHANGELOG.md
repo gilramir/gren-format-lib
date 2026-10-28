@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Built on `gren-lang/compiler-common` 4.1.1 and `gren-lang/core` 7.6.1**
+  (was compiler-common 3.x and core 7.4+). The new parser fixes a set of bugs
+  that `gren-format` used to inherit (see the list in
+  [docs/index.md](docs/index.md)). It also refuses some input that 3.x
+  accepted: a custom-type variant with two or more arguments, and a top-level
+  declaration that does not start in column 1. Neither is valid Gren, so the
+  formatter now refuses those files instead of formatting them.
+
 ### Fixed
 
 - **A list, record or body with many comments formats faster.** Placing a

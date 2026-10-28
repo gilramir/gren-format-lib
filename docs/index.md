@@ -239,13 +239,10 @@ For a full write-up, with examples, see: **[Known Limitations](knownLimitations.
 Furthermore, here is a list of the GitHub issues we are tracking in upstream
 packages that affect the output of `gren-format`.
 
-**Fixed upstream, not yet adopted.** These are fixed in
-`gren-lang/compiler-common` 4.0.0 / 4.1.0 (released October 2026), and each was
-checked against a `gren-format` built on 4.1.0. `gren-format-lib` still depends
-on compiler-common 3.x, so they still affect `gren-format` today. 4.0.0 and
-4.1.0 have a parser regression that rejects ordinary `let` and `when` code
-(#43, in the next list), and compiler-node 5.0.0 still pins compiler-common < 4.0.0,
-so the dependency can't be bumped yet.
+**Fixed upstream and adopted.** These are fixed in `gren-lang/compiler-common`
+4.0.0 / 4.1.0 / 4.1.1 and `gren-lang/core` 7.5.0 (released October 2026).
+`gren-format-lib` now depends on compiler-common 4.1.1 and core 7.6.1, so none
+of them affect `gren-format` any more.
 
 * [compiler-common#11 - Gren parser is more strict with indentation in when..is expressions](https://github.com/gren-lang/compiler-common/issues/11)
   (closed as a duplicate of #14)
@@ -262,18 +259,16 @@ so the dependency can't be bumped yet.
 * [core#134 - String.toInt returns the wrong value for 24 exactly-representable integers near 2^53](https://github.com/gren-lang/core/issues/134) — fixed in
   `gren-lang/core` 7.5.0. compiler-common 4.1.0 requires core 7.6.1, so this
   comes in with the bump.
+* [compiler-common#43 - 4.0.0 regression: a `let` binding or `when` branch swallows the next one as an argument](https://github.com/gren-lang/compiler-common/issues/43) —
+  a regression introduced by the #14 fix, fixed in 4.1.1.
+* [compiler-common#44 - 4.0.0: the parentheses around a variant payload are not recorded in the AST](https://github.com/gren-lang/compiler-common/issues/44) —
+  a regression introduced by the #32 fix, fixed in 4.1.1.
+* [compiler-common#45 - A type application takes a following `->` into its last argument: `Maybe a -> b` parses as `Maybe (a -> b)`](https://github.com/gren-lang/compiler-common/issues/45) —
+  fixed in 4.1.1. The tree was wrong but printed back as written, so it never
+  changed `gren-format`'s output.
 
 **Still open**:
 
-* [compiler-common#43 - 4.0.0 regression: a `let` binding or `when` branch swallows the next one as an argument](https://github.com/gren-lang/compiler-common/issues/43) —
-  introduced by the #14 fix; ordinary code like `a = max 1 2` ⏎ `b = 3`, or
-  `0 -> n` ⏎ `_ -> 0`, fails to parse. Blocks the 4.x bump.
-* [compiler-common#44 - 4.0.0: the parentheses around a variant payload are not recorded in the AST](https://github.com/gren-lang/compiler-common/issues/44) —
-  introduced by the #32 fix; the formatter would print `MyCmd (Task.Task Never msg)`
-  as `MyCmd Task.Task Never msg`, which means something else. Blocks the 4.x bump.
-* [compiler-common#45 - A type application takes a following `->` into its last argument: `Maybe a -> b` parses as `Maybe (a -> b)`](https://github.com/gren-lang/compiler-common/issues/45) —
-  in 3.0.0 and 4.1.0. The tree is wrong but prints back as written, so it
-  doesn't change `gren-format`'s output today.
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---
