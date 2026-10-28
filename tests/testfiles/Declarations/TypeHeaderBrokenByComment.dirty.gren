@@ -1,0 +1,33 @@
+module TypeHeaderBrokenByComment exposing (..)
+
+
+type alias OwnRow
+    -- c
+    a =
+    { a : a }
+
+
+type alias TrailsName -- c
+    a =
+    { a : a }
+
+
+type alias TrailsVar a -- c
+    b =
+    { a : a, b : b }
+
+
+type alias MultiLine {- c
+    d -} a =
+    { a : a }
+
+
+type Union
+    -- c
+    a
+    = A a
+
+
+type UnionTrailsName -- c
+    a
+    = B a

@@ -606,7 +606,16 @@ makeOpAndRhsBox children =
 
 
 {-| Header + indented body: `type alias Name =` / body, `type Name` / variants —
-header inline, body dropped +4 (elm-format). -}
+header inline, body dropped +4 (elm-format).
+
+The header is one line unless a comment breaks it (a `--`, or a block comment
+spanning rows). Its continuation rows are indented `grenIndent`, like a
+function head's: at column 1 they would start a new declaration for the
+compiler.
+
+Comments before the header's first token lead the declaration, and sit above
+it at the declaration's own column. They are laid out as their own flow, so
+two written on one row stay on one row. -}
 renderHeaderIndentedBody : (RenderNode -> Result String Box) -> Array RenderNode -> Result String Box
 renderHeaderIndentedBody bodyRenderer children =
     when Array.popLast children is
@@ -614,7 +623,25 @@ renderHeaderIndentedBody bodyRenderer children =
             Err "box: empty declaration"
 
         Just { initial = header, last = bodyBlock } ->
-            buildFlowBox 0 header
+            let
+                leadCount =
+                    Array.findFirst (\n -> not (nodeIsComment n)) header
+                        |> Maybe.map .index
+                        |> Maybe.withDefault (Array.length header)
+
+                leading =
+                    Array.takeFirst leadCount header
+
+                headerBoxResult =
+                    if Array.isEmpty leading then
+                        buildFlowBox grenIndent header
+
+                    else
+                        Result.map2 (\leadBox headerBox -> B.stack1 [ leadBox, headerBox ])
+                            (buildFlowBox 0 leading)
+                            (buildFlowBox grenIndent (Array.dropFirst leadCount header))
+            in
+            headerBoxResult
                 |> Result.andThen
                     (\headerBox ->
                         bodyRenderer bodyBlock

@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `type alias` or `type` header that a comment breaks no longer puts the
+  rest of the header in column 1.** `type alias P` ⏎ `-- c` ⏎ `a =` came out
+  with `-- c` and `a =` in column 1, which `gren make` refuses because it
+  reads them as a new declaration. The rows after the break are now indented
+  4, as a function head's already were. A block comment spanning rows broke
+  the header the same way.
 - **A list, record or body with many comments formats faster.** Placing a
   comment split its container's children at the comment and joined them
   again, which copied all of them, so a container of n commented items copied

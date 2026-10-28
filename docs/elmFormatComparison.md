@@ -1363,7 +1363,9 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
 
     elm-format's rule is that a comment inside a construct forces every part of
     that construct onto its own line — so a `<|` loses its operand, and a `when`
-    pattern is split from its own `->`. gren-format treats a comment as something
+    pattern is split from its own `->`. A declaration's head is the same: for
+    `type alias P` ⏎ `-- c` ⏎ `a =`, elm-format gives `P`, `a` and `=` a row
+    each, where gren-format keeps `a =` together, indented 4. gren-format treats a comment as something
     to place, not as a reason to re-lay-out working code.
 
 24. <a id="divergence-24"></a>**A record update's line-leading comment sits at
