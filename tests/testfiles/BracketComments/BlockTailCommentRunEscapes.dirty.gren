@@ -2,8 +2,9 @@ module BlockTailCommentRunEscapes exposing (deep)
 
 -- A run of multi-line `{- … -}`s trailing an `IndentedBlock` that something
 -- FOLLOWS. Here the block is an `if`'s `else` body and what follows is a call
--- argument, because the array is written left of the body's own column and so
--- applies to the whole `if` rather than to `String.join`.
+-- argument, because the array was written left of the body's own column and so,
+-- with compiler-common 3.x, applied to the whole `if` rather than to
+-- `String.join`.
 --
 -- An `IndentedBlock` closes with a dedent, not a delimiter, so a comment that
 -- brings its own rows renders below the block's content at the block's indent
@@ -17,9 +18,12 @@ module BlockTailCommentRunEscapes exposing (deep)
 -- of the two flows owns it. It takes a RUN to make the owner observable, which
 -- is why only `fuzz-idempotency.py --run 2` could see it.
 --
--- The `else` and its body sitting at the same column is the pre-existing
--- rendering of an `if` in a call's function position and is not what this
--- fixture is about.
+-- Since compiler-common 4.x fixed #14, this input no longer reaches that
+-- path. The parser now reads the array as one more argument of `String.join`,
+-- as the real compiler does, whatever its column: the `if` is no longer in a
+-- call's function position, so `else` lines up under `if`, and the run sits
+-- inside the call, each member on its own row. The fixture is kept as a
+-- guard that this shape stays stable.
 
 
 deep flag names =

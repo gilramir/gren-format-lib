@@ -126,7 +126,8 @@ written below it should treat a trailing comment alike. It converges the probe's
 the body block is the node's last child, so `hasNoFollowingSibling` vetoes the
 arm, and the only tree that reaches it is a misparsed one
 (`compiler-common#14`). Its whole effect was to turn that probe's
-non-idempotency into an AST-mismatch refusal.
+non-idempotency into an AST-mismatch refusal. (#14 is fixed in compiler-common
+4.0.0, adopted with 4.1.1, so that misparsed tree no longer arises.)
 
 ---
 

@@ -325,6 +325,8 @@ def known_upstream_issue(workdir, source):
     tree is simply wrong and no rendering of it can be right. This is the half
     the issue's own text does not cover, already added there as a comment — **do
     not file a new ticket**; see `../../parser-same-column-continuation-bug.md`.
+    Fixed in compiler-common 4.0.0 and adopted with 4.1.1, so this label should
+    no longer fire; one that does is worth a look.
 
     Its two signals, both read off the parser's own output:
 

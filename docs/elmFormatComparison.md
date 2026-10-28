@@ -1969,8 +1969,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     [compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14).
     The emitted shape is safe — a continuation body opens a new scope at the base
     column, so the row above is already closed — but the aligned form reads like
-    a statement list, so a second statement written at that column is a parse
-    error rather than the reading the author intended. It fails loudly.
+    a statement list, so a second statement written at that column is not read
+    as one. It fails loudly, at compile time.
 
     ```gren
     -- you write, taking the aligned rows for a list of statements and adding
@@ -1987,13 +1987,12 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     ```
 
     `cleanup env` sits at the chain's column, and nothing reads it as the next
-    statement. gren-format refuses the file — `FAILED TO PARSE`, with the caret
-    on the `in` — because the binding's body scoped its indent to the column of
-    the first `Init.await` and a token back at exactly that column ends the body
-    early. That refusal is #14 itself. The real compiler does parse the text, but
-    it reads `cleanup env` as *more arguments* to the row above and stops on the
-    type error that gives. So the two disagree about which error you get, and
-    agree that the row is not a statement — contrast
+    statement. gren-format reads it the way the real compiler does, as *more
+    arguments* to the row above, and formats it that way, with `cleanup` and
+    `env` indented under `done` as its arguments. Compiling then stops on the
+    type error that gives. (Before compiler-common 4.x fixed #14, gren-format
+    refused the file instead, because a token back at exactly the body's column
+    ended the body early.) So the row is not a statement — contrast
     [#34](#divergence-34)'s swallowed `|>` step, which compiles.
 
 34. <a id="divergence-34"></a>**A bare operand after `|>` keeps its head on the

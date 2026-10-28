@@ -100,8 +100,7 @@ The four core rules:
    [compiler-common#14](https://github.com/gren-lang/compiler-common/issues/14),
    where a continuation line at exactly the same column as the body above it
    ends that body early — so splicing a comment there changes what the parser
-   believes the code says (see [that
-   entry](knownLimitations.md#a-continuation-line-at-the-same-column-as-the-body-above-it)).
+   believes the code says.
 
    Nothing left in it is the formatter's to fix; the 44 are registered by name
    and forgiven, and they stop being reported when those parser fixes ship.
