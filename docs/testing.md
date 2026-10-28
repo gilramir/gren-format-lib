@@ -761,8 +761,9 @@ a work-list rather than a count.
 
 A file the **parser** rejects is reported separately and not counted as a
 formatter failure: gren-format cannot format what the compiler will not parse.
-The known instance used to be upstream (compiler-common#31, an unparenthesized
-`Ctor arg as name`), fixed in compiler-common 4.0.0 and adopted with 4.1.1.
+The known instance is upstream: compiler-common#31, an `as`-alias inside
+brackets whose base is a number or constructor (`Just (Nothing as inner)`).
+4.0.0 fixed it only for a `when` branch's whole pattern.
 
 ### How to run it
 

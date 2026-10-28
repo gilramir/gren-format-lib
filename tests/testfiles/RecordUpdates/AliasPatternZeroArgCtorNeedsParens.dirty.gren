@@ -6,5 +6,35 @@ f x =
         (Nothing) as whole ->
             whole
 
+        Maybe.Nothing as whole ->
+            whole
+
+        Just n as whole ->
+            whole
+
         _ ->
             Nothing
+
+
+g x =
+    when x is
+        Just ((Nothing) as inner) ->
+            inner
+
+        { a = (Just n) as inner } ->
+            inner
+
+        _ ->
+            Nothing
+
+
+h =
+    \((Nothing) as whole) -> whole
+
+
+k x =
+    let
+        (Just n) as whole =
+            x
+    in
+    whole

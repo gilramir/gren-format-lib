@@ -1,7 +1,7 @@
 # Known limitations
 
 Places where `gren-format` falls short of ideal — a shape where the parser it is
-built on deliberately accepts more than today's compiler, a comment-placement
+built on accepts more than today's compiler, or less, a comment-placement
 choice forced by a token with no recorded source position, or a limit of the
 formatter itself. See the main [README](../README.md) for the overview, and
 [Gren Formatter Rules](formatterRules.md) for what the formatter does when
@@ -10,6 +10,7 @@ nothing is going wrong.
 ## Table of contents
 
 - [A definition below its type annotation that doesn't start in column 1 is accepted](#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted)
+- [An `as`-alias inside brackets keeps parens around its base](#an-as-alias-inside-brackets-keeps-parens-around-its-base)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
@@ -69,6 +70,34 @@ refused as well. The elm-format side of the same fact is
 
 Workaround: start definitions in column 1, and give a comment above a
 declaration a row of its own.
+
+## An `as`-alias inside brackets keeps parens around its base
+
+At the top of a `when` branch, gren-format writes an alias the way elm-format
+does: `Nothing as whole ->`, `0 as z ->`. Anywhere else (inside parentheses, a
+list or record pattern, a constructor payload, or a function or lambda
+argument) a number or constructor base keeps a pair of parens elm-format
+leaves out:
+
+```gren
+-- elm-format:                 -- gren-format:
+Just (Nothing as inner) ->     Just ((Nothing) as inner) ->
+f (0 as z) =                   f ((0) as z) =
+```
+
+The bare form is valid Gren, but compiler-common 4.1.1 refuses it, so
+gren-format can't write it. This is the part of
+[compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31)
+that 4.0.0 did not fix: inside brackets the parser reads the pattern without
+checking for `as` after a number or constructor. A `let` destructure is
+parsed differently again and refuses `Just n as w`, so gren-format writes
+`(Just n) as w` there.
+
+The extra parens are harmless and the output compiles. When the parser is
+fixed, `aliasBaseNeedsParens` in `Formatter.Logical.InsertPatterns` can be
+dropped.
+
+---
 
 ## Output today's compiler rejects, that the next one will accept
 

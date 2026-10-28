@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formatter now refuses those files instead of formatting them. (The definition
   line below a type annotation is still accepted at any column; see
   [docs/knownLimitations.md](docs/knownLimitations.md).)
+- **An `as`-alias that is a `when` branch's whole pattern drops the parens
+  around a number or constructor base**: `Nothing as whole ->` and
+  `0 as z ->`, as elm-format writes them, where `(Nothing) as whole ->` and
+  `(0) as z ->` were written before. The parens worked around
+  compiler-common#31, which 4.0.0 fixed for this position. Elsewhere, inside
+  brackets, the parser still needs them, so `Just ((Nothing) as inner)` is
+  unchanged.
 
 ### Fixed
 

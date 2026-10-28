@@ -243,7 +243,6 @@ of them affect `gren-format` any more.
   The declaration's start is now where its parse begins, so when a doc comment
   is present it is the doc comment's start, not the keyword's.
 * [compiler-common#27 - Parser misparses postfix record access after parens, record literals, record updates, and qualified variables](https://github.com/gren-lang/compiler-common/issues/27) — record-update case fixed in 4.0.0
-* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) — fixed in 4.0.0
 * [compiler-common#32 - Parser accepts custom-type variants with more than one bare-constructor argument](https://github.com/gren-lang/compiler-common/issues/32) — fixed in 4.0.0
 * [compiler-common#35 - A binops minus sign ("-") split across rows is parsed as negation when the right operand happens to start at the column immediately after the minus sign](https://github.com/gren-lang/compiler-common/issues/35) — fixed in 4.0.0
 * [compiler-common#36 - hexFolder returns the wrong value for 27 exactly-representable hex literals near 2^53](https://github.com/gren-lang/compiler-common/issues/36) — fixed in 4.0.0
@@ -266,6 +265,11 @@ of them affect `gren-format` any more.
   now tracked as
   [compiler-common#47 - 4.x: a definition below its type annotation is still accepted at any column](https://github.com/gren-lang/compiler-common/issues/47). See
   [Known Limitations](knownLimitations.md#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted).
+* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) —
+  partly fixed in 4.0.0: an alias that is a `when` branch's whole pattern now
+  parses (`Nothing as whole ->`), but inside brackets `as` after a number or
+  constructor is still refused (`Just (Nothing as inner)`). See
+  [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---

@@ -3,8 +3,27 @@ module AliasPatternIntNeedsParens exposing (..)
 
 f x =
     when x is
-        (8) as z ->
+        8 as z ->
+            z
+
+        -1 as n ->
+            n
+
+        _ ->
+            0
+
+
+g x =
+    when x is
+        Just ((8) as z) ->
+            z
+
+        [ (0) as z ] ->
             z
 
         _ ->
             0
+
+
+h ((0) as z) =
+    z

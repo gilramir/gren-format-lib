@@ -26,8 +26,9 @@ Usage:
 
 A file the parser rejects is out of scope for gren-format and is reported
 separately, not counted as a formatter failure. (The known instance,
-compiler-common#31 `Ctor arg as name`, is fixed in compiler-common 4.0.0 and
-adopted with 4.1.1.)
+compiler-common#31, an `as`-alias inside brackets whose base is a number or
+constructor, as in `Just (Nothing as inner)`. 4.0.0 fixed it only for a `when`
+branch's whole pattern.)
 
 Rebuild the `gren-format` app first (`cd ../../gren-format && ./build.sh`) — this
 shells out to it.

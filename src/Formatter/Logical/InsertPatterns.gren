@@ -1,6 +1,7 @@
 module Formatter.Logical.InsertPatterns exposing
     ( argNeedsParens
     , insertArgPattern
+    , insertBranchPattern
     , insertPattern
     )
 
@@ -13,6 +14,7 @@ shapes.
 -}
 
 import Compiler.Ast.Source as Src
+import Compiler.SourcePosition exposing (Located)
 
 import Formatter.Logical.LPTHelpers exposing
     ( authoredBracketList
@@ -71,40 +73,8 @@ insertPattern locPat =
                         [ authoredBracketList (ListCurly RecordValue) spans locPat.start locPat.end (lpnLeaf (mkText locPat.start "{}")) fieldNodes ]
                     )
 
-        Src.PAlias { pattern = pat, name = name } ->
-            insertPattern pat
-                |> Result.map
-                    (\patNodes ->
-                        let
-                            -- `as` isn't a separate AST token, but it sits right
-                            -- before `name` with single-space separation:
-                            --   ( inner-pattern ) as <name>
-                            -- Compute its position from `name.start.col - 3`
-                            -- (one space + "as" = 3 chars) so the
-                            -- comment-placement synth-skip can't push a comment
-                            -- between the inner pattern and `as` past `as`.
-                            asStart =
-                                { row = name.start.row, col = name.start.col - 3 }
-
-                            asNode =
-                                lpnLeaf (mkZeroWidthText asStart "as")
-
-                            nameNode =
-                                lpnLeaf (mkTextFromLocString name)
-
-                            -- The inner pattern needs parens more often here than
-                            -- a plain function-arg/ctor-payload pattern does
-                            -- (`aliasBaseNeedsParens` vs `argNeedsParens`) — see
-                            -- its definition below.
-                            wrappedPatNodes =
-                                if aliasBaseNeedsParens pat.value then
-                                    [ syntheticParens patNodes ]
-
-                                else
-                                    patNodes
-                        in
-                        wrappedPatNodes ++ [ asNode, nameNode ]
-                    )
+        Src.PAlias alias ->
+            insertAlias aliasBaseNeedsParens alias
 
         Src.PCtor { name = name, arg = arg } ->
             let
@@ -158,6 +128,58 @@ insertPattern locPat =
                         String.fromInt value
             in
             Ok [ lpnLeaf (mkText locPat.start text) ]
+
+
+{-| The nodes of a `when` branch's whole pattern. An `as`-alias here is
+parsed by compiler-common's `aliasTopLevelParser`, which reads `as` after any
+base, so the base needs no more parens than a function argument does:
+`Nothing as whole ->`, `0 as z ->`, `Just n as whole ->`. Everywhere else the
+stricter `aliasBaseNeedsParens` still applies.
+-}
+insertBranchPattern : Src.Pattern -> Result String (Array LPNode)
+insertBranchPattern locPat =
+    when locPat.value is
+        Src.PAlias alias ->
+            insertAlias argNeedsParens alias
+
+        _ ->
+            insertPattern locPat
+
+
+{-| The nodes of `pattern as name`. `baseNeedsParens` says whether the base
+pattern must be wrapped in parens, which depends on where the alias sits.
+-}
+insertAlias : (Src.Pattern_ -> Bool) -> { pattern : Src.Pattern, name : Located String } -> Result String (Array LPNode)
+insertAlias baseNeedsParens { pattern = pat, name = name } =
+    insertPattern pat
+        |> Result.map
+            (\patNodes ->
+                let
+                    -- `as` isn't a separate AST token, but it sits right
+                    -- before `name` with single-space separation:
+                    --   ( inner-pattern ) as <name>
+                    -- Compute its position from `name.start.col - 3`
+                    -- (one space + "as" = 3 chars) so the
+                    -- comment-placement synth-skip can't push a comment
+                    -- between the inner pattern and `as` past `as`.
+                    asStart =
+                        { row = name.start.row, col = name.start.col - 3 }
+
+                    asNode =
+                        lpnLeaf (mkZeroWidthText asStart "as")
+
+                    nameNode =
+                        lpnLeaf (mkTextFromLocString name)
+
+                    wrappedPatNodes =
+                        if baseNeedsParens pat.value then
+                            [ syntheticParens patNodes ]
+
+                        else
+                            patNodes
+                in
+                wrappedPatNodes ++ [ asNode, nameNode ]
+            )
 
 
 insertPatternAsItem : Src.Pattern -> Result String LPNode
@@ -240,17 +262,17 @@ argNeedsParens pat =
             False
 
 
--- The inner pattern of an `as`-alias needs parens in strictly more cases
--- than `argNeedsParens` covers, verified directly against the parser: bare
--- `as` fails not just after a constructor-with-payload but after ANY
--- constructor pattern (0-arg included) and after a bare Int literal —
--- `Nothing as whole` and `0 as n` both fail to parse ("Expected keyword
--- '->'"), the same way `Just n as whole` does. `"hi" as s`, `'a' as c`,
--- `[ a, b ] as whole`, and `{ x } as whole` all parse fine bare, same as
--- `argNeedsParens` already assumed. Kept separate from `argNeedsParens`
--- rather than widening it: a bare `Nothing`/`0` is fine as a plain function
--- argument (`f 0 x`) or a nested ctor payload (`Just Nothing`), so forcing
--- parens there too would be an unrelated, unnecessary behavior change.
+-- The base of an `as`-alias needs parens in more cases than `argNeedsParens`
+-- covers, wherever the alias is not a `when` branch's whole pattern (see
+-- `insertBranchPattern`). This works around compiler-common: inside brackets,
+-- in a constructor payload, and in a function or lambda argument, the pattern
+-- is read by `topLevelParser`, whose number and constructor branches return
+-- without looking for `as`. So `(Nothing as w)`, `(0 as n)` and
+-- `[ Just n as w ]` fail to parse there, though gren 0.6.6 accepts them; a
+-- `let` destructure, read by `parser`, refuses `Just n as w`. `"hi" as s`,
+-- `[ a, b ] as whole` and `{ x } as whole` parse bare everywhere. Kept apart
+-- from `argNeedsParens`, since a bare `Nothing` or `0` is fine as a plain
+-- argument (`f 0 x`) or payload (`Just Nothing`).
 aliasBaseNeedsParens : Src.Pattern_ -> Bool
 aliasBaseNeedsParens pat =
     when pat is
