@@ -12,6 +12,7 @@ nothing is going wrong.
 - [A definition below its type annotation that doesn't start in column 1 is accepted](#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted)
 - [An `as`-alias inside brackets keeps parens around its base](#an-as-alias-inside-brackets-keeps-parens-around-its-base)
 - [A `when` whose branches line up with `when` can't be formatted](#a-when-whose-branches-line-up-with-when-cant-be-formatted)
+- [A block comment at the start of a line can make the next lines too shallow](#a-block-comment-at-the-start-of-a-line-can-make-the-next-lines-too-shallow)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
@@ -122,6 +123,26 @@ Indent the branches past `when` and the file formats; gren-format then writes
 them 4 in, as usual. Tracked at
 [compiler-common#49](https://github.com/gren-lang/compiler-common/issues/49). It turned up in published
 code: compiler-common 3.0.0's own `SemanticVersionRange.gren`.
+
+---
+
+## A block comment at the start of a line can make the next lines too shallow
+
+When a line starts with a `{- … -}` comment, compiler-common 4.1.1 measures
+that line's indentation from the first token after the comment. Lines below it
+that are indented correctly for the line without the comment can then be
+refused. gren 0.6.6 compiles this, and so did gren-format 1.3.0:
+
+```gren
+f =
+    {- note -} \x ->
+        max x 0    -- refused: x must be at or past the column of \
+```
+
+The same happens with `{- note -} a <| \x ->` and with a `let` definition that
+starts with a comment. Move the comment to its own line, or after the first
+token, and the file formats. Tracked at
+[compiler-common#50](https://github.com/gren-lang/compiler-common/issues/50).
 
 ---
 

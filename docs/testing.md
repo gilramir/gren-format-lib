@@ -763,8 +763,9 @@ A file the **parser** rejects is reported separately and not counted as a
 formatter failure: gren-format cannot format what the compiler will not parse.
 The known instances are upstream: compiler-common#48 (the rest of #31), an
 `as`-alias inside brackets whose base is a number or constructor
-(`Just (Nothing as inner)`), and compiler-common#49, a `when` whose branches
-start in the column of `when`.
+(`Just (Nothing as inner)`); compiler-common#49, a `when` whose branches
+start in the column of `when`; and compiler-common#50, a block comment at the
+start of a line, which makes the lines below it need deeper indentation.
 
 ### How to run it
 

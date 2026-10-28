@@ -274,6 +274,10 @@ of them affect `gren-format` any more.
 * [compiler-common#49 - 4.x: a "when" whose branches start in the column of "when" keeps only its first branch](https://github.com/gren-lang/compiler-common/issues/49) —
   gren 0.6.6 accepts this layout, so such a file can't be formatted. See
   [Known Limitations](knownLimitations.md#a-when-whose-branches-line-up-with-when-cant-be-formatted).
+* [compiler-common#50 - 4.x: a block comment at the start of a line moves that line's indentation to the right](https://github.com/gren-lang/compiler-common/issues/50) —
+  gren 0.6.6 and compiler-common 3.0.0 accept such a file, so it can't be
+  formatted. See
+  [Known Limitations](knownLimitations.md#a-block-comment-at-the-start-of-a-line-can-make-the-next-lines-too-shallow).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---
