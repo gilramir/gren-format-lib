@@ -2489,16 +2489,10 @@ class Gen:
         untested (`emit_param`'s own extra paren layer around a `PAs` isn't
         verified to compose correctly with a nested one).
 
-        Deliberately NOT generated: a negative int literal pattern (`-3 ->`).
-        Verified directly against the app that this parses ONLY as a `when`
-        expression's very FIRST branch — `_ -> 1` / `-8 -> 0` / `_ -> 2`
-        (negative pattern second) fails to parse with "Not a valid number",
-        and even `-8 -> 0` / `-3 -> 1` (negative pattern second, first ALSO
-        negative) fails the same way; only `-8 -> 0` as branch #1 works. A
-        real (narrow) parser gap in the same family as compiler-common#31/#32
-        — not modeled here since `pattern()` has no notion of "am I branch
-        #1", and getting it wrong would put a quarantine-triggering shape
-        back in the generator's own output."""
+        Not generated: a negative int literal pattern (`-3 ->`). Under
+        compiler-common 3.x it parsed only as a `when` expression's FIRST
+        branch (a later one failed with "Not a valid number"), so it was left
+        out. 4.1.1 parses it in any branch, so it could be added now."""
         base = self.pattern_base(depth)
         if isinstance(base, PAs):
             if self.chance(0.15):
