@@ -761,9 +761,10 @@ a work-list rather than a count.
 
 A file the **parser** rejects is reported separately and not counted as a
 formatter failure: gren-format cannot format what the compiler will not parse.
-The known instance is upstream: compiler-common#48 (the rest of #31), an
+The known instances are upstream: compiler-common#48 (the rest of #31), an
 `as`-alias inside brackets whose base is a number or constructor
-(`Just (Nothing as inner)`).
+(`Just (Nothing as inner)`), and compiler-common#49, a `when` whose branches
+start in the column of `when`.
 
 ### How to run it
 

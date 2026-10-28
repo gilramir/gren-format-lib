@@ -11,6 +11,7 @@ nothing is going wrong.
 
 - [A definition below its type annotation that doesn't start in column 1 is accepted](#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted)
 - [An `as`-alias inside brackets keeps parens around its base](#an-as-alias-inside-brackets-keeps-parens-around-its-base)
+- [A `when` whose branches line up with `when` can't be formatted](#a-when-whose-branches-line-up-with-when-cant-be-formatted)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [Wide `when` branch patterns](#wide-when-branch-patterns)
 - [Comment placement near invisible tokens](#comment-placement-near-invisible-tokens)
@@ -97,6 +98,30 @@ parsed differently again and refuses `Just n as w`, so gren-format writes
 The extra parens are harmless and the output compiles. When the parser is
 fixed, `aliasBaseNeedsParens` in `Formatter.Logical.InsertPatterns` can be
 dropped.
+
+---
+
+## A `when` whose branches line up with `when` can't be formatted
+
+gren 0.6.6 compiles a `when` whose branches start in the same column as the
+`when` keyword, but compiler-common 4.1.1 reads only the first branch and then
+stops. gren-format refuses the file with an error about the second branch that
+doesn't point at the cause, such as `Not a valid number`:
+
+```gren
+g a =
+    when a is
+    Just x ->
+        x
+
+    Nothing ->    -- refused here
+        0
+```
+
+Indent the branches past `when` and the file formats; gren-format then writes
+them 4 in, as usual. Tracked at
+[compiler-common#49](https://github.com/gren-lang/compiler-common/issues/49). It turned up in published
+code: compiler-common 3.0.0's own `SemanticVersionRange.gren`.
 
 ---
 

@@ -271,6 +271,9 @@ of them affect `gren-format` any more.
   constructor is still refused (`Just (Nothing as inner)`), now tracked as
   [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48). See
   [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
+* [compiler-common#49 - 4.x: a "when" whose branches start in the column of "when" keeps only its first branch](https://github.com/gren-lang/compiler-common/issues/49) —
+  gren 0.6.6 accepts this layout, so such a file can't be formatted. See
+  [Known Limitations](knownLimitations.md#a-when-whose-branches-line-up-with-when-cant-be-formatted).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---
