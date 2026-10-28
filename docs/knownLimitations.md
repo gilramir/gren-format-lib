@@ -11,6 +11,7 @@ nothing is going wrong.
 
 - [A compiler bug with field access on a record-update base](#a-compiler-bug-with-field-access-on-a-record-update-base)
 - [An unparenthesized constructor pattern can't be aliased with `as`](#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)
+- [A definition below its type annotation that doesn't start in column 1 is accepted](#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted)
 - [Output today's compiler rejects, that the next one will accept](#output-todays-compiler-rejects-that-the-next-one-will-accept)
 - [A binary `-` whose right operand starts at the operator's own column](#a-binary---whose-right-operand-starts-at-the-operators-own-column)
 - [An integer literal just below 2^53 is silently rewritten](#an-integer-literal-just-below-253-is-silently-rewritten)
@@ -79,6 +80,50 @@ just this pattern — real fallout: `core/src/String/Parser/Advanced.gren` has
 this exact shape and can't be formatted until it's fixed. Tracked at
 [compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31).
 Workaround: add the parens yourself, `(Just y) as whole`.
+
+## A definition below its type annotation that doesn't start in column 1 is accepted
+
+A top-level declaration must begin in column 1. Elm requires it, and so does the
+real Gren compiler. compiler-common 4.0.0 added the check
+([compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37)),
+but only before a declaration's first token. When the declaration has a type
+annotation, the definition line below it is still accepted at any column.
+
+**Without a comment, gren-format quietly repairs the file.** The name
+normalizes back to column 1, and the output compiles:
+
+```gren
+-- you write (rejected by gren 0.6.6):    -- gren-format writes (compiles):
+pick : a                                  pick : a
+        pick =                            pick =
+    pick                                      pick
+```
+
+That is benign in itself, but it means `gren-format --show` exiting 0 is **not**
+evidence that the file you handed it would build.
+
+**With a comment in front of the name, the output is refused too.** Because
+gren-format never moves a comment off the row it was written on
+([C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart)),
+the name stays right of the comment:
+
+```gren
+foo : a
+{- lead -} foo =
+    one
+```
+
+is a fixed point, and gren 0.6.6 refuses both the input and that output with
+`EXPECTING DEFINITION`.
+
+It takes an annotation whose last type cannot take an argument (a type variable,
+or a closing bracket): after `foo : Int`, the parser reads the next line's `foo`
+as a type argument and refuses the file itself. Inside a `let` the layout is
+refused as well. The elm-format side of the same fact is
+[divergence #31](elmFormatComparison.md#divergence-31).
+
+Workaround: start definitions in column 1, and give a comment above a
+declaration a row of its own.
 
 ## Output today's compiler rejects, that the next one will accept
 

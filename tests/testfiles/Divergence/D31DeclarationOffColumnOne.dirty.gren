@@ -1,0 +1,11 @@
+module D31DeclarationOffColumnOne exposing (..)
+
+
+foo : a
+{- lead -} foo =
+    one
+
+
+noCommentAnywhere : a
+        noCommentAnywhere =
+    two

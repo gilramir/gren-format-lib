@@ -2092,8 +2092,9 @@ the *shape* of the result, which has been stable:
   definitions by path rather than copying them" is supposed to buy.
 - `matrix-syntax.py --comments`: **0 failing, 0 UNREVIEWED** — every divergence
   from elm-format names a catalog entry. A minority of cells have **no Elm
-  twin at all** (Elm requires a declaration to start in column 1, and so does the
-  real Gren compiler — but `compiler-common` does not, so `elm-format` rejects
+  twin at all** (Elm requires a definition below its annotation to start in
+  column 1, and so does the real Gren compiler — but `compiler-common` does not,
+  having fixed #37 only for a declaration's start, so `elm-format` rejects
   the *program*, not the translation — [#31](elmFormatComparison.md#divergence-31),
   [compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37));
   those are skipped from the comparison, counted, and printed with a shape

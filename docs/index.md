@@ -255,7 +255,6 @@ of them affect `gren-format` any more.
 * [compiler-common#32 - Parser accepts custom-type variants with more than one bare-constructor argument](https://github.com/gren-lang/compiler-common/issues/32) — fixed in 4.0.0
 * [compiler-common#35 - A binops minus sign ("-") split across rows is parsed as negation when the right operand happens to start at the column immediately after the minus sign](https://github.com/gren-lang/compiler-common/issues/35) — fixed in 4.0.0
 * [compiler-common#36 - hexFolder returns the wrong value for 27 exactly-representable hex literals near 2^53](https://github.com/gren-lang/compiler-common/issues/36) — fixed in 4.0.0
-* [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37) — fixed in 4.0.0
 * [core#134 - String.toInt returns the wrong value for 24 exactly-representable integers near 2^53](https://github.com/gren-lang/core/issues/134) — fixed in
   `gren-lang/core` 7.5.0. compiler-common 4.1.0 requires core 7.6.1, so this
   comes in with the bump.
@@ -269,6 +268,10 @@ of them affect `gren-format` any more.
 
 **Still open**:
 
+* [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37) —
+  partly fixed in 4.0.0: a declaration's start must now be in column 1, but the
+  definition line below a type annotation is still accepted at any column. See
+  [Known Limitations](knownLimitations.md#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---

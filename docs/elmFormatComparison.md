@@ -50,7 +50,7 @@ code, and why the places they *don't* look the way they do.
   - [#28 A type break gren-format doesn't record](#divergence-28)
   - [#29 A `let` annotation doesn't lift a broken type below the `:`](#divergence-29)
   - [#30 A comment run keeps the rows you wrote it on](#divergence-30)
-  - #31 (retired: a declaration that doesn't start in column 1)
+  - [#31 A definition below its annotation that doesn't start in column 1 (an upstream bug, not a choice)](#divergence-31)
   - [#32 A lambda head broken across rows keeps its `->`](#divergence-32)
   - [#33 A lambda after `<|` keeps its head on the operator's row](#divergence-33)
   - [#34 A bare operand after `|>` keeps its head; elm-format adds parens](#divergence-34)
@@ -156,9 +156,11 @@ allowed to be normalized to.
 
 The rest of this section catalogues the places where, given all of the above, we
 made a deliberately different choice from elm-format. Each finding records the
-decision and why. Entry #31 is retired: it recorded an upstream parser bug
-rather than a choice, and the fix has been adopted. Its number is kept so the
-entries after it keep theirs.
+decision and why. There is one exception: [#31](#divergence-31) is not a choice
+at all but an upstream parser bug
+([compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37),
+only partly fixed), kept here because it is real today and a fixture pins it.
+It says so at the top of the entry, and it retires when the fix is complete.
 
 **Every entry has a fixture**, in `tests/testfiles/Divergence/`, built from that
 entry's own example: the `.dirty.gren` is what the entry says you wrote
@@ -1691,13 +1693,60 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     single-comment axis is unaffected, since a run needs two.
 
 
-31. *Retired.* gren-format used to accept a top-level declaration that doesn't
-    start in column 1, such as `{- lead -} foo =`, where Elm's parser (and the
-    real Gren compiler) refuse the file. That was an upstream parser bug,
+31. <a id="divergence-31"></a>**gren-format accepts a definition below its type
+    annotation that doesn't start in column 1; Elm's parser rejects the whole
+    file — and so does the real Gren compiler.** This is the one entry in the
+    catalogue that is **not** a deliberate choice. It is an upstream parser bug,
     [compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37),
-    not a choice. It was fixed in compiler-common 4.0.0, and since the bump to
-    4.1.1 gren-format refuses such a file too. The number is kept so the entries
-    after it keep theirs.
+    which 4.0.0 fixed only for the *start* of a declaration: `{- lead -} foo =`
+    with no annotation is now refused, but the definition line below an
+    annotation is still not checked. It is catalogued because the behaviour is
+    real today and a fixture pins it, and because — like [#8](#divergence-8) —
+    it is a syntax-*acceptance* difference rather than a layout one: elm-format
+    never gets as far as formatting, so there is no Elm rendering of the program
+    to agree or disagree with.
+
+    ```gren
+    foo : a
+    {- lead -} foo =      -- gren-format: parses, formats, is a fixed point
+        one               -- elm-format:  Unable to parse file <STDIN>:5:13
+    ```
+
+    Elm requires a top-level declaration to begin in column 1, and **Gren has
+    the same rule**: handed that file, gren 0.6.6 answers `EXPECTING DEFINITION`
+    — "Type annotations always appear directly above the relevant definition,
+    without anything else in between. (Not even doc comments!)". compiler-common
+    checks column 1 once, before a declaration's first token, and then reads the
+    name after `foo : a` with no column test. Because gren-format never moves a
+    comment off the row it was written on
+    ([C7](commentHandling.md#c7--comments-written-together-stay-together-comments-written-apart-stay-apart)),
+    the name stays right of the comment in the output too.
+
+    **The comment is not what is being permitted.** The same definition
+    indented with no comment parses just as well, and there gren-format
+    normalizes the name back to column 1:
+
+    ```gren
+    -- you write:                     -- gren-format:
+    noCommentAnywhere : a             noCommentAnywhere : a
+            noCommentAnywhere =       noCommentAnywhere =
+        two                               two
+    ```
+
+    The annotation has to end in a type that cannot take an argument (a type
+    variable, a closing bracket): after `foo : Int`, compiler-common takes the
+    next line's `foo` as a type argument of `Int` and refuses the file itself.
+    That is why the examples annotate `foo : a`. Inside a `let` the layout is
+    refused too.
+
+    `matrix-syntax.py --comments` generates 72 such cells (a block comment
+    leading a signature's definition), skips oracle 4 on them and counts them
+    apart as `no-elm-twin` rather than blaming its translator. Translating them
+    by moving the comment onto its own row — which both languages accept — is
+    deliberately **not** done: that would ask elm-format about a different
+    program and manufacture a divergence out of nothing. When the rest of #37 is
+    fixed they become inputs compiler-common itself refuses — this entry and
+    that bucket retire together.
 
 32. <a id="divergence-32"></a>**A lambda head broken across rows keeps its `->`
     on the row of whatever precedes it; elm-format gives the `->` a row of its
