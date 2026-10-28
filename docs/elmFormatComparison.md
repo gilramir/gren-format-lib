@@ -1700,7 +1700,8 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     [compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37),
     which 4.0.0 fixed only for the *start* of a declaration: `{- lead -} foo =`
     with no annotation is now refused, but the definition line below an
-    annotation is still not checked. It is catalogued because the behaviour is
+    annotation is still not checked
+    ([compiler-common#47](https://github.com/gren-lang/compiler-common/issues/47)). It is catalogued because the behaviour is
     real today and a fixture pins it, and because — like [#8](#divergence-8) —
     it is a syntax-*acceptance* difference rather than a layout one: elm-format
     never gets as far as formatting, so there is no Elm rendering of the program
@@ -1744,7 +1745,7 @@ if it stops being — an entry with no fixture, or a fixture with no entry.
     apart as `no-elm-twin` rather than blaming its translator. Translating them
     by moving the comment onto its own row — which both languages accept — is
     deliberately **not** done: that would ask elm-format about a different
-    program and manufacture a divergence out of nothing. When the rest of #37 is
+    program and manufacture a divergence out of nothing. When #47 is
     fixed they become inputs compiler-common itself refuses — this entry and
     that bucket retire together.
 

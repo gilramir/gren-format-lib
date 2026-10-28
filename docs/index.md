@@ -270,7 +270,9 @@ of them affect `gren-format` any more.
 
 * [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37) —
   partly fixed in 4.0.0: a declaration's start must now be in column 1, but the
-  definition line below a type annotation is still accepted at any column. See
+  definition line below a type annotation is still accepted at any column,
+  now tracked as
+  [compiler-common#47 - 4.x: a definition below its type annotation is still accepted at any column](https://github.com/gren-lang/compiler-common/issues/47). See
   [Known Limitations](knownLimitations.md#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 

@@ -88,6 +88,7 @@ real Gren compiler. compiler-common 4.0.0 added the check
 ([compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37)),
 but only before a declaration's first token. When the declaration has a type
 annotation, the definition line below it is still accepted at any column.
+Tracked at [compiler-common#47](https://github.com/gren-lang/compiler-common/issues/47).
 
 **Without a comment, gren-format quietly repairs the file.** The name
 normalizes back to column 1, and the output compiles:
