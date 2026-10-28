@@ -5,10 +5,7 @@ type alias T =
     Int
 
 
-{- own row -}
-
-
-type alias S =
+type alias {- own row -} S =
     Int
 
 
