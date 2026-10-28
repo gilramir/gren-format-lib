@@ -845,7 +845,7 @@ A variant's payload sits on the same line as the variant name:
 ```gren
 type Shape
     = Circle Int
-    | Rectangle Int Int
+    | Rectangle { width : Int, height : Int }
 ```
 
 A short `{- … -}` beside a variant doesn't change any of this — the one-line

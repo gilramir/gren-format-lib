@@ -2788,11 +2788,11 @@ class Gen:
         instead — see `variant_payload`'s "record" case), so this never needs
         to worry about position; it just needs to avoid `record` itself
         (which goes through the dedicated "record" payload kind, not here).
-        The parser this generator targets does NOT enforce that 0-or-1 limit
-        for a chain of bare constructor-name arguments (compiler-common#32:
-        https://github.com/gren-lang/compiler-common/issues/32) — this
-        generator still caps arity at 1 to match current valid Gren rather
-        than lean on that gap."""
+        compiler-common 3.x did NOT enforce that 0-or-1 limit for a chain of
+        bare constructor-name arguments (compiler-common#32:
+        https://github.com/gren-lang/compiler-common/issues/32); 4.x refuses
+        every multi-argument variant, so capping arity at 1 is now required,
+        not just a choice."""
         r = self.rng.random()
         var_pool = params if params else ["a", "b", "c"]
         if depth <= 0 or r < 0.45:

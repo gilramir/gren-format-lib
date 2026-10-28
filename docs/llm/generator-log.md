@@ -52,7 +52,8 @@ fine. That's not a deliberate "last argument may be complex" grammar rule —
 it's the parser inconsistently enforcing a restriction the language spec says
 is unconditional (reject any variant with >1 argument, full stop; instead it
 only rejects some >1-argument shapes and accepts others). Filed upstream as
-[compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
+[compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32). (Fixed in compiler-common 4.0.0, and adopted
+with the 4.1.1 bump: the parser now refuses every multi-argument variant.)
 The generator sidesteps the inconsistency entirely by capping variant payloads
 at ≤1 argument (con/var/app/arrow, or a record), matching current valid Gren —
 which also makes moot the separate observation that a `record`-type payload

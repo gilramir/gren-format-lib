@@ -29,7 +29,6 @@ nothing is going wrong.
   - [A comment past a flat list](#a-comment-past-a-flat-list)
 - [A comment after the last binding in a `let`](#a-comment-after-the-last-binding-in-a-let)
 - [Block comment body indentation](#block-comment-body-indentation)
-- [A custom-type variant with two or more arguments still parses](#a-custom-type-variant-with-two-or-more-arguments-still-parses)
 - [A comment run just inside a bracket doesn't keep its rows](#a-comment-run-just-inside-a-bracket-doesnt-keep-its-rows)
 - [Very deep lambda or unary-minus nesting can overflow the stack](#very-deep-lambda-or-unary-minus-nesting-can-overflow-the-stack)
 
@@ -1075,26 +1074,6 @@ sits alone on its first line. (An earlier version of gren-format treated that
 opener-alone form as a "keep my exact columns" signal and left the body
 verbatim; that was a divergence from elm-format, which re-indents the body the
 same way described here, so it was removed.)
-
-## A custom-type variant with two or more arguments still parses
-
-> **Fixed upstream** in `gren-lang/compiler-common` 4.0.0 (#32): `type P = P String Int` is now refused. `gren-format-lib`
-> still depends on compiler-common 3.x, so this still applies until the
-> dependency is bumped. That is blocked for now by two 4.x regressions,
-> [compiler-common#43](https://github.com/gren-lang/compiler-common/issues/43) and
-> [#44](https://github.com/gren-lang/compiler-common/issues/44).
-
-Since [the 24w release](https://gren-lang.org/news/161224_gren_24w), a custom
-type's variant is limited to 0 or 1 argument — `type Person = Person String
-Int` is no longer valid Gren; a multi-field variant must carry a record
-instead (`Person { name : String, age : Int }`). The parser this project is
-built on does not enforce that restriction for a chain of bare
-constructor-name arguments, so `type Person = Person String Int` still parses
-without error, and `gren-format` duly formats it. Tracked at
-[compiler-common#32](https://github.com/gren-lang/compiler-common/issues/32).
-
-Two of this package's own fixtures depend on the gap and are reduced to 0/1
-argument variants when it closes; `gen-random.py` already avoids emitting them.
 
 ## A comment run just inside a bracket doesn't keep its rows
 
