@@ -287,7 +287,12 @@ branches indented less than the `when`, which gren 0.6.6 and 4.1.1 both accept
   partly fixed in 4.0.0: an alias that is a `when` branch's whole pattern now
   parses (`Nothing as whole ->`), but inside brackets `as` after a number or
   constructor is still refused (`Just (Nothing as inner)`), now tracked as
-  [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48). See
+  [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48).
+  4.2.0 fixes #48 for parentheses, constructor payloads and function and
+  lambda arguments, but an alias as an array item (`[ Just n as a ]`) or a
+  record field's pattern (`{ a = Nothing as w }`) is still refused, now
+  tracked as
+  [compiler-common#52 - 4.2.0: "as" after a number or constructor is still refused in an array item or record field pattern](https://github.com/gren-lang/compiler-common/issues/52). See
   [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 

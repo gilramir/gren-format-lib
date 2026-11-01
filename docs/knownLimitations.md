@@ -81,6 +81,17 @@ declaration a row of its own.
 
 ## An `as`-alias inside brackets keeps parens around its base
 
+> **Partly fixed upstream** in `gren-lang/compiler-common` 4.2.0 (#48): an alias
+> inside parentheses, a constructor payload, or a function or lambda argument
+> now parses. An alias as an array item or a record field's pattern is still
+> refused, tracked at
+> [compiler-common#52](https://github.com/gren-lang/compiler-common/issues/52).
+> `gren-format-lib` still depends on compiler-common 4.1.1, so all of this
+> section still applies until the dependency is bumped. That is blocked for now
+> by a 4.2.0 parser regression
+> ([compiler-common#53](https://github.com/gren-lang/compiler-common/issues/53));
+> see [the upstream issue list](index.md).
+
 At the top of a `when` branch, gren-format writes an alias the way elm-format
 does: `Nothing as whole ->`, `0 as z ->`. Anywhere else (inside parentheses, a
 list or record pattern, a constructor payload, or a function or lambda
@@ -102,8 +113,8 @@ checking for `as` after a number or constructor. Tracked at
 parsed differently again and refuses `Just n as w`, so gren-format writes
 `(Just n) as w` there.
 
-The extra parens are harmless and the output compiles. When the parser is
-fixed, `aliasBaseNeedsParens` in `Formatter.Logical.InsertPatterns` can be
+The extra parens are harmless and the output compiles. When both #48 and #52
+are adopted, `aliasBaseNeedsParens` in `Formatter.Logical.InsertPatterns` can be
 dropped.
 
 ---
