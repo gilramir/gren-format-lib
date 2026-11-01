@@ -257,27 +257,38 @@ of them affect `gren-format` any more.
   fixed in 4.1.1. The tree was wrong but printed back as written, so it never
   changed `gren-format`'s output.
 
-**Still open**:
+**Fixed upstream, not yet adopted.** These are fixed in
+`gren-lang/compiler-common` 4.2.0 (released November 2026), and each fix was
+checked against a `gren-format` built on 4.2.0. `gren-format-lib` still depends
+on compiler-common 4.1.1, so they still affect `gren-format` today. The
+dependency stays on 4.1.1 for now because 4.2.0 brings a new regression: a
+`when` that starts in the middle of a line, such as `f a (when x is`, refuses
+branches indented less than the `when`, which gren 0.6.6 and 4.1.1 both accept
+([compiler-common#53](https://github.com/gren-lang/compiler-common/issues/53)).
 
 * [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37) —
-  partly fixed in 4.0.0: a declaration's start must now be in column 1, but the
-  definition line below a type annotation is still accepted at any column,
-  now tracked as
-  [compiler-common#47 - 4.x: a definition below its type annotation is still accepted at any column](https://github.com/gren-lang/compiler-common/issues/47). See
+  partly fixed in 4.0.0 (a declaration's start must be in column 1); the rest,
+  the definition line below a type annotation, was tracked as
+  [compiler-common#47 - 4.x: a definition below its type annotation is still accepted at any column](https://github.com/gren-lang/compiler-common/issues/47)
+  and is fixed in 4.2.0. See
   [Known Limitations](knownLimitations.md#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted).
+* [compiler-common#49 - 4.x: a "when" whose branches start in the column of "when" keeps only its first branch](https://github.com/gren-lang/compiler-common/issues/49) —
+  fixed in 4.2.0. gren 0.6.6 accepts this layout, so under 4.1.1 such a file
+  can't be formatted. See
+  [Known Limitations](knownLimitations.md#a-when-whose-branches-line-up-with-when-cant-be-formatted).
+* [compiler-common#50 - 4.x: a block comment at the start of a line moves that line's indentation to the right](https://github.com/gren-lang/compiler-common/issues/50) —
+  fixed in 4.2.0. gren 0.6.6 and compiler-common 3.0.0 accept such a file, so
+  under 4.1.1 it can't be formatted. See
+  [Known Limitations](knownLimitations.md#a-block-comment-at-the-start-of-a-line-can-make-the-next-lines-too-shallow).
+
+**Still open**:
+
 * [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) —
   partly fixed in 4.0.0: an alias that is a `when` branch's whole pattern now
   parses (`Nothing as whole ->`), but inside brackets `as` after a number or
   constructor is still refused (`Just (Nothing as inner)`), now tracked as
   [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48). See
   [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
-* [compiler-common#49 - 4.x: a "when" whose branches start in the column of "when" keeps only its first branch](https://github.com/gren-lang/compiler-common/issues/49) —
-  gren 0.6.6 accepts this layout, so such a file can't be formatted. See
-  [Known Limitations](knownLimitations.md#a-when-whose-branches-line-up-with-when-cant-be-formatted).
-* [compiler-common#50 - 4.x: a block comment at the start of a line moves that line's indentation to the right](https://github.com/gren-lang/compiler-common/issues/50) —
-  gren 0.6.6 and compiler-common 3.0.0 accept such a file, so it can't be
-  formatted. See
-  [Known Limitations](knownLimitations.md#a-block-comment-at-the-start-of-a-line-can-make-the-next-lines-too-shallow).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---

@@ -30,6 +30,12 @@ nothing is going wrong.
 
 ## A definition below its type annotation that doesn't start in column 1 is accepted
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.2.0 (#47): the definition
+> line below an annotation must now be in column 1. `gren-format-lib` still depends on compiler-common 4.1.1, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.2.0 parser regression
+> ([compiler-common#53](https://github.com/gren-lang/compiler-common/issues/53));
+> see [the upstream issue list](index.md).
+
 A top-level declaration must begin in column 1. Elm requires it, and so does the
 real Gren compiler. compiler-common 4.0.0 added the check
 ([compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37)),
@@ -104,6 +110,12 @@ dropped.
 
 ## A `when` whose branches line up with `when` can't be formatted
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.2.0 (#49). `gren-format-lib`
+> still depends on compiler-common 4.1.1, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.2.0 parser regression
+> ([compiler-common#53](https://github.com/gren-lang/compiler-common/issues/53));
+> see [the upstream issue list](index.md).
+
 gren 0.6.6 compiles a `when` whose branches start in the same column as the
 `when` keyword, but compiler-common 4.1.1 reads only the first branch and then
 stops. gren-format refuses the file with an error about the second branch that
@@ -128,6 +140,12 @@ code: compiler-common 3.0.0's own `SemanticVersionRange.gren`.
 
 ## A block comment at the start of a line can make the next lines too shallow
 
+> **Fixed upstream** in `gren-lang/compiler-common` 4.2.0 (#50). `gren-format-lib`
+> still depends on compiler-common 4.1.1, so this still applies until the
+> dependency is bumped. That is blocked for now by a 4.2.0 parser regression
+> ([compiler-common#53](https://github.com/gren-lang/compiler-common/issues/53));
+> see [the upstream issue list](index.md).
+
 When a line starts with a `{- … -}` comment, compiler-common 4.1.1 measures
 that line's indentation from the first token after the comment. Lines below it
 that are indented correctly for the line without the comment can then be
@@ -139,10 +157,14 @@ f =
         max x 0    -- refused: x must be at or past the column of \
 ```
 
-The same happens with `{- note -} a <| \x ->` and with a `let` definition that
-starts with a comment. Move the comment to its own line, or after the first
-token, and the file formats. Tracked at
+The same happens with `{- note -} a <| \x ->`. Move the comment to its own
+line, or after the first token, and the file formats. Tracked at
 [compiler-common#50](https://github.com/gren-lang/compiler-common/issues/50).
+
+A `let` definition that starts with a comment is a different case: gren 0.6.6
+refuses it anywhere in the `let`. compiler-common 4.1.1 refuses it too; 4.2.0
+accepts it as the first definition and, like gren 0.6.6, refuses it after
+another one.
 
 ---
 
