@@ -1,15 +1,15 @@
-module AliasPatternZeroArgCtorNeedsParens exposing (..)
+module AliasPatternZeroArgCtorBase exposing (..)
 
 
 f x =
     when x is
-        (Nothing) as whole ->
+        Nothing as whole ->
             whole
 
         Maybe.Nothing as whole ->
             whole
 
-        Just n as whole ->
+        (Just n) as whole ->
             whole
 
         _ ->
@@ -18,10 +18,10 @@ f x =
 
 g x =
     when x is
-        Just ((Nothing) as inner) ->
+        Just (Nothing as inner) ->
             inner
 
-        { a = (Just n) as inner } ->
+        { a = ((Just n) as inner) } ->
             inner
 
         _ ->
@@ -29,12 +29,12 @@ g x =
 
 
 h =
-    \((Nothing) as whole) -> whole
+    \(Nothing as whole) -> whole
 
 
 k x =
     let
-        (Just n) as whole =
+        ((Just n) as whole) =
             x
     in
     whole

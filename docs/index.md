@@ -232,9 +232,9 @@ Furthermore, here is a list of the GitHub issues we are tracking in upstream
 packages that affect the output of `gren-format`.
 
 **Fixed upstream and adopted.** These are fixed in `gren-lang/compiler-common`
-4.0.0 / 4.1.0 / 4.1.1 and `gren-lang/core` 7.5.0 (released October 2026).
-`gren-format-lib` now depends on compiler-common 4.1.1 and core 7.6.1, so none
-of them affect `gren-format` any more.
+4.0.0 through 4.2.1 and `gren-lang/core` 7.5.0 (released October and November
+2026). `gren-format-lib` now depends on compiler-common 4.2.1 and core 7.6.1, so
+none of them affect `gren-format` any more.
 
 * [compiler-common#11 - Gren parser is more strict with indentation in when..is expressions](https://github.com/gren-lang/compiler-common/issues/11)
   (closed as a duplicate of #14)
@@ -257,43 +257,31 @@ of them affect `gren-format` any more.
   fixed in 4.1.1. The tree was wrong but printed back as written, so it never
   changed `gren-format`'s output.
 
-**Fixed upstream, not yet adopted.** These are fixed in
-`gren-lang/compiler-common` 4.2.0 (released November 2026), and each fix was
-checked against a `gren-format` built on 4.2.0. `gren-format-lib` still depends
-on compiler-common 4.1.1, so they still affect `gren-format` today. The
-dependency stays on 4.1.1 for now because 4.2.0 brings a new regression: a
-`when` that starts in the middle of a line, such as `f a (when x is`, refuses
-branches indented less than the `when`, which gren 0.6.6 and 4.1.1 both accept
-([compiler-common#53](https://github.com/gren-lang/compiler-common/issues/53)).
-
 * [compiler-common#37 - A top-level declaration is accepted at any column; the Haskell-based compiler requires column 1](https://github.com/gren-lang/compiler-common/issues/37) —
   partly fixed in 4.0.0 (a declaration's start must be in column 1); the rest,
-  the definition line below a type annotation, was tracked as
-  [compiler-common#47 - 4.x: a definition below its type annotation is still accepted at any column](https://github.com/gren-lang/compiler-common/issues/47)
-  and is fixed in 4.2.0. See
-  [Known Limitations](knownLimitations.md#a-definition-below-its-type-annotation-that-doesnt-start-in-column-1-is-accepted).
+  the definition line below a type annotation, was
+  [compiler-common#47 - 4.x: a definition below its type annotation is still accepted at any column](https://github.com/gren-lang/compiler-common/issues/47),
+  fixed in 4.2.0. This retired
+  [divergence #31](elmFormatComparison.md#divergence-31).
+* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) —
+  partly fixed in 4.0.0 (a `when` branch's whole pattern). The rest was
+  [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48),
+  fixed in 4.2.0 for parentheses, constructor payloads and function and lambda
+  arguments, and
+  [compiler-common#52 - 4.2.0: "as" after a number or constructor is still refused in an array item or record field pattern](https://github.com/gren-lang/compiler-common/issues/52),
+  fixed in 4.2.1. gren-format used to write extra parens around such an
+  alias's base (`Just ((Nothing) as inner)`); it now writes
+  `Just (Nothing as inner)`, like elm-format.
 * [compiler-common#49 - 4.x: a "when" whose branches start in the column of "when" keeps only its first branch](https://github.com/gren-lang/compiler-common/issues/49) —
-  fixed in 4.2.0. gren 0.6.6 accepts this layout, so under 4.1.1 such a file
-  can't be formatted. See
-  [Known Limitations](knownLimitations.md#a-when-whose-branches-line-up-with-when-cant-be-formatted).
+  fixed in 4.2.0.
 * [compiler-common#50 - 4.x: a block comment at the start of a line moves that line's indentation to the right](https://github.com/gren-lang/compiler-common/issues/50) —
-  fixed in 4.2.0. gren 0.6.6 and compiler-common 3.0.0 accept such a file, so
-  under 4.1.1 it can't be formatted. See
-  [Known Limitations](knownLimitations.md#a-block-comment-at-the-start-of-a-line-can-make-the-next-lines-too-shallow).
+  fixed in 4.2.0.
+* [compiler-common#53 - 4.2.0 regression: a "when" that starts mid-line refuses branches left of where the preceding space began](https://github.com/gren-lang/compiler-common/issues/53) —
+  a regression introduced by the #50 fix, fixed in 4.2.1. It never affected
+  a released `gren-format`.
 
 **Still open**:
 
-* [compiler-common#31 - new parser fails to parse a constructor-application pattern aliased with "as"](https://github.com/gren-lang/compiler-common/issues/31) —
-  partly fixed in 4.0.0: an alias that is a `when` branch's whole pattern now
-  parses (`Nothing as whole ->`), but inside brackets `as` after a number or
-  constructor is still refused (`Just (Nothing as inner)`), now tracked as
-  [compiler-common#48 - 4.x: inside brackets, "as" after a number or constructor pattern is still refused](https://github.com/gren-lang/compiler-common/issues/48).
-  4.2.0 fixes #48 for parentheses, constructor payloads and function and
-  lambda arguments, but an alias as an array item (`[ Just n as a ]`) or a
-  record field's pattern (`{ a = Nothing as w }`) is still refused, now
-  tracked as
-  [compiler-common#52 - 4.2.0: "as" after a number or constructor is still refused in an array item or record field pattern](https://github.com/gren-lang/compiler-common/issues/52). See
-  [Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
 * [compiler-common#34 - Expand the recording of the original string for some literals](https://github.com/gren-lang/compiler-common/issues/34)
 
 ---

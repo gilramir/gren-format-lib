@@ -761,11 +761,12 @@ a work-list rather than a count.
 
 A file the **parser** rejects is reported separately and not counted as a
 formatter failure: gren-format cannot format what the compiler will not parse.
-The known instances are upstream: compiler-common#48 (the rest of #31), an
-`as`-alias inside brackets whose base is a number or constructor
-(`Just (Nothing as inner)`); compiler-common#49, a `when` whose branches
-start in the column of `when`; and compiler-common#50, a block comment at the
-start of a line, which makes the lines below it need deeper indentation.
+Under compiler-common 4.1.1 the known instances were upstream bugs
+(compiler-common#48/#52, #49 and #50); all are fixed in 4.2.1, which
+gren-format now uses. That took the default corpus from 65 rejected files to
+59 (2026-11-01), all of them in packages' `examples/`, `tests/` or `cli/`
+code and none in a `src/`, so a rejection in a package's `src/` is worth a
+look.
 
 ### How to run it
 

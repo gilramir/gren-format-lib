@@ -21,7 +21,7 @@
     ],
     "gren-version": "0.6.0 <= v < 0.7.0",
     "dependencies": {
-        "gren-lang/compiler-common": "4.1.1 <= v < 5.0.0",
+        "gren-lang/compiler-common": "4.2.1 <= v < 5.0.0",
         "gren-lang/core": "7.6.1 <= v < 8.0.0"
     }
 }

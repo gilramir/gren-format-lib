@@ -9,26 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Built on `gren-lang/compiler-common` 4.1.1 and `gren-lang/core` 7.6.1**
+- **Built on `gren-lang/compiler-common` 4.2.1 and `gren-lang/core` 7.6.1**
   (was compiler-common 3.x and core 7.4+). The new parser fixes a set of bugs
   that `gren-format` used to inherit (see the list in
   [docs/index.md](docs/index.md)). It also refuses some input that 3.x
-  accepted: a custom-type variant with two or more arguments, and a top-level
-  declaration that does not start in column 1. Neither is valid Gren, so the
-  formatter now refuses those files instead of formatting them. (The definition
-  line below a type annotation is still accepted at any column; see
-  [docs/knownLimitations.md](docs/knownLimitations.md).)
+  accepted: a custom-type variant with two or more arguments, a top-level
+  declaration that does not start in column 1 (including the definition line
+  below a type annotation), and a `let` binding or `when` branch that starts
+  with a block comment after another one. None of these is valid Gren — gren
+  0.6.6 refuses them too — so the formatter now refuses those files instead of
+  formatting them. Divergence #31 is retired.
 - **A comment on its own row between `type` and an alias's name now sits
   directly above the declaration**, the same as one written on the `type` row.
   Before, it floated free with two blank lines on each side. A comment on the
   name's row still stays in the header before the name.
-- **An `as`-alias that is a `when` branch's whole pattern drops the parens
-  around a number or constructor base**: `Nothing as whole ->` and
-  `0 as z ->`, as elm-format writes them, where `(Nothing) as whole ->` and
-  `(0) as z ->` were written before. The parens worked around
-  compiler-common#31, which 4.0.0 fixed for this position. Elsewhere, inside
-  brackets, the parser still needs them (compiler-common#48), so
-  `Just ((Nothing) as inner)` is unchanged.
+- **An `as`-alias drops the parens around a number or constructor base**:
+  `Nothing as whole ->`, `Just (Nothing as inner)`, `[ 0 as z ]` and
+  `f (0 as z)`, as elm-format writes them, where `(Nothing) as whole ->`,
+  `Just ((Nothing) as inner)`, `[ (0) as z ]` and `f ((0) as z)` were written
+  before. The parens worked around compiler-common#31, #48 and #52, all fixed
+  by 4.2.1. A constructor with a payload keeps them: `(Just n) as whole`.
 
 ### Fixed
 

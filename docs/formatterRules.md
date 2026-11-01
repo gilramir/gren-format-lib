@@ -1685,12 +1685,9 @@ The parentheses matter because a constructor's payload parses greedily: without
 them, `setStatus statusCode Response response` reads `response` as the payload
 of `Response`, not as a separate argument.
 
-The base of an `as`-alias follows the same rule when the alias is a `when`
-branch's whole pattern: `Nothing as whole ->`, `0 as z ->`, but
-`(Just n) as whole ->`. Anywhere else, a constructor or `Int` literal base is
-also wrapped, as in `Just ((Nothing) as inner)`, because the parser refuses it
-bare there
-([Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base)).
+The base of an `as`-alias follows the same rule wherever the alias sits:
+`Nothing as whole ->`, `Just (Nothing as inner)`, `[ 0 as z ]`, but
+`(Just n) as whole ->`.
 
 ---
 

@@ -2093,14 +2093,13 @@ the *shape* of the result, which has been stable:
   definitions by path rather than copying them" is supposed to buy. (Measured
   before the 4.1.1 bump; the run axes have not been re-swept since.)
 - `matrix-syntax.py --comments`: **0 failing, 0 UNREVIEWED** — every divergence
-  from elm-format names a catalog entry. A minority of cells have **no Elm
-  twin at all** (Elm requires a definition below its annotation to start in
-  column 1, and so does the real Gren compiler — but `compiler-common` does not,
-  having fixed #37 only for a declaration's start, so `elm-format` rejects
-  the *program*, not the translation — [#31](elmFormatComparison.md#divergence-31),
-  [compiler-common#37](https://github.com/gren-lang/compiler-common/issues/37));
-  those are skipped from the comparison, counted, and printed with a shape
-  breakdown on every run.
+  from elm-format names a catalog entry. Cells with **no Elm twin at all** —
+  a program Elm's parser refuses but gren's accepts — are skipped from the
+  comparison, counted, and printed with a shape breakdown on every run. Until
+  the compiler-common 4.2.1 bump these were a definition below its annotation
+  off column 1 (retired [#31](elmFormatComparison.md#divergence-31),
+  [compiler-common#47](https://github.com/gren-lang/compiler-common/issues/47));
+  gren refuses those now too.
 - `matrix-syntax.py --comments --comment-runs` sweeps all nine two-member
   compositions against oracles 1–3 only.
 

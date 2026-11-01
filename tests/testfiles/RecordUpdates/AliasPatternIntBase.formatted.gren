@@ -1,9 +1,9 @@
-module AliasPatternIntNeedsParens exposing (..)
+module AliasPatternIntBase exposing (..)
 
 
 f x =
     when x is
-        (8) as z ->
+        8 as z ->
             z
 
         -1 as n ->
@@ -15,15 +15,15 @@ f x =
 
 g x =
     when x is
-        Just ((8) as z) ->
+        Just (8 as z) ->
             z
 
-        [ (0) as z ] ->
+        [ 0 as z ] ->
             z
 
         _ ->
             0
 
 
-h ((0) as z) =
+h (0 as z) =
     z

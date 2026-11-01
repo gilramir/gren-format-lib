@@ -168,16 +168,14 @@ parse to the same `Pattern_`.
 
 **Where parens are emitted.** `InsertPatterns.argNeedsParens` — an `as`-alias, or
 a constructor applied to a payload — for a space-separated argument or a
-constructor payload. The same test applies to the base of an `as`-alias that
-is a `when` branch's whole pattern, so `Nothing as whole ->` and `0 as z ->`
-are bare and `(Just y) as whole ->` keeps its parens. Anywhere else an alias
-base uses a stricter test, `aliasBaseNeedsParens`, which also wraps any
-constructor and any `Int` literal: `Just ((Nothing) as inner)`,
-`f ((0) as z)`. That stricter rule is a **parser workaround**. Inside
-brackets compiler-common 4.1.1 refuses `as` after a number or constructor,
-the part of compiler-common#31 that 4.0.0 left open, now
-[compiler-common#48](https://github.com/gren-lang/compiler-common/issues/48); see
-[Known Limitations](knownLimitations.md#an-as-alias-inside-brackets-keeps-parens-around-its-base).
+constructor payload. The same test applies to the base of an `as`-alias
+wherever it sits, so `Nothing as whole ->`, `Just (Nothing as inner)` and
+`f (0 as z)` are bare and `(Just y) as whole ->` keeps its parens. (Until
+gren-format adopted compiler-common 4.2.1, an alias base anywhere but a `when`
+branch's top used a stricter test that also wrapped any constructor and any
+`Int` literal, `Just ((Nothing) as inner)`, to work around
+[compiler-common#48](https://github.com/gren-lang/compiler-common/issues/48) and
+[#52](https://github.com/gren-lang/compiler-common/issues/52).)
 
 **Why this matters beyond cosmetics.** Dropping a paren *deletes tokens*, which
 can move a comment's anchor. That is the one rewrite class the fixed-point

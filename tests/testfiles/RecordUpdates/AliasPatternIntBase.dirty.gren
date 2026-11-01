@@ -1,9 +1,9 @@
-module AliasPatternIntNeedsParens exposing (..)
+module AliasPatternIntBase exposing (..)
 
 
 f x =
     when x is
-        8 as z ->
+        (8) as z ->
             z
 
         -1 as n ->

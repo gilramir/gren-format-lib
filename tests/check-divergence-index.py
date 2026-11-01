@@ -7,6 +7,10 @@ elm-format, and `tests/testfiles/Divergence/` holds one fixture per entry, named
 directions: an entry with no fixture is an undocumented claim nothing tests, and
 a fixture with no entry is a test nothing explains.
 
+A retired entry -- its anchor followed by `**Retired.**` -- keeps its number so
+later entries keep theirs, and must have NO fixture: what it described no
+longer happens.
+
 Run by `run-tests.sh` before the suite itself, so the failure names the drift
 rather than showing up as a missing-file I/O error inside a test.
 """
@@ -22,7 +26,10 @@ FIXTURES = os.path.join(HERE, "testfiles", "Divergence")
 
 def main():
     with open(DOC) as f:
-        entries = {int(n) for n in re.findall(r'<a id="divergence-(\d+)">', f.read())}
+        doc = f.read()
+    entries = {int(n) for n in re.findall(r'<a id="divergence-(\d+)">', doc)}
+    retired = {int(n) for n in re.findall(r'<a id="divergence-(\d+)"></a>\*\*Retired\.\*\*', doc)}
+    entries -= retired
 
     fixtures = {}
     for name in os.listdir(FIXTURES):
@@ -37,7 +44,9 @@ def main():
     problems = []
     for n in sorted(entries - set(fixtures)):
         problems.append(f"divergence #{n} has no fixture in testfiles/Divergence/")
-    for n in sorted(set(fixtures) - entries):
+    for n in sorted(set(fixtures) & retired):
+        problems.append(f"{fixtures[n][0]} pins retired entry #{n}; delete it")
+    for n in sorted(set(fixtures) - entries - retired):
         problems.append(f"{fixtures[n][0]} has no #{n} entry in {os.path.basename(DOC)}")
     for n, names in sorted(fixtures.items()):
         if len(names) > 1:
@@ -53,7 +62,8 @@ def main():
             print(f"  {p}", file=sys.stderr)
         return 1
 
-    print(f"divergence index ok: {len(entries)} entries, {len(entries)} fixtures")
+    print(f"divergence index ok: {len(entries)} entries, {len(entries)} fixtures"
+          + (f", {len(retired)} retired" if retired else ""))
     return 0
 
 

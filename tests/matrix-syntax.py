@@ -1290,14 +1290,16 @@ def has_no_elm_twin(elm_source, base_source):
         valid Elm counterpart at all, so there is nothing for `to_elm` to fix and
         no elm-format output that could exist to compare against.
 
-    The whole class here is one difference: **`compiler-common` lets the
-    definition line below a type annotation start in any column, where Elm
-    requires column 1.** It is an upstream parser bug, not a language
-    difference -- the real Gren compiler requires column 1 too
-    (compiler-common#37; 4.x fixed it for a declaration's start but not for this
-    line, which is compiler-common#47), so these cells retire when #47 is fixed. Splicing a comment in front of a declaration's name pushes the name
-    right, and gren keeps a comment on the row the author wrote it on, so the
-    name stays there:
+    Under compiler-common 4.2.1 this class is EMPTY. Until then it was one
+    difference: **`compiler-common` let the definition line below a type
+    annotation start in any column, where Elm requires column 1** -- an
+    upstream parser bug (compiler-common#37, remainder #47, fixed in 4.2.0;
+    divergence #31, now retired). gren now refuses those cells itself, so they
+    land in "skipped (commented source does not parse)". The check stays so a
+    NEW acceptance difference is counted apart rather than blamed on `to_elm`.
+    The old shape, for reference -- splicing a comment in front of a
+    declaration's name pushed the name right, and gren keeps a comment on the
+    row the author wrote it on:
 
         foo : a
         {- ¤ -} foo =      gren: parses, formats, is a fixed point
@@ -1755,14 +1757,13 @@ def report_comment_parity(results, baseline, update, verbose=False, base_pairs=N
         shapes = collections.Counter(f'{r["kind"]}.{r["position"]} in {r["context"]}'
                                      for r in no_twin)
         print(f"  {len(no_twin)} cells have NO ELM TWIN -- oracle 4 skipped, not a failure.\n"
-              f"     compiler-common lets the definition below an annotation start in any\n"
-              f"     column; Elm requires column 1, and so does the real Gren compiler\n"
-              f"     (compiler-common#47, the part of #37 that 4.x left). And\n"
-              f"     gren keeps a comment on the row it was written on, so the name stays\n"
-              f"     right of it. Elm's parser refuses the program, so no elm-format output\n"
-              f"     exists to compare against. Oracles 1-3 still ran on all {len(no_twin)}.\n"
-              f"     Rewriting them to put the comment on its own row would ask Elm about a\n"
-              f"     DIFFERENT program -- see `has_no_elm_twin`. Where they are:")
+              f"     Elm's parser refuses the program but gren's accepts it, so no\n"
+              f"     elm-format output exists to compare against. Under compiler-common\n"
+              f"     4.2.1 this should be ZERO -- the one known class (#47, divergence\n"
+              f"     #31) is fixed -- so these are a NEW acceptance difference to look at.\n"
+              f"     Oracles 1-3 still ran on all {len(no_twin)}. Rewriting them to put the\n"
+              f"     comment on its own row would ask Elm about a DIFFERENT program --\n"
+              f"     see `has_no_elm_twin`. Where they are:")
         for shape, count in shapes.most_common(8):
             print(f"       {count:5}  {shape}")
         if len(shapes) > 8:
