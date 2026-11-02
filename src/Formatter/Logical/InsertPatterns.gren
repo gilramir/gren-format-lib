@@ -263,18 +263,9 @@ insertPRecordField field =
                         let
                             eqNode =
                                 lpnLeaf (SynthesizedText "=")
-
-                            -- A record-destructure field value parses without
-                            -- consuming `as`, so `{ field = pat as name }` re-parses
-                            -- with `as` outside the record. Wrap a PAlias value in
-                            -- parens to keep the alias attached to the inner pattern.
-                            wrappedAliasNode =
-                                when aliasPat.value is
-                                    Src.PAlias _ ->
-                                        syntheticParens [ aliasNode ]
-
-                                    _ ->
-                                        aliasNode
                         in
-                        plainAcross [ fieldNode, eqNode, wrappedAliasNode ]
+                        -- An alias as the field's pattern needs no parens:
+                        -- compiler-common 4.2.1 reads `{ field = pat as name }`
+                        -- with the alias inside the field (compiler-common#52).
+                        plainAcross [ fieldNode, eqNode, aliasNode ]
                     )

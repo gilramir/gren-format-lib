@@ -21,7 +21,7 @@ g x =
         Just (Nothing as inner) ->
             inner
 
-        { a = ((Just n) as inner) } ->
+        { a = (Just n) as inner } ->
             inner
 
         _ ->

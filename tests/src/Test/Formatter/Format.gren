@@ -595,7 +595,7 @@ recordUpdatesSuite fsPerm =
         , tearDown = U.noTearDown
         , tests =
             [ assertPrettyIn fsPerm "RecordUpdates" "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
-            , assertPrettyIn fsPerm "RecordUpdates" "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
+            , assertPrettyIn fsPerm "RecordUpdates" "an as-pattern inside a record-field destructure gets no outer parens: `{ left = (Node _) as inner }` (compiler-common#52, fixed in 4.2.1)" "RecordFieldAsPattern"
             , assertPrettyIn fsPerm "RecordUpdates" "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
             , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a parenthesized call" "RecordUpdateComplexBase"
             , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a binop, negate, nested update, accessor, record literal, or a call with an array arg — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"

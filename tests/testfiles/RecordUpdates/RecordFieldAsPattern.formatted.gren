@@ -1,9 +1,9 @@
 module RecordFieldAsPattern exposing (..)
 
 
--- A record-destructure field value can carry an `as`-alias when wrapped
--- in parens. The formatter must keep the outer parens — without them the
--- output re-parses with `as` binding outside the record entirely.
+-- A record-destructure field value can carry an `as`-alias. The alias
+-- binds inside the field, so it needs no outer parens: compiler-common
+-- 4.2.1 reads it that way (compiler-common#52), as gren 0.6.6 does.
 type Tree
     = Leaf
     | Node { left : Tree, right : Tree }
@@ -12,7 +12,7 @@ type Tree
 getLeft : Tree -> Tree
 getLeft tree =
     when tree is
-        Node { left = ((Node _) as inner) } ->
+        Node { left = (Node _) as inner } ->
             inner
 
         _ ->

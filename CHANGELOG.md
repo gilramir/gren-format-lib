@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `f (0 as z)`, as elm-format writes them, where `(Nothing) as whole ->`,
   `Just ((Nothing) as inner)`, `[ (0) as z ]` and `f ((0) as z)` were written
   before. The parens worked around compiler-common#31, #48 and #52, all fixed
-  by 4.2.1. A constructor with a payload keeps them: `(Just n) as whole`.
+  by 4.2.1. A constructor with a payload keeps them: `(Just n) as whole`. An
+  alias as a record-pattern field's value also loses its outer parens:
+  `{ a = Nothing as w }`, where `{ a = ((Nothing) as w) }` was written.
 
 ### Fixed
 
