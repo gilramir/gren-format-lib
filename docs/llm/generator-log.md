@@ -1804,6 +1804,52 @@ fixture corpus has one hand-written case of it
 (`KitchenSink/LambdaLeadingBlockCommentRides`), and `fuzz-idempotency.py` reaches
 it only where a fixture already put a lambda after a `<|`.
 
+
+### A record pattern's field with a VALUE pattern — v1.40
+
+`{ a = pat }` is legal in every pattern slot, and the generator never wrote
+it: all three `PRecord` sites built puns only. So `insertPRecordField`'s
+`Just` branch — the branch compiler-common#52 (fixed in 4.2.1) was about, and
+the one whose alias-paren wrap was deleted on adopting 4.2.1 — had no random
+coverage at all, only the `RecordFieldAsPattern` fixture.
+
+- **`PField(name, pat, wrap)`** — a field is now a `str` (pun) or a `PField`.
+  `emit_pfield` writes `name = pat`, with the value in an extra pair of parens
+  when `wrap` is set (only ever on a `PAs`, the one value an author has a
+  reason to parenthesize).
+- **`Gen.precord(depth)`** — one place builds every record pattern (let
+  destructure, `_pattern_base_core`, a constructor's record payload). Each of
+  its 1–2 fields becomes a value pattern with probability 0.35 when depth
+  allows; the value is any base pattern, aliased 30% of the time, and an alias
+  is wrapped 40% of the time.
+
+Before wiring it in, 26 value kinds were tried in 6 slots each against both
+compiler-common 4.2.1 and gren 0.6.6: all parse, so the generator needs no
+slot restrictions. (gren 0.6.6 crashes internally on a redundant `_` branch
+after an irrefutable record pattern, but it does that with a plain pun too, so
+it is not a parse question.)
+
+**Coverage over `-n 400 --max-depth 5 --comment-rate 0.3`:** 152 of 400
+modules hold a `field = pattern`, 303 fields in all, 21 inside an author-broken
+record. By enclosing node: ContStep 113, Decl 69, LetBind 59, When 38,
+Lambda 24. Every value kind occurs, including an alias of every base, 43 of
+them wrapped. `-n 400` clean on the default and on dense settings.
+
+**Verified non-vacuous.** With `insertPRecordField` changed to drop a field's
+alias, `-n 60` reports **9 ast-mismatch seeds** (1 9 15 16 22 28 29 36 40);
+one shrinks to
+
+```gren
+({ value = (y as acc) } as z) as item ->
+```
+
+Reverted, the same 60 are clean.
+
+**Fuzzrun, 2026-11-01:** generation 6 (`8326e6594d60`), one hour, 17,587
+seeds across the three lanes (12,759 dense-comments, 4,308 deep-structure, 520
+default-mix): **0 failures, 0 quarantined.** Generation 5 had quarantined 1,147
+of 66,278 seeds for compiler-common#50; under 4.2.1 none are.
+
 ---
 
 **v1.38 (implemented 2026-08-23):** three comment slots that the *whole* grammar

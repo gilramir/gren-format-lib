@@ -351,9 +351,19 @@ class PCtor:
 class PRecord:
     # `broken` / `cont_delta` / `close_glued`: see `emit_pat_rows`. Only ever
     # set on the OUTERMOST pattern of a parameter slot, by `Gen.break_pattern`.
+    #
+    # Each field is a `str` (a pun, `{ name }`) or a `PField` (v1.40,
+    # `{ name = pattern }`).
     def __init__(self, fields, broken=False, cont_delta=0, close_glued=False):
         self.fields, self.broken = fields, broken
         self.cont_delta, self.close_glued = cont_delta, close_glued
+class PField:
+    # `name = pattern` inside a record pattern (v1.40). `wrap` writes the value
+    # in one extra pair of parens, `{ a = (n as w) }` -- the spelling
+    # gren-format itself wrote for an alias value until compiler-common 4.2.1,
+    # so a dirty input carrying it has to normalize to the bare form.
+    def __init__(self, name, pat, wrap=False):
+        self.name, self.pat, self.wrap = name, pat, wrap
 class PArray:
     def __init__(self, items, broken=False, cont_delta=0, close_glued=False):
         self.items, self.broken = items, broken
@@ -1119,7 +1129,7 @@ def emit_pat(p):
     if isinstance(p, PInt):  return _int_text(p.v, p.hex)
     if isinstance(p, PStr):  return '"' + p.v + '"'
     if isinstance(p, PChar): return "'" + p.v + "'"
-    if isinstance(p, PRecord): return "{ " + ", ".join(p.fields) + " }"
+    if isinstance(p, PRecord): return "{ " + ", ".join(emit_pfield(f) for f in p.fields) + " }"
     if isinstance(p, PArray):
         if not p.items:
             return "[]"
@@ -1154,6 +1164,24 @@ def emit_pat(p):
             inner = "(" + inner + ")"
         return inner + " as " + p.name
     raise ValueError("emit_pat: " + type(p).__name__)
+
+
+def emit_pfield(f):
+    """One record-pattern field: a pun, or `name = pattern` (v1.40).
+
+    The value goes through `emit_pat` unchanged: verified against both the app
+    (compiler-common 4.2.1) and gren 0.6.6 for 26 value kinds -- every atom,
+    nested records and arrays, 0-arg and applied constructors (qualified too),
+    and every `as` shape including `Just n as w` with no parens -- in six slots
+    (`when` branch, declaration / lambda / `let` LHS, constructor payload, array
+    item). All parse in both, and none needs a paren `emit_pat` doesn't
+    already write."""
+    if isinstance(f, str):
+        return f
+    v = emit_pat(f.pat)
+    if f.wrap:
+        v = "(" + v + ")"
+    return f.name + " = " + v
 
 
 def emit_param(p):
@@ -1218,7 +1246,8 @@ def emit_pat_rows(p, col, flat=emit_pat):
         return [flat(p)]
     cont = max(1, col + p.cont_delta)
     if isinstance(p, PRecord):
-        parts = ["{ " + p.fields[0]] + [", " + f for f in p.fields[1:]]
+        parts = (["{ " + emit_pfield(p.fields[0])]
+                 + [", " + emit_pfield(f) for f in p.fields[1:]])
         close = "}"
     else:
         parts = ["[ " + emit_pat(p.items[0])] + [", " + emit_pat(i)
@@ -2384,7 +2413,7 @@ class Gen:
         if r < 0.65:
             return self.wild()
         if r < 0.8:
-            return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
+            return self.precord(depth)
         if r < 0.9 and depth > 0:
             k = self.rng.randint(0, 2)
             return PArray([self.pattern_base(depth - 1) for _ in range(k)])
@@ -2561,6 +2590,27 @@ class Gen:
         """`break_pattern` over a parameter list."""
         return [self.break_pattern(p) for p in params]
 
+    def precord(self, depth):
+        """A record pattern of one or two fields. v1.40: at depth > 0 a field is
+        sometimes `name = pattern` rather than a pun. Before, every record
+        pattern the generator wrote was all puns, so the field-value path
+        (`insertPRecordField`'s `Just` arm) was reached only by fixtures -- the
+        path whose alias paren wrap was deleted when compiler-common 4.2.1 was
+        adopted."""
+        fields = []
+        for _ in range(self.rng.randint(1, 2)):
+            name = self.pick(self.fields)
+            if depth > 0 and self.chance(0.35):
+                pat = self.pattern_base(depth - 1)
+                # An alias value is where the old wrap lived; make it common.
+                if not isinstance(pat, PAs) and self.chance(0.3):
+                    pat = PAs(pat, self.pick(self.vars))
+                wrap = isinstance(pat, PAs) and self.chance(0.4)
+                fields.append(PField(name, pat, wrap))
+            else:
+                fields.append(name)
+        return PRecord(fields)
+
     def wild(self):
         """A wildcard pattern `_`, occasionally NAMED (`_foo`) — see `PWild`."""
         if self.chance(0.25):
@@ -2574,7 +2624,7 @@ class Gen:
         if r < 0.50:  return self.gen_pint()
         if r < 0.57:  return PStr(self.str_word())
         if r < 0.63:  return PChar(self.char_content())
-        if r < 0.75:  return PRecord([self.pick(self.fields) for _ in range(self.rng.randint(1, 2))])
+        if r < 0.75:  return self.precord(depth)
         if depth > 0 and r < 0.85:
             k = self.rng.randint(0, 2)
             return PArray([self.pattern_base(depth - 1) for _ in range(k)])
@@ -2600,8 +2650,7 @@ class Gen:
             if kind == "none" or depth <= 0:
                 return PCtor(name, [])
             if kind == "record":
-                return PCtor(name, [PRecord([self.pick(self.fields)
-                                             for _ in range(self.rng.randint(1, 2))])])
+                return PCtor(name, [self.precord(depth - 1)])
             return PCtor(name, [self.pattern_base(depth - 1)])
         mod = self.pick(self.mods) if self.chance(0.35) else None
         if depth <= 0 or self.chance(0.4):

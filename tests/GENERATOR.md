@@ -451,8 +451,10 @@ scientific), strings, `"""…"""` multi-line strings, chars, vars, qualified nam
 constructors, accessors and operator references.
 
 **Patterns.** Variables, `_`, named wildcards (`_foo`), literals of every atom
-kind, constructors with arguments (qualified included), record destructuring, and
-`as` aliasing — nested, and aliasing an alias (`(x as a) as b`).
+kind, constructors with arguments (qualified included), record destructuring —
+puns (`{ a }`) and, since v1.40, fields with a value pattern (`{ a = Just n }`,
+`{ a = n as w }`, sometimes in an extra pair of parens) — and `as` aliasing —
+nested, and aliasing an alias (`(x as a) as b`).
 
 **Comments.** Line, block and doc comments, at the gaps where placement bugs
 live: own-line before a declaration, a `let` binding, a `when` branch or a broken
