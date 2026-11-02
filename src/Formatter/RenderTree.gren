@@ -84,7 +84,7 @@ author-intent flags all along, computed lazily at render time instead of eagerly
 at build time like `AcrossOrVertical`'s `forceVertical`.
 
 @docs RenderNode, RenderShape, lower
-@docs rnShape, rnChildren, rnHasComment, rnReplaceChildren, rnWithShape
+@docs rnShape, rnChildren, rnHasComment, rnNestBinopChain, rnReplaceChildren, rnWithShape
 @docs commentFacts, commentRole, roleIs
 @docs commentTrailsHead, commentLeadsLine, commentLeadsNext
 @docs commentRidesInline, commentGluesToPrevious
