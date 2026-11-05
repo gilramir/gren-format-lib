@@ -73,6 +73,12 @@ this exact shape and can't be formatted until it's fixed. Tracked at
 [compiler-common#31](https://github.com/gren-lang/compiler-common/issues/31).
 Workaround: add the parens yourself, `(Just y) as whole`.
 
+**Not in `geng fmt`.** The fork's parser has always read `as` after any
+pattern but another alias (geng-lang `scripts/upstream-seen.tsv`, d8dedc6),
+and on the `geng` branch the formatter no longer adds parens for it: it
+writes `Just y as whole`, `Nothing as whole` and `0 as n` bare, which the
+fork's parser and the Geng compiler read as the same pattern.
+
 ## A continuation line at the same column as the body above it
 
 When the body of a block construct starts on the row *after* its keyword, the

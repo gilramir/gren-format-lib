@@ -570,7 +570,7 @@ recordUpdatesSuite fsPerm =
         , tearDown = U.noTearDown
         , tests =
             [ assertPrettyIn fsPerm "RecordUpdates" "a record literal field whose value is a multi-line binop chain drops below `name =` like a record update (regression guard: literal path previously hit an unreachable flow-assembler arm)" "RecordLiteralBinopField"
-            , assertPrettyIn fsPerm "RecordUpdates" "as-pattern inside record-field destructure keeps its parens" "RecordFieldAsPattern"
+            , assertPrettyIn fsPerm "RecordUpdates" "as-pattern inside record-field destructure needs no parens: the alias stays on the field's pattern" "RecordFieldAsPattern"
             , assertPrettyIn fsPerm "RecordUpdates" "doc comment body with non-BMP code points round-trips" "DocCommentWithEmoji"
             , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a parenthesized call" "RecordUpdateComplexBase"
             , assertPrettyIn fsPerm "RecordUpdates" "record update base can be a binop, negate, nested update, accessor, record literal, or a call with an array arg — previously silently dropped to an empty (unparseable) base" "RecordUpdateExoticBase"
@@ -590,8 +590,8 @@ recordUpdatesSuite fsPerm =
             , assertPrettyIn fsPerm "RecordUpdates" "a `--` trailing a multi-line string's closing delimiter glues onto that row and stays put (was non-idempotent: prevLineGlueRow/prevBlockGlueRow had no MultilineString case, so it defaulted to -1 and always classified LeadsLine)" "MultilineStringTrailingLineComment"
             , assertPrettyIn fsPerm "RecordUpdates" "a `{- -}` written PAST a record update's `}` stays outside it (glued onto the `}` row), like arrays and record literals — the update's `}` is a real tracked bracket, so a same-row comment past it is not pulled inside onto the last field" "RecordUpdateFieldTrailingComment"
             , assertPrettyIn fsPerm "RecordUpdates" "a `--` written past a single-field record update's `}` stays outside and the update stays flat, like `[ 1 ] -- c` — the comment is not absorbed into the (empty-`[]`) field" "EmptyBracketFieldTrailingLineComment"
-            , assertPrettyIn fsPerm "RecordUpdates" "an Int literal as an `as`-alias base keeps its parens (was a real bug: gren-format stripped a semantically required paren, producing `8 as z` which does not parse — not the redundant-parens case, which gren-format never strips)" "AliasPatternIntNeedsParens"
-            , assertPrettyIn fsPerm "RecordUpdates" "a 0-argument constructor as an `as`-alias base keeps its parens (same class as AliasPatternIntNeedsParens: `Nothing as whole` does not parse bare, only `(Nothing) as whole` does)" "AliasPatternZeroArgCtorNeedsParens"
+            , assertPrettyIn fsPerm "RecordUpdates" "an Int literal as an `as`-alias base takes `as` bare: `(8) as z` is written `8 as z`, which the fork's parser reads as the same pattern (upstream's of July 2026 did not, which is what the parens were for)" "AliasPatternIntBare"
+            , assertPrettyIn fsPerm "RecordUpdates" "a 0-argument constructor as an `as`-alias base takes `as` bare: `(Nothing) as whole` is written `Nothing as whole` (same class as AliasPatternIntBare)" "AliasPatternZeroArgCtorBare"
             , assertPrettyIn fsPerm "RecordUpdates" "negation of parenthesized expression keeps `-` outside the parens" "NegateParens"
             , assertPrettyIn fsPerm "RecordUpdates" "field access glues directly to a paren/record/qualified-name base with no space (compiler-common#27)" "PostfixAccess"
             ]

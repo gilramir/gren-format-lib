@@ -1,4 +1,4 @@
-module AliasPatternIntNeedsParens exposing (..)
+module AliasPatternIntBare exposing (..)
 
 
 f x =

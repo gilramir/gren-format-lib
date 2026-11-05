@@ -413,7 +413,7 @@ classifyTree tree =
         Empty ->
             "empty"
 
-        (Leaf _) as wholeLeafNode ->
+        Leaf _ as wholeLeafNode ->
             String.append "leaf:" (Debug.toString wholeLeafNode)
 
         Branch ({ label } as wholeBranchPayload) ->

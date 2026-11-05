@@ -1,4 +1,4 @@
-module AliasPatternZeroArgCtorNeedsParens exposing (..)
+module AliasPatternZeroArgCtorBare exposing (..)
 
 
 f x =

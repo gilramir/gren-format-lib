@@ -176,6 +176,13 @@ That stricter rule is a **parser workaround**, and it is why the dangerous case
 survives — `(Just y) as whole` keeps its parens (compiler-common#31, see
 [knownLimitations](knownLimitations.md#an-unparenthesized-constructor-pattern-cant-be-aliased-with-as)).
 
+**On the `geng` branch** the workaround is gone, since the fork's parser never
+had compiler-common#31: `aliasBaseNeedsParens` holds only for an alias whose
+base is itself an alias (`p as a as b` does not parse), and a record field's
+aliased value takes no parens either. `(Just y) as whole` is written
+`Just y as whole`, the same `Pattern_` (geng-lang `scripts/upstream-seen.tsv`,
+0441fc4 and 2a647b6, where this was measured).
+
 **Why this matters beyond cosmetics.** Dropping a paren *deletes tokens*, which
 can move a comment's anchor. That is the one rewrite class the fixed-point
 argument does not cover; see the paper draft's §5.6.
