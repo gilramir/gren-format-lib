@@ -371,9 +371,10 @@ makeSignatureBranch locType =
 
 {-| A refinement's predicate as a flow of leaves. It cannot go through
 `InsertExpressions`, which imports this module, and it does not need to: the
-type parser reads only names, integers, a measure applied to a name, `not`,
-unary `-`, operators and parentheses (geng-lang `m4-refine.md` D815), and on
-the one line a signature takes (D820) each is a leaf in order. -}
+type parser reads only names and their fields, integers, a measure applied to
+either, `not`, unary `-`, operators and parentheses (geng-lang `m4-refine.md`
+D815), and on the one line a signature takes (D820) each is a leaf in order;
+a name's fields are one leaf. -}
 predicateNodes : Src.Expression -> Result String (Array LPNode)
 predicateNodes locExpr =
     when locExpr.value is
@@ -423,5 +424,24 @@ predicateNodes locExpr =
                 |> Result.andThen (fixupParensChildrenNodesAt False locExpr.end)
                 |> Result.map (Array.map (lpnWithBracketStart locExpr.start))
 
+        Src.Access _ ->
+            -- a name's fields, glued: one leaf (geng-lang m4-refine-t1.md TO5)
+            fieldPath locExpr
+                |> Result.map (\text -> [ lpnLeaf (mkText locExpr.start text) ])
+
         _ ->
             Err "a refinement holds an expression its grammar does not read"
+
+
+{-| `m.cursor.x`, as it is written. -}
+fieldPath : Src.Expression -> Result String String
+fieldPath locExpr =
+    when locExpr.value is
+        Src.Var { name } ->
+            Ok name
+
+        Src.Access { accessor, expression } ->
+            fieldPath expression |> Result.map (\base -> base ++ "." ++ accessor)
+
+        _ ->
+            Err "a refinement reads a field of something that is not a name"

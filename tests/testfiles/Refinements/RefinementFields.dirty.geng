@@ -1,0 +1,21 @@
+module RefinementFields exposing (Move, a, b, c)
+
+
+type alias Move =
+    (m : { items : Array Int, index : Int }   where 0<=m.index && m.index <   Array.length   m.items)
+
+
+a : (  o:{ move : { items : Array Int, index : Int }, k : Int }   where o.move.index< Array.length o.move.items ) -> Int
+a o =
+    o.k
+
+
+b : (m : { items : Array Int, index : Int }
+    where m.index {- index -} < Array.length m.items) -> Int
+b m =
+    m.index
+
+
+c : (r : { inner : { n : Int } } where not(r.inner.n==0)||(-r.inner.n)< -1) -> Int
+c r =
+    r.inner.n
