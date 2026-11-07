@@ -281,25 +281,38 @@ makeSignatureBranch locType =
 
         Src.TRecord { fields = fields, extending = extending } ->
             let
+                -- A field's predicate follows its type on the field's line,
+                -- `index : Int where index < Array.length items`, laid out as
+                -- a named type's is (geng-lang `m4-refine-t1.md` TO8, Dnene15).
+                fieldRefinement field =
+                    when field.refinement is
+                        Just { whereAt, predicate } ->
+                            predicateNodes predicate
+                                |> Result.map (\nodes -> [ lpnLeaf (mkText whereAt "where") ] ++ nodes)
+
+                        Nothing ->
+                            Ok []
+
                 insertField field =
-                    makeSignatureBranch field.signature
-                        |> Result.map
-                            (\typeNodes ->
-                                let
-                                    nameNode =
-                                        lpnLeaf (mkTextFromLocString field.field)
+                    Result.map2
+                        (\typeNodes refinementNodes ->
+                            let
+                                nameNode =
+                                    lpnLeaf (mkTextFromLocString field.field)
 
-                                    colonNode =
-                                        lpnLeaf (SynthesizedText ":")
+                                colonNode =
+                                    lpnLeaf (SynthesizedText ":")
 
-                                    allChildren =
-                                        [ nameNode, colonNode ] ++ typeNodes
+                                allChildren =
+                                    [ nameNode, colonNode ] ++ typeNodes ++ refinementNodes
 
-                                    itemContainer =
-                                        plainAcross allChildren
-                                in
-                                itemContainer
-                            )
+                                itemContainer =
+                                    plainAcross allChildren
+                            in
+                            itemContainer
+                        )
+                        (makeSignatureBranch field.signature)
+                        (fieldRefinement field)
             in
             let
                 -- Signal B over the type's fields (name start → signature end):
@@ -308,7 +321,15 @@ makeSignatureBranch locType =
                 -- the record-literal rule in `Src.Record`.
                 fieldsMultiLine =
                     itemsSpanRows
-                        (Array.map (\f -> { start = f.field.start, end = f.signature.end }) fields)
+                        (Array.map (\f -> { start = f.field.start, end = fieldEnd f }) fields)
+
+                fieldEnd f =
+                    when f.refinement is
+                        Just { predicate } ->
+                            predicate.end
+
+                        Nothing ->
+                            f.signature.end
             in
             traverseResult insertField fields
                 |> Result.map

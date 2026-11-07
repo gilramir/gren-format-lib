@@ -1346,6 +1346,9 @@ def emit_type(t):
         return "{ " + base + " | " + ", ".join(f + " : " + emit_type(ft) for f, ft, _ in fields) + " }"
     if kind == "paren":
         return "(" + emit_type(t[1]) + ")"
+    if kind == "where":
+        # A record field's type and its predicate (geng-lang Dnene15).
+        return emit_type(t[1]) + " where " + t[2]
     if kind == "named":
         # Geng's `(name : Type)` and `(name : Type where predicate)` (geng-lang
         # D814), already in the formatter's one-line shape (D820).
@@ -1789,6 +1792,8 @@ class Gen:
         self.named_rng = random.Random(hash(rng.getstate()[1]))
         # `moved` and `@affine`'s (geng-lang D920, D921), likewise.
         self.marks_rng = random.Random(hash(rng.getstate()[1]) + 1)
+        # A record field's refinement's (geng-lang Dnene15), likewise.
+        self.fields_rng = random.Random(hash(rng.getstate()[1]) + 2)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2754,11 +2759,11 @@ class Gen:
         moved = self.marks_rng.random() < 0.25
         return ("named", name, t, pred, moved)
 
-    def gen_predicate(self, name, depth=2):
+    def gen_predicate(self, name, depth=2, rng=None):
         """A predicate over `name`, in the formatter's spacing: integers, the
         name, a measure applied to it, `not`, unary `-`, D808's operators and
-        parentheses."""
-        rng = self.named_rng
+        parentheses. It draws from `named_rng` unless given a stream."""
+        rng = rng or self.named_rng
 
         def atom():
             r = rng.random()
@@ -2770,7 +2775,7 @@ class Gen:
                 return rng.choice(["Array.length", "Bytes.length", "String.count"]) + " " + name
             if r < 0.85:
                 return "-" + name
-            return rng.choice(["True", "False"]) if depth <= 0 else "(" + self.gen_predicate(name, depth - 1) + ")"
+            return rng.choice(["True", "False"]) if depth <= 0 else "(" + self.gen_predicate(name, depth - 1, rng) + ")"
 
         cmp = atom() + " " + rng.choice(["<", "<=", ">", ">=", "==", "/="]) + " " + atom()
         r = rng.random()
@@ -2779,7 +2784,7 @@ class Gen:
         if r < 0.65:
             return "not (" + cmp + ")"
         if r < 0.8:
-            return cmp + " " + rng.choice(["&&", "||"]) + " " + self.gen_predicate(name, depth - 1)
+            return cmp + " " + rng.choice(["&&", "||"]) + " " + self.gen_predicate(name, depth - 1, rng)
         return atom() + " " + rng.choice(["+", "-", "*"]) + " " + atom() + " < " + atom()
 
     def _gen_type(self, depth, vars=None, top=False):
@@ -2823,7 +2828,13 @@ class Gen:
             # ExtensibleRecordTypeTrailingComment / SignatureRecordTypeComment).
             eligible = broken and (is_ext or i > 0)
             lead = self.comment() if (eligible and self.chance(0.3)) else None
-            fields.append((self.pick(self.fields) + str(i), ftype, lead))
+            fname = self.pick(self.fields) + str(i)
+            # A predicate after the field's type, `f0 : Int where f0 >= 0`
+            # (geng-lang Dnene15), from a stream of its own so every seed's
+            # module is the one it was, some fields refined.
+            if self.fields_rng.random() < 0.08:
+                ftype = ("where", ftype, self.gen_predicate(fname, rng=self.fields_rng))
+            fields.append((fname, ftype, lead))
         if is_ext:
             return ("exrecord", self.pick(var_pool), fields, broken)
         return ("record", fields, broken)

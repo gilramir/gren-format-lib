@@ -378,6 +378,7 @@ encTRecordField fld =
     Json.object
         [ { key = "field", value = encLocated Json.string fld.field }
         , { key = "signature", value = encType fld.signature }
+        , { key = "predicate", value = encMaybe encExpression (Maybe.map .predicate fld.refinement) }
         ]
 
 

@@ -466,6 +466,7 @@ compareTRecordField ctx a b =
     chainAll
         [ compareStr (within ctx " field name") a.field.value b.field.value
         , compareType (within ctx (" field '" ++ a.field.value ++ "'")) a.signature b.signature
+        , compareMaybe (within ctx (" refinement of field '" ++ a.field.value ++ "'")) (compareExpr ctx) (Maybe.map .predicate a.refinement) (Maybe.map .predicate b.refinement)
         ]
 
 

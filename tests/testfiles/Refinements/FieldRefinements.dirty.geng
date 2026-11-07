@@ -1,0 +1,16 @@
+module FieldRefinements exposing (Move, Span, a)
+
+
+type alias Move =
+    { items : Array Int
+    , index : Int   where 0<=index && index <   Array.length   items
+    }
+
+
+type alias Span =
+    { start : Int where 0 <= start, end : Int where start<=end }
+
+
+a : (m : { items : Array Int, index : Int where index<Array.length items }) -> Int
+a m =
+    m.index
