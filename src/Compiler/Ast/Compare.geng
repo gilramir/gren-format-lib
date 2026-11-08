@@ -217,6 +217,7 @@ compareValueDecl la lb =
         [ compareStr (Root "function name") a.name.value b.name.value
         , compareStr (within ctx " @capability") (if a.capability then "yes" else "no") (if b.capability then "yes" else "no")
         , compareStr (within ctx " @inline") (if a.inline then "yes" else "no") (if b.inline then "yes" else "no")
+        , compareStr (within ctx " @measure") (if a.measure then "yes" else "no") (if b.measure then "yes" else "no")
         , compareMaybeDocStr (within ctx " docs") (Maybe.map .value la.value.docs) (Maybe.map .value lb.value.docs)
         , compareMaybe (within ctx " signature") (\sa sb -> compareType_ ctx sa.value sb.value) (Maybe.map .type_ a.signature) (Maybe.map .type_ b.signature)
         , compareArray (within ctx " constraints") compareConstraint (constraintsOf a.signature) (constraintsOf b.signature)

@@ -570,7 +570,7 @@ processExternDecl modDecl root =
                 -- directly under the annotation.
                 when extern.definition is
                     Just def ->
-                        processFunctionBody { name = def.name, capability = False, inline = False, signature = Nothing, args = def.args, body = def.body } withSignature
+                        processFunctionBody { name = def.name, capability = False, inline = False, measure = False, signature = Nothing, args = def.args, body = def.body } withSignature
 
                     Nothing ->
                         Ok withSignature
@@ -1005,7 +1005,8 @@ processFunctionDoc maybeLocString root =
             root
 
 
-{-| Where a value's `@capability` (D258) or `@inline` (D545) attribute is, and
+{-| Where a value's `@capability` (D258), `@inline` (D545) or `@measure`
+(geng-lang `m4-refine-t1.md` TO14) attribute is, and
 which it is, if it has one. The declaration's `start` is after its doc comment
 and before the attribute, so it is the `@`.
 -}
@@ -1016,6 +1017,9 @@ attributeOf modDecl =
 
     else if modDecl.value.value.inline then
         Just { at = modDecl.start, text = "@inline" }
+
+    else if modDecl.value.value.measure then
+        Just { at = modDecl.start, text = "@measure" }
 
     else
         Nothing

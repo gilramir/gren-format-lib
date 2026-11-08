@@ -1,0 +1,28 @@
+module MeasureAttribute exposing (Shape(..), isEmpty, corners, side)
+
+
+type Shape = Circle Int | Square Int | Empty
+
+
+{-| Whether a shape is the empty one. -}
+@measure
+isEmpty : Shape -> Bool
+isEmpty s = when s is
+    Empty -> True
+    _ -> False
+
+
+@measure
+corners :
+    Shape
+    -> Int
+corners s =
+    when s is
+        Square _ -> 4
+        _ -> 0
+
+
+side : (s : Shape where not (isEmpty   s) && corners s == 4) -> Int
+side s = when s is
+    Square w -> w
+    _ -> 0
