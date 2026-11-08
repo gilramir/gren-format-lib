@@ -363,10 +363,10 @@ encType_ typ =
                 , { key = "inner", value = encType inner }
                 ]
 
-        Src.TNamed { movedAt, name, type_, refinement } ->
+        Src.TNamed { takenAt, name, type_, refinement } ->
             Json.object
                 [ { key = "type", value = Json.string "named" }
-                , { key = "movedAt", value = encMaybe encPos movedAt }
+                , { key = "takenAt", value = encMaybe encPos takenAt }
                 , { key = "name", value = encLocated Json.string name }
                 , { key = "inner", value = encType type_ }
                 , { key = "predicate", value = encMaybe encExpression (Maybe.map .predicate refinement) }

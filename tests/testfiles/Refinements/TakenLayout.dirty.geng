@@ -1,0 +1,30 @@
+module TakenLayout exposing (a, b, c, d, e)
+
+
+a : Int -> (  taken   b:Builder Int ) -> Builder Int
+a i b =
+    b
+
+
+b : (i : Int where 0 <= i && i < Builder.length t) -> (taken t : Builder Int) -> (r : Builder Int where Builder.length r == Builder.length t)
+b i t =
+    t
+
+
+c :
+    (taken {- taken -} t : Builder Int)
+    -> Int
+    -> Builder Int
+c t n =
+    t
+
+
+d : (taken : Int) -> Int
+d taken =
+    taken
+
+
+e : (taken
+    t : Builder Int) -> Builder Int
+e t =
+    t

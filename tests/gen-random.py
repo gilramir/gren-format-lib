@@ -1353,7 +1353,7 @@ def emit_type(t):
         # Geng's `(name : Type)` and `(name : Type where predicate)` (geng-lang
         # D814), already in the formatter's one-line shape (D820).
         _, name, inner, pred, moved = t
-        return "(" + ("moved " if moved else "") + name + " : " + emit_type(inner) + (" where " + pred if pred else "") + ")"
+        return "(" + ("taken " if moved else "") + name + " : " + emit_type(inner) + (" where " + pred if pred else "") + ")"
     raise ValueError("emit_type")
 
 def _type_atom(t):
@@ -1790,7 +1790,7 @@ class Gen:
         # Refinements' own stream (see `gen_type`), seeded from the first
         # one's state, which reading does not advance.
         self.named_rng = random.Random(hash(rng.getstate()[1]))
-        # `moved` and `@affine`'s (geng-lang D920, D921), likewise.
+        # `taken` and `@affine`'s (geng-lang D920, D921), likewise.
         self.marks_rng = random.Random(hash(rng.getstate()[1]) + 1)
         # A record field's refinement's (geng-lang Dnene15), likewise.
         self.fields_rng = random.Random(hash(rng.getstate()[1]) + 2)
@@ -2754,7 +2754,7 @@ class Gen:
             return t
         name = self.named_rng.choice(["n", "m", "i", "xs"])
         pred = self.gen_predicate(name) if self.named_rng.random() < 0.75 else None
-        # `moved` (geng-lang D920) from a stream of its own again, so the
+        # `taken` (geng-lang D920) from a stream of its own again, so the
         # refinements drawn are the ones drawn before it existed.
         moved = self.marks_rng.random() < 0.25
         return ("named", name, t, pred, moved)

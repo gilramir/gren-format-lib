@@ -452,7 +452,7 @@ compareType_ ctx a b =
         { fst = Src.TNamed na, snd = Src.TNamed nb } ->
             chainAll
                 [ compareStr (within ctx " named type's name") na.name.value nb.name.value
-                , compareStr (within ctx (" moved '" ++ na.name.value ++ "'")) (boolText (na.movedAt /= Nothing)) (boolText (nb.movedAt /= Nothing))
+                , compareStr (within ctx (" taken '" ++ na.name.value ++ "'")) (boolText (na.takenAt /= Nothing)) (boolText (nb.takenAt /= Nothing))
                 , compareType (within ctx (" named '" ++ na.name.value ++ "'")) na.type_ nb.type_
                 , compareMaybe (within ctx (" refinement of '" ++ na.name.value ++ "'")) (compareExpr ctx) (Maybe.map .predicate na.refinement) (Maybe.map .predicate nb.refinement)
                 ]
@@ -795,7 +795,7 @@ binopSpine expr =
     binopSpineHelp expr (Builder.empty 0)
 
 
-binopSpineHelp : Src.Expression_ -> (moved levels : Builder BinopLevel) -> { levels : Array BinopLevel, base : Src.Expression_ }
+binopSpineHelp : Src.Expression_ -> (taken levels : Builder BinopLevel) -> { levels : Array BinopLevel, base : Src.Expression_ }
 binopSpineHelp expr levels =
     when expr is
         Src.Binops binops ->
@@ -826,7 +826,7 @@ renderCtx ctx =
     renderCtxHelp ctx (Builder.empty 0)
 
 
-renderCtxHelp : Ctx -> (moved parts : Builder String) -> String
+renderCtxHelp : Ctx -> (taken parts : Builder String) -> String
 renderCtxHelp ctx parts =
     when ctx is
         Root name ->
