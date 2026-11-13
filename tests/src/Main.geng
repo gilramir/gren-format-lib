@@ -5,6 +5,7 @@ import Node
 import Task exposing (Task)
 import Test.Formatter.Format
 import Test.Runner.UnitNode as U
+import Test.Runner.UnitNode.Program as Program
 
 
 main : Task Never {}
@@ -12,7 +13,7 @@ main =
     Node.getEnvironment
         |> Task.andThen
             (\env ->
-                U.runWith env
+                Program.runWith env
                     { name = "gren-format-lib-tests"
                     , version = "1.0.0"
                     , init = FileSystem.initialize |> Task.map (\fs -> { fs = fs })

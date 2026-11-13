@@ -6,7 +6,8 @@ source-directories = ["src"]
 [dependencies]
 "github.com/gilramir/gren-diff" = "1.0.0 <= v < 2.0.0"
 "github.com/gilramir/gren-format-lib" = "1.1.0 <= v < 2.0.0"
-"github.com/gilramir/gren-unit-node" = "1.1.0 <= v < 2.0.0"
+"github.com/gilramir/gren-unit-node" = "2.0.0 <= v < 3.0.0"
+"github.com/gilramir/gren-unit-node/node" = "1.0.0 <= v < 2.0.0"
 "github.com/geng-language/compiler-common" = "3.0.0 <= v < 4.0.0"
 "github.com/geng-language/node" = "6.1.0 <= v < 7.0.0"
 "github.com/geng-language/test" = "5.0.0 <= v < 6.0.0"
@@ -15,6 +16,7 @@ source-directories = ["src"]
 "github.com/gilramir/gren-diff" = { path = "../../gren-diff" }
 "github.com/gilramir/gren-format-lib" = { path = ".." }
 "github.com/gilramir/gren-unit-node" = { path = "../../gren-unit-node" }
+"github.com/gilramir/gren-unit-node/node" = { path = "../../gren-unit-node/node" }
 "github.com/gilramir/gren-argparse" = { path = "../../gren-argparse" }
 "github.com/gilramir/gren-argparse/node" = { path = "../../gren-argparse/node" }
 "github.com/gilramir/gren-bignum" = { path = "../../gren-bignum" }
