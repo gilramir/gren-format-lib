@@ -602,6 +602,12 @@ compareExpr_ ctx a b =
                 , compareType (within ctx " annotation") aa.annotation ab_.annotation
                 ]
 
+        { fst = Src.Meant ma, snd = Src.Meant mb } ->
+            chainAll
+                [ compareStr (within ctx " meant.reason") ma.reason.value mb.reason.value
+                , compareExpr (within ctx " meant") ma.expression mb.expression
+                ]
+
         { fst = Src.ArrayLiteral la, snd = Src.ArrayLiteral lb } ->
             compareArray (within ctx " []") (compareExpr ctx) la lb
 

@@ -482,6 +482,9 @@ insertExpressionWith locExpr =
             insertWhen locExpr payload
                 |> Result.map (\nodes -> { nodes = nodes, breaks = True })
 
+        Src.Meant payload ->
+            insertMeant locExpr payload
+
 
 {-| `Src.Access` — a `.field` accessor applied to a base expression. -}
 insertAccess : { expression : Src.Expression, accessor : String } -> Result String Inserted
@@ -1058,6 +1061,55 @@ insertLambda locExpr { patterns = patterns, body = body } =
             )
 
 
+{-| `Src.Meant` — `meant REASON EXPRESSION` (geng-lang m4-refine-t1.md TO23).
+`locExpr.start` anchors the keyword. Laid out as a lambda is: `meant Reason`
+never breaks, and the expression follows on the line when the author wrote it
+there, or drops below it, indented, when it was written below or is a block
+(`let`/`if`/`when`, which never stays glued to the head) or breaks whatever
+the author wrote. -}
+insertMeant : Src.Expression -> { reason : Located String, expression : Src.Expression } -> Result String Inserted
+insertMeant locExpr { reason = reason, expression = body } =
+    let
+        headNode =
+            plainAcross
+                [ lpnLeaf (mkText locExpr.start "meant")
+                , lpnLeaf (mkText reason.start reason.value)
+                ]
+
+        isBlockBody =
+            when body.value is
+                Src.Let _ ->
+                    True
+
+                Src.If _ ->
+                    True
+
+                Src.When _ ->
+                    True
+
+                _ ->
+                    False
+
+        bodyShape bodyAlwaysBreaks =
+            if body.start.row > reason.end.row || isBlockBody || bodyAlwaysBreaks then
+                IndentedBlock
+
+            else
+                SoftIndentedBlock
+
+        bodyBlockResult =
+            if isBlockBody then
+                insertExpressionWith body
+                    |> Result.map (\inner -> { block = lpnNode (bodyShape inner.breaks) inner.nodes, breaks = inner.breaks })
+
+            else
+                insertExpressionAsItemWith body
+                    |> Result.map (\item -> { block = lpnNode (bodyShape item.breaks) [ item.node ], breaks = item.breaks })
+    in
+    bodyBlockResult
+        |> Result.map (\{ block = bodyBlock, breaks } -> { nodes = [ headNode, bodyBlock ], breaks = breaks })
+
+
 {-| `Src.Let` — `let defs in body`. `locExpr.start` anchors the `let` keyword. -}
 insertLet : Src.Expression -> { defs : Array (Located Src.Def), body : Src.Expression } -> Result String (Array LPNode)
 insertLet locExpr { defs = defs, body = body } =
@@ -1550,6 +1602,9 @@ valueAlwaysBreaks expr =
         Src.Annotated { expression = inner } ->
             valueAlwaysBreaks inner
 
+        Src.Meant { expression = inner } ->
+            valueAlwaysBreaks inner
+
         _ ->
             False
 
@@ -1598,6 +1653,9 @@ exprAlwaysBreaks expr =
             exprAlwaysBreaks inner
 
         Src.Annotated { expression = inner } ->
+            exprAlwaysBreaks inner
+
+        Src.Meant { expression = inner } ->
             exprAlwaysBreaks inner
 
         Src.Negate inner ->

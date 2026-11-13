@@ -1,0 +1,36 @@
+module MeantLayout exposing (a, b, c, d, e)
+
+
+a x =
+    when x is
+        Just y -> y
+        Nothing -> meant Input 0
+
+
+b word =
+    String.toInt word |> Maybe.withDefault (meant Input 80)
+
+
+c x =
+    when x is
+        Ok y ->
+            y
+
+        Err _ ->
+            meant Reason.Unset (String.join ", "
+                    [ "a", "b" ])
+
+
+d x =
+    when x is
+        Just y ->
+            y
+
+        Nothing ->
+            -- tmux may not answer
+            meant Input   (if x == Nothing then 1 else 2)
+
+
+e x =
+    Maybe.withDefault (meant Input
+        80) x

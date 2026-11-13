@@ -617,6 +617,13 @@ encExpression_ expr =
                 , { key = "annotation", value = encType annotation }
                 ]
 
+        Src.Meant { reason, expression } ->
+            Json.object
+                [ { key = "type", value = Json.string "meant" }
+                , { key = "reason", value = encLocated Json.string reason }
+                , { key = "expression", value = encExpression expression }
+                ]
+
 
 encRecordField : Src.RecordField -> Json.Value
 encRecordField fld =

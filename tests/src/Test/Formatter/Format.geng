@@ -31,6 +31,7 @@ suites fsPerm =
     , attributesSuite fsPerm
     , expressionAnnotationSuite fsPerm
     , refinementSuite fsPerm
+    , meantSuite fsPerm
     , headerCommentsSuite fsPerm
     , pipelineCommentsSuite fsPerm
     , patternCommentsSuite fsPerm
@@ -699,6 +700,22 @@ expressionAnnotationSuite fsPerm =
         , tests =
             [ assertPrettyIn fsPerm "ExpressionAnnotation" "an annotation written on one row stays on it, in any position; one broken before or after the colon drops the type +4, colon first; a `)` the author put on its own row stays there, as for any parenthesized expression" "AnnotationLayout"
             , assertPrettyIn fsPerm "ExpressionAnnotation" "a type written across rows, an expression that breaks open (`if`, `when`, `let`), and an expression written across rows (a call, a pipeline, a record, an array) all drop the type, since the inline colon read back as a different layout or as annotating the last operand; a type that starts with a record glues it to the colon, and one that starts with a name keeps the name there; after an `if`, `when` or `let` the colon goes in the keyword's column" "AnnotationDrops"
+            ]
+        }
+
+
+{-| `meant REASON EXPRESSION` (geng-lang m4-refine-t1.md TO23), laid out as
+a lambda's head and body are. -}
+meantSuite : FileSystem.Permission -> U.Suite
+meantSuite fsPerm =
+    U.suite
+        { name = "Meant"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPrettyIn fsPerm "Meant" "`meant Reason` never breaks; the expression stays on its row when written there, and drops below it +4 when written below, when it is an `if`, `when` or `let`, or when it breaks open; a qualified reason and a comment above it are kept" "MeantLayout"
             ]
         }
 
