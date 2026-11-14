@@ -17,6 +17,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     ( CommentRole(..)
     , ListBrackets(..)
     , ParenKind(..)
+    , PrefixKind(..)
     , RecordKind(..)
     , SyntaxType(..)
     , prefixGlyph
@@ -958,7 +959,7 @@ makeUnionBodyBox bodyNode =
         -- Fold over `nodes`, not `variantNodes`: `pairInlineComments` glues each
         -- comment onto the variant it trails, so `joinInline` still sees one box
         -- per variant.
-        pairInlineComments (\_ -> True) (\n -> buildFlowBox 0 (rnChildren n)) nodes
+        pairInlineComments (\_ -> True) variantBox nodes
             |> Result.andThen
                 (\variantBoxes ->
                     when joinInline variantBoxes is
@@ -974,6 +975,20 @@ makeUnionBodyBox bodyNode =
                             -- fine via B.stack1/B.prefix.
                             makeUnionBodyVerticalBox nodes
                 )
+
+
+{-| One variant: its separator, name and payload as a flow, or, when it has a
+doc comment (geng-lang `m4-refine-t1.md` TO24), the separator glued before
+the doc and the variant stacked under it (`makePBox`'s `PrefixVariantDoc` arm).
+-}
+variantBox : RenderNode -> Result String Box
+variantBox node =
+    when rnShape node is
+        PrefixGlue (PrefixVariantDoc _) ->
+            makePBox (rnShape node) (rnChildren node)
+
+        _ ->
+            buildFlowBox 0 (rnChildren node)
 
 
 {-| Always-vertical union body with comment siblings: one variant per line; a
@@ -1044,7 +1059,7 @@ makeUnionBodyVerticalBox nodes =
                                     |> Result.map (\cbox -> placeComment acc node cbox)
 
                             _ ->
-                                buildFlowBox 0 (rnChildren node)
+                                variantBox node
                                     |> Result.map (\childBox -> push childBox acc)
                     )
         )
@@ -3119,6 +3134,33 @@ makePBox shape children =
             -- A lambda body: rendered inline when single-line, dropped +4 when
             -- multi-line — the enclosing flow decides, via isBlockNode.
             buildFlowBox 0 children
+
+        PrefixGlue (PrefixVariantDoc separator) ->
+            -- A union variant's doc comment (geng-lang `m4-refine-t1.md`
+            -- TO24): the doc's rows and, below them, the variant, in one
+            -- column after `= ` or `| `. `B.prefix` pads every row after the
+            -- first by the separator's width, which is what puts the name
+            -- (and a doc's later rows) under the `{-|`.
+            when Array.popFirst children is
+                Just { first, rest } ->
+                    when rnShape first is
+                        DocComment text ->
+                            buildFlowBox 0 rest
+                                |> Result.map
+                                    (\variant ->
+                                        B.prefix (B.literal (prefixGlyph (PrefixVariantDoc separator)))
+                                            (B.stack1
+                                                (Array.map (\row -> B.line (B.literal row)) (String.split "\n" ("{-|" ++ text ++ "-}"))
+                                                    ++ [ variant ]
+                                                )
+                                            )
+                                    )
+
+                        _ ->
+                            Err "unreachable: a variant's doc prefix holds its doc first"
+
+                Nothing ->
+                    Err "unreachable: a variant's doc prefix holds its doc first"
 
         PrefixGlue prefix ->
             -- Glue a prefix onto its inner with no space: `\x`/`\[ … ]` (lambda

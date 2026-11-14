@@ -624,6 +624,10 @@ type PrefixKind
     = PrefixMinus
     | PrefixLambdaHead
     | PrefixAnnotationColon
+      -- a union variant's `=` or `|` before its doc comment (geng-lang
+      -- `m4-refine-t1.md` TO24): its children are the doc, a `DocComment`,
+      -- and the variant, stacked in one column after the separator
+    | PrefixVariantDoc String
 
 
 {-| The literal glyph a `PrefixGlue` prints: `-` for negation, `\` for a
@@ -641,6 +645,9 @@ prefixGlyph kind =
 
         PrefixAnnotationColon ->
             ": "
+
+        PrefixVariantDoc separator ->
+            separator ++ " "
 
 
 {-| Does a same-row comment trailing this prefix's content belong to it (glue
@@ -660,6 +667,9 @@ gluesTrailingComment kind =
             False
 
         PrefixAnnotationColon ->
+            True
+
+        PrefixVariantDoc _ ->
             True
 
 

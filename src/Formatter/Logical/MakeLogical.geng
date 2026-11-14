@@ -29,6 +29,7 @@ import Formatter.Logical.LogicalPrintingTree exposing
     , beyondEveryRow
     , ListBrackets(..)
     , ParenKind(..)
+    , PrefixKind(..)
     , RecordKind(..)
     , SyntaxType(..)
     , lastRowInSubtree
@@ -830,34 +831,66 @@ variant overflows.
 processVariantNode : Bool -> Located Src.UnionVariant -> Result String LPNode
 processVariantNode isFirst locVariant =
     let
-        prefixNode =
-            lpnLeaf
-                (SynthesizedText
-                    (if isFirst then
-                        "="
+        separator =
+            if isFirst then
+                "="
 
-                     else
-                        "|"
-                    )
-                )
+            else
+                "|"
 
         nameNode =
             lpnLeaf (mkTextFromLocString locVariant.value.name)
+
+        -- A variant with a doc comment (geng-lang `m4-refine-t1.md` TO24) is
+        -- its separator glued before a column holding the doc and, on the
+        -- row below, the variant: the name lines up under `{-|` however the
+        -- author placed it.
+        withSeparator nodes =
+            when locVariant.value.doc is
+                Nothing ->
+                    plainAcross ([ lpnLeaf (SynthesizedText separator) ] ++ nodes)
+
+                Just doc ->
+                    lpnNode (PrefixGlue { start = doc.start, end = doc.end, value = PrefixVariantDoc separator })
+                        [ lpnLeaf (DocComment { doc | value = variantDocText doc })
+                        , plainAcross nodes
+                        ]
     in
     when locVariant.value.payload is
         Nothing ->
-            Ok (plainAcross [ prefixNode, nameNode ])
+            Ok (withSeparator [ nameNode ])
 
         Just payloadType ->
             makeSignatureBranch payloadType
                 |> Result.map
                     (\payloadNodes ->
-                        let
-                            payloadBlock =
-                                lpnNode SoftIndentedBlock payloadNodes
-                        in
-                        plainAcross [ prefixNode, nameNode, payloadBlock ]
+                        withSeparator [ nameNode, lpnNode SoftIndentedBlock payloadNodes ]
                     )
+
+
+{-| A variant's doc comment, its rows after the first moved left by the
+column it was written at: the printer pads them to wherever it puts the
+doc's opening, so a doc written over rows keeps its shape, and keeps it on the next
+format. A row indented less than that keeps what it has. -}
+variantDocText : Located String -> String
+variantDocText doc =
+    let
+        written =
+            doc.start.col - 1
+
+        unindent row =
+            let
+                spaces =
+                    String.count row - String.count (String.trimLeft row)
+            in
+            String.dropFirst (min spaces written) row
+    in
+    when String.split "\n" (String.replace "\r\n" "\n" doc.value) |> Array.popFirst is
+        Nothing ->
+            doc.value
+
+        Just { first, rest } ->
+            String.join "\n" (Array.pushFirst first (Array.map unindent rest))
 
 
 {-| Emit one `type alias` declaration as an `StTypeAlias`

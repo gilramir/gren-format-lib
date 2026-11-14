@@ -344,7 +344,8 @@ compareVariant la lb =
             lb.value
     in
     chainAll
-        [ compareStr (Root "variant name") a.name.value b.name.value
+        [ compareMaybeDocStr (Root "variant doc") (Maybe.map variantDocRows a.doc) (Maybe.map variantDocRows b.doc)
+        , compareStr (Root "variant name") a.name.value b.name.value
         , compareMaybe (Root "variant payload") (compareType (Root "variant payload")) a.payload b.payload
         ]
 
@@ -938,6 +939,16 @@ boolText b =
 -- Like compareStr but normalizes trailing newlines first.
 -- Doc comment formatting may add a blank line before the closing -}, which
 -- changes the raw content but not the semantic meaning of the documentation.
+{-| A variant's doc comment with each row's leading spaces taken off. The
+printer moves the doc to wherever its separator puts it, and its later rows
+move with it, by the same amount (geng-lang `m4-refine-t1.md` TO24). -}
+variantDocRows : SP.Located String -> String
+variantDocRows doc =
+    String.split "\n" (String.replace "\r\n" "\n" doc.value)
+        |> Array.map String.trimLeft
+        |> String.join "\n"
+
+
 compareDocStr : Ctx -> String -> String -> Result String {}
 compareDocStr ctx a b =
     compareStr ctx (String.trimRight a) (String.trimRight b)

@@ -228,7 +228,8 @@ encUnion union =
 encUnionVariant : Src.UnionVariant -> Json.Value
 encUnionVariant variant =
     Json.object
-        [ { key = "name", value = encLocated Json.string variant.name }
+        [ { key = "doc", value = encMaybe (encLocated Json.string) variant.doc }
+        , { key = "name", value = encLocated Json.string variant.name }
         , { key = "payload", value = encMaybe encType variant.payload }
         ]
 

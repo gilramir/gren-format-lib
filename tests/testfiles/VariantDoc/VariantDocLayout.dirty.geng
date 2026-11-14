@@ -1,0 +1,20 @@
+module VariantDocLayout exposing (..)
+
+
+{-| Why a fallback runs. -}
+type Reason
+    = {-| what tmux, a file or the network sent was short or missing -}
+      Input
+    |   {-| a setting not in the file, which has its default -}   Unset
+    | Plain
+    | {-| a word,
+      over two lines -}
+      Said String
+
+type Moved
+    =     {-| written right of its place,
+              and its later rows move with it
+                  - keeping their own indent -}
+          Moved
+    | {-| e -}
+      {- an ordinary comment -} Other Int -- trailing

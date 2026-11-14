@@ -32,6 +32,7 @@ suites fsPerm =
     , expressionAnnotationSuite fsPerm
     , refinementSuite fsPerm
     , meantSuite fsPerm
+    , variantDocSuite fsPerm
     , headerCommentsSuite fsPerm
     , pipelineCommentsSuite fsPerm
     , patternCommentsSuite fsPerm
@@ -716,6 +717,22 @@ meantSuite fsPerm =
         , tearDown = U.noTearDown
         , tests =
             [ assertPrettyIn fsPerm "Meant" "`meant Reason` never breaks; the expression stays on its row when written there, and drops below it +4 when written below, when it is an `if`, `when` or `let`, or when it breaks open; a qualified reason and a comment above it are kept" "MeantLayout"
+            ]
+        }
+
+
+{-| A variant's doc comment (geng-lang m4-refine-t1.md TO24), printed before
+its name, the name on the row below in the doc's column. -}
+variantDocSuite : FileSystem.Permission -> U.Suite
+variantDocSuite fsPerm =
+    U.suite
+        { name = "VariantDoc"
+        , setUpSuite = U.noSuiteFixture
+        , tearDownSuite = U.noTearDown
+        , setUp = U.noFixture
+        , tearDown = U.noTearDown
+        , tests =
+            [ assertPrettyIn fsPerm "VariantDoc" "a variant's doc comment (geng-lang m4-refine-t1.md TO24) is kept before its name, the name on the row below it in the doc comment's column, whether it was written beside or below; a variant without one is as before" "VariantDocLayout"
             ]
         }
 
