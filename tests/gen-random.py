@@ -1794,6 +1794,8 @@ class Gen:
         self.marks_rng = random.Random(hash(rng.getstate()[1]) + 1)
         # A record field's refinement's (geng-lang Dnene15), likewise.
         self.fields_rng = random.Random(hash(rng.getstate()[1]) + 2)
+        # A predicate's remainders and `//` (geng-lang Dgmk6), likewise.
+        self.remainders_rng = random.Random(hash(rng.getstate()[1]) + 3)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2766,6 +2768,13 @@ class Gen:
         rng = rng or self.named_rng
 
         def atom():
+            # `//` and the remainders (geng-lang Dgmk6), from their own
+            # stream so the draws below are the ones drawn before them
+            if self.remainders_rng.random() < 0.08:
+                divisor = self.remainders_rng.choice(["8", "(-4)", "-4", name, "(" + name + " + 1)"])
+                if self.remainders_rng.random() < 0.25:
+                    return name + " // " + self.remainders_rng.choice(["2", "16"])
+                return self.remainders_rng.choice(["modBy", "divFloor", "remainderBy"]) + " " + divisor + " " + self.remainders_rng.choice([name, "(" + name + " - 1)"])
             r = rng.random()
             if r < 0.35:
                 return name

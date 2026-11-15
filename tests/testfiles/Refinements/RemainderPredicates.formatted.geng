@@ -1,0 +1,33 @@
+module RemainderPredicates exposing (Ring, a, b, c, d, e)
+
+
+type alias Ring =
+    { size : Int where 0 <= size && size <= 8
+    , head : Int where 0 <= head && head < 8
+    , tail : Int where tail == modBy 8 (head + size)
+    }
+
+
+a : (x : Int) -> (r : Int where r == modBy 8 x) -> Int
+a x r =
+    r
+
+
+b : (n : Int where 0 <= n) -> (r : Int where 2 * r <= n && n <= 2 * r + 1 && r == n // 2) -> Int
+b n r =
+    r
+
+
+c : (n : Int) -> (r : Int where r == divFloor (-4) n || r == remainderBy -4 (n - 1)) -> Int
+c n r =
+    r
+
+
+d : (n : Int where modBy 2 {- even -} n == 0 && remainderBy 3 (n + 1) /= 0) -> Int
+d n =
+    n
+
+
+e : (size : Int where 0 < size) -> (h : Int) -> (r : Int where r == modBy size h && divFloor -size h.index /= Array.length h) -> Int
+e size h r =
+    r

@@ -747,6 +747,7 @@ refinementSuite fsPerm =
         , tearDown = U.noTearDown
         , tests =
             [ assertPrettyIn fsPerm "Refinements" "a named or refined argument or result, a callback's, and a refined record, come back on one line with one space around each operator and none inside the parentheses, however the author spaced or broke them (geng-lang D814, D820); a signature broken before each `->` stays broken; a comment inside a predicate stays where it was, and parentheses the author wrote stay" "RefinementLayout"
+            , assertPrettyIn fsPerm "Refinements" "`//` and the remainders `modBy`, `divFloor` and `remainderBy` of two operands, in a field's predicate and an argument's, spaced as any operator and call is, a negative divisor bare or in parentheses as written, and a comment between a remainder's operands kept (geng-lang Dgmk6)" "RemainderPredicates"
             ]
         }
 
