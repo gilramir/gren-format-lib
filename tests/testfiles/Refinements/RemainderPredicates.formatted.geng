@@ -28,6 +28,6 @@ d n =
     n
 
 
-e : (size : Int where 0 < size) -> (h : Int) -> (r : Int where r == modBy size h && divFloor -size h.index /= Array.length h) -> Int
+e : (size : Int where 0 < size) -> (h : Int) -> (r : Int where r == modBy size h && divFloor -size h.index /= Array.length h && remainderBy (Array.length h) size >= 0) -> Int
 e size h r =
     r
