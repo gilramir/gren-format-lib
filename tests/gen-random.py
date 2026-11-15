@@ -1798,6 +1798,9 @@ class Gen:
         self.remainders_rng = random.Random(hash(rng.getstate()[1]) + 3)
         # `@candidate` over a signed value (geng-lang Dgmk11), likewise.
         self.candidates_rng = random.Random(hash(rng.getstate()[1]) + 4)
+        # A predicate's `Bitwise` calls by a constant (geng-lang Dgmk12),
+        # likewise.
+        self.bits_rng = random.Random(hash(rng.getstate()[1]) + 5)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2777,6 +2780,18 @@ class Gen:
                 if self.remainders_rng.random() < 0.25:
                     return name + " // " + self.remainders_rng.choice(["2", "16"])
                 return self.remainders_rng.choice(["modBy", "divFloor", "remainderBy"]) + " " + divisor + " " + self.remainders_rng.choice([name, "(" + name + " - 1)"])
+            # `Bitwise` by a constant (geng-lang Dgmk12), from a stream of
+            # its own likewise: a mask or a count first or second, the other
+            # operand a name, a negation or a chain in parentheses
+            if self.bits_rng.random() < 0.06:
+                value = self.bits_rng.choice([name, "(" + name + " + 1)", "-" + name])
+                op = self.bits_rng.choice(["and", "or", "xor", "complement", "shiftLeftBy", "shiftRightBy", "shiftRightZfBy"])
+                if op == "complement":
+                    return "Bitwise.complement " + value
+                constant = self.bits_rng.choice(["255", "0xFF", "(-8)", "-1", "3"])
+                if op.startswith("shift") or self.bits_rng.random() < 0.5:
+                    return "Bitwise." + op + " " + constant + " " + value
+                return "Bitwise." + op + " " + value + " " + constant
             r = rng.random()
             if r < 0.35:
                 return name

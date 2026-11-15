@@ -1,0 +1,32 @@
+module BitwisePredicates exposing (Packed, a, b, c, d)
+
+import Bitwise
+
+
+type alias Packed =
+    { key : Int where 0 <= key
+    , wire : Int where wire==Bitwise.and   7 key
+    , field : Int where field == Bitwise.shiftRightBy 3   key
+    }
+
+
+a : (  x:Int ) -> ( r:Int   where r == Bitwise.and x 0xFF ) -> Int
+a x r =
+    r
+
+
+b : (byte : Int where Bitwise.and 255 byte==byte) -> (r : Int where r == Bitwise.or 0x80 (Bitwise.and 0x3F  byte)) -> Int
+b n r =
+    r
+
+
+c : (x : Int) -> (r : Int where r == Bitwise.complement x || r == Bitwise.xor (-8) (x - 1)) -> Int
+c x r =
+    r
+
+
+d : (n : Int
+    where Bitwise.shiftLeftBy 2 {- times four -} n >= 0
+        && Bitwise.shiftRightZfBy 28 n.top /= 0) -> Int
+d n =
+    n
