@@ -1796,6 +1796,8 @@ class Gen:
         self.fields_rng = random.Random(hash(rng.getstate()[1]) + 2)
         # A predicate's remainders and `//` (geng-lang Dgmk6), likewise.
         self.remainders_rng = random.Random(hash(rng.getstate()[1]) + 3)
+        # `@candidate` over a signed value (geng-lang Dgmk11), likewise.
+        self.candidates_rng = random.Random(hash(rng.getstate()[1]) + 4)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2923,6 +2925,9 @@ class Gen:
                 capability = "@capability"
             elif self.chance(0.04):
                 capability = "@inline"
+            # drawn whatever the draws above gave, so the stream stays in step
+            if self.candidates_rng.random() < 0.15 and not capability:
+                capability = "@candidate"
         return Decl(name, params, body, sig=sig, sig_broken=sig_broken,
                     doc=doc, lead=lead, trailing=trailing,
                     arrow_comment=arrow_comment,

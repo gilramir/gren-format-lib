@@ -1,0 +1,23 @@
+module CandidateAttribute exposing (main)
+
+
+type alias Ring = { size : Int where 0 <= size && size <= 8 }
+
+
+{-| Is every ring at most half full? -}
+@candidate
+halfFull : Ring -> (same : Ring where same.size<=4)
+halfFull r = r
+
+
+@candidate
+-- asked of a count
+doubled :
+    (n : Int where 0 <= n && n < 100)
+    -> (r : Int where r < 150)
+doubled n =
+    2 * n
+
+
+main : Int
+main = 0

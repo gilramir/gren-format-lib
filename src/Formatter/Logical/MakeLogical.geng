@@ -15,7 +15,7 @@ import Formatter.Results exposing (resultConcatMap, resultFoldl, traverseResult)
 
 import Formatter.Logical.InsertExpressions exposing (insertExpression)
 import Formatter.Logical.InsertPatterns exposing (insertArgPattern)
-import Formatter.Logical.InsertTypes exposing (makeSignatureBranch, makeAnnotationBranch)
+import Formatter.Logical.InsertTypes exposing (makeAnnotationBranch, makeSignatureBranch)
 import Formatter.Logical.LPTHelpers exposing
     ( endOfToken
     , mkText
@@ -26,12 +26,12 @@ import Formatter.Logical.LPTHelpers exposing
 import Formatter.Logical.LogicalPrintingTree exposing
     ( LPNode
     , LPShape(..)
-    , beyondEveryRow
     , ListBrackets(..)
     , ParenKind(..)
     , PrefixKind(..)
     , RecordKind(..)
     , SyntaxType(..)
+    , beyondEveryRow
     , lastRowInSubtree
     , lpnBracketNode
     , lpnChildren
@@ -571,7 +571,7 @@ processExternDecl modDecl root =
                 -- directly under the annotation.
                 when extern.definition is
                     Just def ->
-                        processFunctionBody { name = def.name, capability = False, inline = False, measure = False, signature = Nothing, args = def.args, body = def.body } withSignature
+                        processFunctionBody { name = def.name, capability = False, inline = False, measure = False, candidate = False, signature = Nothing, args = def.args, body = def.body } withSignature
 
                     Nothing ->
                         Ok withSignature
@@ -1038,8 +1038,9 @@ processFunctionDoc maybeLocString root =
             root
 
 
-{-| Where a value's `@capability` (D258), `@inline` (D545) or `@measure`
-(geng-lang `m4-refine-t1.md` TO14) attribute is, and
+{-| Where a value's `@capability` (D258), `@inline` (D545), `@measure`
+(geng-lang `m4-refine-t1.md` TO14) or `@candidate` (`m4-refine-wrap.md`
+§WR11) attribute is, and
 which it is, if it has one. The declaration's `start` is after its doc comment
 and before the attribute, so it is the `@`.
 -}
@@ -1053,6 +1054,9 @@ attributeOf modDecl =
 
     else if modDecl.value.value.measure then
         Just { at = modDecl.start, text = "@measure" }
+
+    else if modDecl.value.value.candidate then
+        Just { at = modDecl.start, text = "@candidate" }
 
     else
         Nothing

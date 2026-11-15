@@ -149,6 +149,7 @@ encValue v =
         , { key = "capability", value = Json.bool v.capability }
         , { key = "inline", value = Json.bool v.inline }
         , { key = "measure", value = Json.bool v.measure }
+        , { key = "candidate", value = Json.bool v.candidate }
         , { key = "signature", value = encMaybe encValueSig v.signature }
         , { key = "args", value = Json.array encPattern v.args }
         , { key = "body", value = encExpression v.body }
