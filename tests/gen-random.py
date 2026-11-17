@@ -1801,6 +1801,9 @@ class Gen:
         # A predicate's `Bitwise` calls by a constant (geng-lang Dgmk12),
         # likewise.
         self.bits_rng = random.Random(hash(rng.getstate()[1]) + 5)
+        # Those calls between values and `popCount` (geng-lang Dgmk24),
+        # likewise.
+        self.bit_values_rng = random.Random(hash(rng.getstate()[1]) + 6)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2789,6 +2792,12 @@ class Gen:
                 if op == "complement":
                     return "Bitwise.complement " + value
                 constant = self.bits_rng.choice(["255", "0xFF", "(-8)", "-1", "3"])
+                # between two values, a shift by a value and `popCount`
+                # (Dgmk24), from a stream of their own likewise
+                if self.bit_values_rng.random() < 0.25:
+                    if self.bit_values_rng.random() < 0.4:
+                        return "Bitwise.popCount " + value
+                    constant = self.bit_values_rng.choice([name, "(" + name + " - 2)", "-" + name])
                 if op.startswith("shift") or self.bits_rng.random() < 0.5:
                     return "Bitwise." + op + " " + constant + " " + value
                 return "Bitwise." + op + " " + value + " " + constant

@@ -1,4 +1,4 @@
-module BitwisePredicates exposing (Packed, a, b, c, d)
+module BitwisePredicates exposing (Packed, a, b, c, d, e)
 
 import Bitwise
 
@@ -30,3 +30,8 @@ d : (n : Int
         && Bitwise.shiftRightZfBy 28 n.top /= 0) -> Int
 d n =
     n
+
+
+e : (a : Int) -> (b : Int where Bitwise.and a  b==0) -> (r : Int where Bitwise.popCount   (r - 1) < Bitwise.popCount r && r == Bitwise.or a (Bitwise.shiftLeftBy a.k   b)) -> Int
+e a b r =
+    r
