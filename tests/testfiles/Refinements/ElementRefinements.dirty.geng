@@ -27,3 +27,10 @@ d sizes r =
 e : Array (x : Int where x == Bitwise.and 255 x) -> Array (y : Int) -> Int
 e xs ys =
     0
+
+
+type alias Screen =
+    { palette : Array Int where Array.length palette == 256
+    ,   cells : Array ( c : Int where 0 <= c && c < Array.length palette   )
+    , live : Array.Builder.Builder (e : Int where 0 <= e)
+    }
