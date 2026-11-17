@@ -1,0 +1,28 @@
+module ElementRefinements exposing (a, b, c, d, e)
+
+import Array.Builder
+
+
+a : (palette : Array Int where Array.length palette == 256) -> Array (c : Int where 0 <= c && c < 256) -> Int
+a palette cells =
+    0
+
+
+b : (nodes : Int where 0 <= nodes) -> Array ((e : Int where 0 <= e && e < nodes)) -> Array.Builder.Builder (k : Int where k < nodes) -> Int
+b nodes edges builder =
+    0
+
+
+c : (n : Int where 1 <= n) -> Array (k : Int where 0 <= k && k < n) -> Array Nat
+c n bins =
+    bins
+
+
+d : (sizes : Array Int) -> (r : Array (c : Int where 0 <= c && c < Array.length sizes {- a live entry -}) where Array.length r <= Array.length sizes) -> Int
+d sizes r =
+    0
+
+
+e : Array (x : Int where x == Bitwise.and 255 x) -> Array (y : Int) -> Int
+e xs ys =
+    0

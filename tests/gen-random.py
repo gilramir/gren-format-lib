@@ -1804,6 +1804,9 @@ class Gen:
         # Those calls between values and `popCount` (geng-lang Dgmk24),
         # likewise.
         self.bit_values_rng = random.Random(hash(rng.getstate()[1]) + 6)
+        # A type argument named and refined, an array's element (geng-lang
+        # Dgmk25, m4-refine-wrap.md §WR30), likewise.
+        self.elements_rng = random.Random(hash(rng.getstate()[1]) + 7)
         self.max_depth = max_depth
         self.crate = comment_rate
         self.cid = 0
@@ -2738,10 +2741,31 @@ class Gen:
         verification pass and are a separate expansion target."""
         r = self.rng.random()
         if depth <= 0 or r < 0.5:
-            return ("con", self.qualify_type_name(self.pick(TYPE_CONS)))
-        if r < 0.75:
-            return ("var", self.pick(var_pool))
-        return self.gen_type_app(depth - 1, var_pool)
+            arg = ("con", self.qualify_type_name(self.pick(TYPE_CONS)))
+        elif r < 0.75:
+            arg = ("var", self.pick(var_pool))
+        else:
+            arg = self.gen_type_app(depth - 1, var_pool)
+        return self.element_named(arg)
+
+    def element_named(self, arg):
+        """A type argument sometimes named, and then mostly refined, as an
+        array's element is (geng-lang Dgmk25, m4-refine-wrap.md §WR30):
+        `Array (c : Int where 0 <= c && c < 256)`. The choice, the name and
+        the predicate come from `elements_rng` alone, so the other streams
+        draw what they drew before it existed; the predicate is one of a few
+        written out, for the same reason."""
+        if not self.elements_rng.random() < 0.05:
+            return arg
+        name = self.elements_rng.choice(["c", "e", "k"])
+        pred = self.elements_rng.choice([
+            None,
+            "0 <= " + name + " && " + name + " < 256",
+            name + " < Array.length xs",
+            "0 <= " + name + " && " + name + " < n || " + name + " == -1",
+            "Bitwise.and 255 " + name + " == " + name,
+        ])
+        return ("named", name, arg, pred, False)
 
     def gen_type_app(self, depth, var_pool):
         """A type application `Head arg…` with a realistic arg count from
