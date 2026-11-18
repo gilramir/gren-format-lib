@@ -1,0 +1,29 @@
+module ExponentPredicates exposing (Wide, a, b, c, d)
+
+
+type alias Wide =
+    { hi : BigInt where 0 <= hi && hi < 2^64
+    , lo : BigInt where 0<=lo&&lo<2  ^  64
+    }
+
+
+a : (  x:BigInt ) -> ( r:BigInt   where 0 <= r && r < 2 ^ 128 ) -> Int
+a x r =
+    0
+
+
+b : (n : Int where n < 2*2^3 && n > -(2^4)) -> Int
+b n =
+    n
+
+
+c : (n : Int where n == 2^2^3 || n == (-2)^3 || n == 10 ^ 0) -> Int
+c n =
+    n
+
+
+d : (n : BigInt
+    where 0 <= n
+        && n < 2 {- bits -} ^ 100) -> Int
+d n =
+    0
