@@ -1,4 +1,4 @@
-module ElementRefinements exposing (a, b, c, d, e)
+module ElementRefinements exposing (a, b, c, d, e, f)
 
 import Array.Builder
 
@@ -29,8 +29,14 @@ e xs ys =
     0
 
 
+f : Char -> Maybe (  d:Int   where 0 <= d && d<16 ) -> Maybe ((r : Array Int where Array.length r == 2))
+f c m =
+    Nothing
+
+
 type alias Screen =
     { palette : Array Int where Array.length palette == 256
     ,   cells : Array ( c : Int where 0 <= c && c < Array.length palette   )
     , live : Array.Builder.Builder (e : Int where 0 <= e)
+    , selected : Maybe (i : Int where 0 <= i &&   i < Array.length cells)
     }
